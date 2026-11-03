@@ -1,0 +1,7 @@
+workspace_id: baseline
+initial_source_value: 0
+current_source_value: 0
+target_value: 0
+initial_source_revision: 1
+current_source_revision: 2
+transition_after_source_reads: 1

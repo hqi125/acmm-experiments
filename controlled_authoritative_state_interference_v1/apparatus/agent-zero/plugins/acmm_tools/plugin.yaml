@@ -1,0 +1,7 @@
+name: acmm_tools
+title: ACMM Authoritative State Tools
+description: Controlled versioned source and target used by ACMM Experiment 4.
+version: 0.1.0
+settings_sections: []
+per_project_config: false
+per_agent_config: false

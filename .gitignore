@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+# Local secrets / credentials
+.env
+.env.*
+!.env.example
+secrets/
+ollama_api_key
+ollama_api_key.*
+.ollama_api_key
