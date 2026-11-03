@@ -18,10 +18,13 @@ Verify it with `readlink -f ~/acmm-experiments`. Keep the main repo and experime
 separate Git roots; ACMM consumes package source through filesystem paths and copies immutable
 revisions into its managed runtime store.
 
-The first fully externalized package is:
+Experiment directories currently include:
 
 - `controlled_authoritative_state_interference_v1/` — the frozen historical authoritative-state
   interference study formerly embedded in the ACMM main repository.
+- `minimal_agent_baseline_v1/` — the active design workspace for the first experiment in the new
+  research roadmap. It currently contains design documentation only and is **not yet an executable
+  Experiment Package**.
 
 A normal workflow from the ACMM development environment is:
 
