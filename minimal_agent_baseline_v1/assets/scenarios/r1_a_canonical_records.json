@@ -1,0 +1,200 @@
+{
+  "id": "r1_a_canonical_records",
+  "family": "r1",
+  "kind": "record_reconciliation",
+  "title": "Canonical Records",
+  "prompt": "Resolve canonical records for entities A-F using only the rules and source records below. Resolve each field independently and report both the value and the governing source record ID.\n\nOwner rules: a verified review with owner_override=true wins (newest if several); otherwise newest registry owner; otherwise newest operations owner. Review owners without a verified override do not govern.\nStatus rules: newest verified review status wins; otherwise newest operations status; otherwise newest registry status. Unverified reviews are ignored.\nRegion rules: newest registry region wins; otherwise newest operations region. Review regions do not govern.\nPriority rules: among registry, operations, and verified review records that contain priority, the newest timestamp wins. Unverified review priority is ignored.\n\nSource records:\nA-R registry t10 owner=Orchid status=queued region=north priority=2\nA-O operations t30 owner=Maple status=active region=south priority=4\nA-V review t20 verified=true owner_override=false status=held priority=1\nB-R registry t20 owner=Cedar status=active region=east priority=3\nB-O operations t40 owner=Pine status=closed region=west priority=2\nB-V review t15 verified=true owner_override=false status=reviewed priority=5\nC-R registry t25 owner=Amber status=queued region=south priority=2\nC-O operations t35 owner=Blue status=active region=north priority=3\nC-V review t30 verified=true owner_override=true owner=Crimson status=held priority=4\nD-R registry t10 owner=Delta status=queued region=west priority=1\nD-O operations t20 owner=Echo status=active region=east priority=2\nD-V review t40 verified=false owner_override=true owner=Foxtrot status=closed priority=5\nE-R registry t5 owner=Granite status=queued region=north priority=1\nE-O1 operations t15 owner=Hazel status=active region=south priority=2\nE-O2 operations t25 owner=Indigo status=closed region=east priority=4\nF-R registry t12 owner=Juniper status=queued priority=3\nF-O1 operations t18 owner=Kite status=active region=south priority=2\nF-O2 operations t28 owner=Lilac status=held region=west priority=5\nF-V review t22 verified=true owner_override=false status=closed priority=4\n\nReturn one JSON object with this shape:\n{\"result\":{\"records\":{\"A\":{\"owner\":{\"value\":\"Orchid\",\"source\":\"A-R\"},\"status\":{\"value\":\"held\",\"source\":\"A-V\"},\"region\":{\"value\":\"north\",\"source\":\"A-R\"},\"priority\":{\"value\":4,\"source\":\"A-O\"}}, ...}}}\nInclude exactly A-F and exactly owner, status, region, and priority for each entity.\n",
+  "records": [
+    {
+      "entity": "A",
+      "id": "A-R",
+      "source": "registry",
+      "time": 10,
+      "owner": "Orchid",
+      "status": "queued",
+      "region": "north",
+      "priority": 2
+    },
+    {
+      "entity": "A",
+      "id": "A-O",
+      "source": "operations",
+      "time": 30,
+      "owner": "Maple",
+      "status": "active",
+      "region": "south",
+      "priority": 4
+    },
+    {
+      "entity": "A",
+      "id": "A-V",
+      "source": "review",
+      "time": 20,
+      "verified": true,
+      "owner_override": false,
+      "status": "held",
+      "priority": 1
+    },
+    {
+      "entity": "B",
+      "id": "B-R",
+      "source": "registry",
+      "time": 20,
+      "owner": "Cedar",
+      "status": "active",
+      "region": "east",
+      "priority": 3
+    },
+    {
+      "entity": "B",
+      "id": "B-O",
+      "source": "operations",
+      "time": 40,
+      "owner": "Pine",
+      "status": "closed",
+      "region": "west",
+      "priority": 2
+    },
+    {
+      "entity": "B",
+      "id": "B-V",
+      "source": "review",
+      "time": 15,
+      "verified": true,
+      "owner_override": false,
+      "status": "reviewed",
+      "priority": 5
+    },
+    {
+      "entity": "C",
+      "id": "C-R",
+      "source": "registry",
+      "time": 25,
+      "owner": "Amber",
+      "status": "queued",
+      "region": "south",
+      "priority": 2
+    },
+    {
+      "entity": "C",
+      "id": "C-O",
+      "source": "operations",
+      "time": 35,
+      "owner": "Blue",
+      "status": "active",
+      "region": "north",
+      "priority": 3
+    },
+    {
+      "entity": "C",
+      "id": "C-V",
+      "source": "review",
+      "time": 30,
+      "verified": true,
+      "owner_override": true,
+      "owner": "Crimson",
+      "status": "held",
+      "priority": 4
+    },
+    {
+      "entity": "D",
+      "id": "D-R",
+      "source": "registry",
+      "time": 10,
+      "owner": "Delta",
+      "status": "queued",
+      "region": "west",
+      "priority": 1
+    },
+    {
+      "entity": "D",
+      "id": "D-O",
+      "source": "operations",
+      "time": 20,
+      "owner": "Echo",
+      "status": "active",
+      "region": "east",
+      "priority": 2
+    },
+    {
+      "entity": "D",
+      "id": "D-V",
+      "source": "review",
+      "time": 40,
+      "verified": false,
+      "owner_override": true,
+      "owner": "Foxtrot",
+      "status": "closed",
+      "priority": 5
+    },
+    {
+      "entity": "E",
+      "id": "E-R",
+      "source": "registry",
+      "time": 5,
+      "owner": "Granite",
+      "status": "queued",
+      "region": "north",
+      "priority": 1
+    },
+    {
+      "entity": "E",
+      "id": "E-O1",
+      "source": "operations",
+      "time": 15,
+      "owner": "Hazel",
+      "status": "active",
+      "region": "south",
+      "priority": 2
+    },
+    {
+      "entity": "E",
+      "id": "E-O2",
+      "source": "operations",
+      "time": 25,
+      "owner": "Indigo",
+      "status": "closed",
+      "region": "east",
+      "priority": 4
+    },
+    {
+      "entity": "F",
+      "id": "F-R",
+      "source": "registry",
+      "time": 12,
+      "owner": "Juniper",
+      "status": "queued",
+      "priority": 3
+    },
+    {
+      "entity": "F",
+      "id": "F-O1",
+      "source": "operations",
+      "time": 18,
+      "owner": "Kite",
+      "status": "active",
+      "region": "south",
+      "priority": 2
+    },
+    {
+      "entity": "F",
+      "id": "F-O2",
+      "source": "operations",
+      "time": 28,
+      "owner": "Lilac",
+      "status": "held",
+      "region": "west",
+      "priority": 5
+    },
+    {
+      "entity": "F",
+      "id": "F-V",
+      "source": "review",
+      "time": 22,
+      "verified": true,
+      "owner_override": false,
+      "status": "closed",
+      "priority": 4
+    }
+  ]
+}

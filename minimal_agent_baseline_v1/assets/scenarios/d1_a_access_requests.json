@@ -1,0 +1,265 @@
+{
+  "id": "d1_a_access_requests",
+  "family": "d1",
+  "kind": "ordered_policy",
+  "title": "Access Requests",
+  "prompt": "Apply the following fictional access policy to requests Q1-Q9. Check rules from R1 through R9 and use the first matching rule. Return both the governing rule ID and final decision for each request.\n\nR1: status=suspended -> DENY\nR2: resource=restricted and action=remove -> DENY\nR3: urgent=true and resource=restricted -> ESCALATE\nR4: channel=external and resource is not public -> ESCALATE\nR5: role=manager, resource in {standard,restricted}, action in {view,change} -> ALLOW\nR6: role=operator, resource=standard, action in {view,change} -> ALLOW\nR7: role=reader, action=view, resource in {public,standard} -> ALLOW\nR8: resource=public and action=view -> ALLOW\nR9: otherwise -> DENY\n\nRequests (status, role, resource, action, channel, urgent):\nQ1 suspended, manager, standard, view, internal, false\nQ2 active, manager, restricted, remove, internal, false\nQ3 active, manager, restricted, change, internal, true\nQ4 active, operator, standard, change, external, false\nQ5 active, manager, restricted, view, internal, false\nQ6 active, operator, standard, view, internal, false\nQ7 active, reader, standard, view, internal, false\nQ8 active, operator, public, view, external, false\nQ9 active, reader, standard, change, internal, false\n\nReturn one JSON object with this shape:\n{\"result\":{\"cases\":[{\"id\":\"Q1\",\"rule\":\"R1\",\"decision\":\"DENY\"}, ...]}}\nInclude exactly Q1-Q9 once each.\n",
+  "rules": [
+    {
+      "id": "R1",
+      "all": [
+        {
+          "field": "status",
+          "op": "eq",
+          "value": "suspended"
+        }
+      ],
+      "output": {
+        "decision": "DENY"
+      }
+    },
+    {
+      "id": "R2",
+      "all": [
+        {
+          "field": "resource",
+          "op": "eq",
+          "value": "restricted"
+        },
+        {
+          "field": "action",
+          "op": "eq",
+          "value": "remove"
+        }
+      ],
+      "output": {
+        "decision": "DENY"
+      }
+    },
+    {
+      "id": "R3",
+      "all": [
+        {
+          "field": "urgent",
+          "op": "eq",
+          "value": true
+        },
+        {
+          "field": "resource",
+          "op": "eq",
+          "value": "restricted"
+        }
+      ],
+      "output": {
+        "decision": "ESCALATE"
+      }
+    },
+    {
+      "id": "R4",
+      "all": [
+        {
+          "field": "channel",
+          "op": "eq",
+          "value": "external"
+        },
+        {
+          "field": "resource",
+          "op": "ne",
+          "value": "public"
+        }
+      ],
+      "output": {
+        "decision": "ESCALATE"
+      }
+    },
+    {
+      "id": "R5",
+      "all": [
+        {
+          "field": "role",
+          "op": "eq",
+          "value": "manager"
+        },
+        {
+          "field": "resource",
+          "op": "in",
+          "value": [
+            "standard",
+            "restricted"
+          ]
+        },
+        {
+          "field": "action",
+          "op": "in",
+          "value": [
+            "view",
+            "change"
+          ]
+        }
+      ],
+      "output": {
+        "decision": "ALLOW"
+      }
+    },
+    {
+      "id": "R6",
+      "all": [
+        {
+          "field": "role",
+          "op": "eq",
+          "value": "operator"
+        },
+        {
+          "field": "resource",
+          "op": "eq",
+          "value": "standard"
+        },
+        {
+          "field": "action",
+          "op": "in",
+          "value": [
+            "view",
+            "change"
+          ]
+        }
+      ],
+      "output": {
+        "decision": "ALLOW"
+      }
+    },
+    {
+      "id": "R7",
+      "all": [
+        {
+          "field": "role",
+          "op": "eq",
+          "value": "reader"
+        },
+        {
+          "field": "action",
+          "op": "eq",
+          "value": "view"
+        },
+        {
+          "field": "resource",
+          "op": "in",
+          "value": [
+            "public",
+            "standard"
+          ]
+        }
+      ],
+      "output": {
+        "decision": "ALLOW"
+      }
+    },
+    {
+      "id": "R8",
+      "all": [
+        {
+          "field": "resource",
+          "op": "eq",
+          "value": "public"
+        },
+        {
+          "field": "action",
+          "op": "eq",
+          "value": "view"
+        }
+      ],
+      "output": {
+        "decision": "ALLOW"
+      }
+    },
+    {
+      "id": "R9",
+      "all": [],
+      "output": {
+        "decision": "DENY"
+      }
+    }
+  ],
+  "cases": [
+    {
+      "id": "Q1",
+      "status": "suspended",
+      "role": "manager",
+      "resource": "standard",
+      "action": "view",
+      "channel": "internal",
+      "urgent": false
+    },
+    {
+      "id": "Q2",
+      "status": "active",
+      "role": "manager",
+      "resource": "restricted",
+      "action": "remove",
+      "channel": "internal",
+      "urgent": false
+    },
+    {
+      "id": "Q3",
+      "status": "active",
+      "role": "manager",
+      "resource": "restricted",
+      "action": "change",
+      "channel": "internal",
+      "urgent": true
+    },
+    {
+      "id": "Q4",
+      "status": "active",
+      "role": "operator",
+      "resource": "standard",
+      "action": "change",
+      "channel": "external",
+      "urgent": false
+    },
+    {
+      "id": "Q5",
+      "status": "active",
+      "role": "manager",
+      "resource": "restricted",
+      "action": "view",
+      "channel": "internal",
+      "urgent": false
+    },
+    {
+      "id": "Q6",
+      "status": "active",
+      "role": "operator",
+      "resource": "standard",
+      "action": "view",
+      "channel": "internal",
+      "urgent": false
+    },
+    {
+      "id": "Q7",
+      "status": "active",
+      "role": "reader",
+      "resource": "standard",
+      "action": "view",
+      "channel": "internal",
+      "urgent": false
+    },
+    {
+      "id": "Q8",
+      "status": "active",
+      "role": "operator",
+      "resource": "public",
+      "action": "view",
+      "channel": "external",
+      "urgent": false
+    },
+    {
+      "id": "Q9",
+      "status": "active",
+      "role": "reader",
+      "resource": "standard",
+      "action": "change",
+      "channel": "internal",
+      "urgent": false
+    }
+  ]
+}

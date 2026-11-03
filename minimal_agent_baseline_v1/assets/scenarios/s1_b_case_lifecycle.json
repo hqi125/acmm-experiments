@@ -1,0 +1,92 @@
+{
+  "id": "s1_b_case_lifecycle",
+  "family": "s1",
+  "kind": "lifecycle_state",
+  "title": "Case Lifecycle",
+  "prompt": "Process the following fictional case lifecycle events in order. If a transition is not permitted in the current state, skip it with no side effect.\n\nInitial state:\nC1 pending owner=A reviewed=false\nC2 active owner=B reviewed=true\nC3 held owner=C reviewed=true\nC4 closed owner=A reviewed=true\nC5 active owner=C reviewed=false\nC6 pending owner=B reviewed=false\n\nTransition rules:\n- approve(C): only from pending; status=active and reviewed=true.\n- hold(C): only from active; status=held.\n- resume(C): only from held; status=active.\n- transfer(C,owner): only from active or held; replace owner.\n- close(C): only when status=active and reviewed=true; status=closed.\n- reopen(C): only from closed; status=active and reviewed=false.\n- review(C): only from active or held; reviewed=true.\n\nEvents:\nE1 approve(C1)\nE2 hold(C2)\nE3 close(C2)\nE4 resume(C3)\nE5 transfer(C3,A)\nE6 reopen(C4)\nE7 close(C4)\nE8 review(C4)\nE9 close(C4)\nE10 close(C5)\n\nReturn one JSON object with this shape:\n{\"result\":{\"events\":[{\"id\":\"E1\",\"status\":\"applied\"}, ...],\"final_state\":{\"C1\":{\"status\":\"active\",\"owner\":\"A\",\"reviewed\":true}, ...}}}\nInclude E1-E10 in order and exactly records C1-C6 in final_state.\n",
+  "initial_state": {
+    "C1": {
+      "status": "pending",
+      "owner": "A",
+      "reviewed": false
+    },
+    "C2": {
+      "status": "active",
+      "owner": "B",
+      "reviewed": true
+    },
+    "C3": {
+      "status": "held",
+      "owner": "C",
+      "reviewed": true
+    },
+    "C4": {
+      "status": "closed",
+      "owner": "A",
+      "reviewed": true
+    },
+    "C5": {
+      "status": "active",
+      "owner": "C",
+      "reviewed": false
+    },
+    "C6": {
+      "status": "pending",
+      "owner": "B",
+      "reviewed": false
+    }
+  },
+  "events": [
+    {
+      "id": "E1",
+      "op": "approve",
+      "case": "C1"
+    },
+    {
+      "id": "E2",
+      "op": "hold",
+      "case": "C2"
+    },
+    {
+      "id": "E3",
+      "op": "close",
+      "case": "C2"
+    },
+    {
+      "id": "E4",
+      "op": "resume",
+      "case": "C3"
+    },
+    {
+      "id": "E5",
+      "op": "transfer",
+      "case": "C3",
+      "owner": "A"
+    },
+    {
+      "id": "E6",
+      "op": "reopen",
+      "case": "C4"
+    },
+    {
+      "id": "E7",
+      "op": "close",
+      "case": "C4"
+    },
+    {
+      "id": "E8",
+      "op": "review",
+      "case": "C4"
+    },
+    {
+      "id": "E9",
+      "op": "close",
+      "case": "C4"
+    },
+    {
+      "id": "E10",
+      "op": "close",
+      "case": "C5"
+    }
+  ]
+}

@@ -22,16 +22,17 @@ Experiment directories currently include:
 
 - `controlled_authoritative_state_interference_v1/` — the frozen historical authoritative-state
   interference study formerly embedded in the ACMM main repository.
-- `minimal_agent_baseline_v1/` — the active design workspace for the first experiment in the new
-  research roadmap. It currently contains design documentation only and is **not yet an executable
-  Experiment Package**.
+- `minimal_agent_baseline_v1/` — the active first experiment in the new research roadmap. It now
+  contains an executable 16-scenario Contract, package-owned structured scenario assets, and a
+  deterministic no-apparatus runtime evaluator. Live agent smoke execution is still pending.
 
 A normal workflow from the ACMM development environment is:
 
 ```text
-acmm package validate ../acmm-experiments/controlled_authoritative_state_interference_v1
-acmm package install ../acmm-experiments/controlled_authoritative_state_interference_v1
-acmm run controlled_authoritative_state_interference_v1 --preview
+acmm package validate ../acmm-experiments/minimal_agent_baseline_v1
+acmm package install ../acmm-experiments/minimal_agent_baseline_v1
+acmm package apply minimal_agent_baseline_v1
+acmm run minimal_agent_baseline_v1 --preview
 ```
 
 Experiment-specific tests stay with each package. From the ACMM virtual environment, run:

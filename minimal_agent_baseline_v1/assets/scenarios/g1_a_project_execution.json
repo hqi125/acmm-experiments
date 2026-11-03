@@ -1,0 +1,65 @@
+{
+  "id": "g1_a_project_execution",
+  "family": "g1",
+  "kind": "staged_plan",
+  "title": "Project Execution",
+  "prompt": "Assign project tasks A-J to exactly five ordered nonempty stages. Every task appears exactly once and each stage may contain at most three tasks.\n\nTask labels: A Requirements Baseline; B Environment Inventory; C Acceptance Criteria; D Interface Plan; E Data Mapping; F Test Harness; G Integrated Prototype; H Validation Report; I Quality Review; J Operations Review.\n\nRules:\n- Foundation gate: A, B, and C must all be complete before any of D, E, or F begins.\n- D before G.\n- E before G.\n- E before H.\n- F before H.\n- Acceptance gate: G and H must both be complete before either I or J begins.\n- Project completion may be declared only after both I and J are complete.\n\nReturn one JSON object with this shape:\n{\"result\":{\"stages\":[[\"A\",\"B\",\"C\"],[\"D\"],[\"E\",\"F\"],[\"G\",\"H\"],[\"I\",\"J\"]],\"completion_stage\":5}}\nAny valid five-stage plan is accepted.\n",
+  "tasks": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J"
+  ],
+  "stage_count": 5,
+  "stage_capacity": 3,
+  "foundation": {
+    "before": [
+      "A",
+      "B",
+      "C"
+    ],
+    "after": [
+      "D",
+      "E",
+      "F"
+    ]
+  },
+  "dependencies": [
+    [
+      "D",
+      "G"
+    ],
+    [
+      "E",
+      "G"
+    ],
+    [
+      "E",
+      "H"
+    ],
+    [
+      "F",
+      "H"
+    ]
+  ],
+  "acceptance": {
+    "before": [
+      "G",
+      "H"
+    ],
+    "after": [
+      "I",
+      "J"
+    ]
+  },
+  "completion_tasks": [
+    "I",
+    "J"
+  ]
+}

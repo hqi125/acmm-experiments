@@ -1,0 +1,92 @@
+{
+  "id": "w1_a_request_workflow",
+  "family": "w1",
+  "kind": "workflow_cases",
+  "title": "Request Workflow",
+  "prompt": "Execute the following fictional request workflow for Q1-Q8. Return every step ID actually executed, in order, and the final disposition. A terminal step stops the case immediately.\n\nA1 VALIDATE: if well_formed=false -> A2, else A3.\nA2 REJECT_INVALID -> REJECT_INVALID, stop.\nA3 VERIFY_IDENTITY: if identity_verified=false -> A4, else A5.\nA4 REJECT_IDENTITY -> REJECT_IDENTITY, stop.\nA5 CHECK_ELIGIBILITY: if eligible=false -> A6, else A7.\nA6 DENY_INELIGIBLE -> DENY_INELIGIBLE, stop.\nA7 CHECK_RESTRICTION: restricted+urgent -> A8; restricted+not urgent -> A9; otherwise A10.\nA8 ESCALATE_RESTRICTED -> ESCALATE_RESTRICTED, stop.\nA9 DENY_RESTRICTED -> DENY_RESTRICTED, stop.\nA10 CHECK_EVIDENCE: if evidence_complete=false -> A11, else A12.\nA11 REQUEST_EVIDENCE -> PENDING_EVIDENCE, stop.\nA12 CHECK_RISK: risk=high -> A13, else A14.\nA13 ESCALATE_MANUAL_REVIEW -> ESCALATE_MANUAL_REVIEW, stop.\nA14 APPROVE -> APPROVE, stop.\n\nCases (well_formed, identity_verified, eligible, restricted, urgent, evidence_complete, risk):\nQ1 false,true,true,false,false,true,low\nQ2 true,false,true,true,true,true,high\nQ3 true,true,false,false,false,false,high\nQ4 true,true,true,true,true,false,high\nQ5 true,true,true,true,false,true,high\nQ6 true,true,true,false,false,false,high\nQ7 true,true,true,false,false,true,high\nQ8 true,true,true,false,false,true,low\n\nReturn one JSON object with this shape:\n{\"result\":{\"cases\":[{\"id\":\"Q1\",\"trace\":[\"A1\",\"A2\"],\"disposition\":\"REJECT_INVALID\"}, ...]}}\nInclude exactly Q1-Q8 once each.\n",
+  "expected": {
+    "Q1": {
+      "trace": [
+        "A1",
+        "A2"
+      ],
+      "disposition": "REJECT_INVALID"
+    },
+    "Q2": {
+      "trace": [
+        "A1",
+        "A3",
+        "A4"
+      ],
+      "disposition": "REJECT_IDENTITY"
+    },
+    "Q3": {
+      "trace": [
+        "A1",
+        "A3",
+        "A5",
+        "A6"
+      ],
+      "disposition": "DENY_INELIGIBLE"
+    },
+    "Q4": {
+      "trace": [
+        "A1",
+        "A3",
+        "A5",
+        "A7",
+        "A8"
+      ],
+      "disposition": "ESCALATE_RESTRICTED"
+    },
+    "Q5": {
+      "trace": [
+        "A1",
+        "A3",
+        "A5",
+        "A7",
+        "A9"
+      ],
+      "disposition": "DENY_RESTRICTED"
+    },
+    "Q6": {
+      "trace": [
+        "A1",
+        "A3",
+        "A5",
+        "A7",
+        "A10",
+        "A11"
+      ],
+      "disposition": "PENDING_EVIDENCE"
+    },
+    "Q7": {
+      "trace": [
+        "A1",
+        "A3",
+        "A5",
+        "A7",
+        "A10",
+        "A12",
+        "A13"
+      ],
+      "disposition": "ESCALATE_MANUAL_REVIEW"
+    },
+    "Q8": {
+      "trace": [
+        "A1",
+        "A3",
+        "A5",
+        "A7",
+        "A10",
+        "A12",
+        "A14"
+      ],
+      "disposition": "APPROVE"
+    }
+  },
+  "restricted_cases": [
+    "Q4",
+    "Q5"
+  ]
+}

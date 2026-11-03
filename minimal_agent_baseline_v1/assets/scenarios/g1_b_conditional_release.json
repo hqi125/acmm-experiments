@@ -1,0 +1,60 @@
+{
+  "id": "g1_b_conditional_release",
+  "family": "g1",
+  "kind": "conditional_staged_plan",
+  "title": "Conditional Release Sequence",
+  "prompt": "Build a conditional release plan. Common tasks A-H must be assigned to exactly six ordered nonempty stages, with at most three tasks per common stage.\n\nCommon task labels: A Build Candidate; B Prepare Rollback Bundle; C Prepare Release Record; D Validate Candidate; E Verify Rollback Bundle; F Authorize Pilot; G Deploy Pilot; H Assess Pilot.\nCommon prerequisites: A before D; B before E; C before F; D before F; E before F; F before G; G before H.\n\nAfter H:\n- PASS branch: I Deploy Full Release, then J Verify Full Release, then terminal state COMPLETE. K and L must not execute.\n- FAIL branch: K Roll Back Pilot, then L Verify Rollback, then terminal state ROLLED_BACK. I and J must not execute.\n- Only COMPLETE is successful release completion; ROLLED_BACK is not successful release completion.\n\nReturn one JSON object with this shape:\n{\"result\":{\"common_stages\":[[\"A\",\"B\",\"C\"],[\"D\"],[\"E\"],[\"F\"],[\"G\"],[\"H\"]],\"pass_branch\":[\"I\",\"J\"],\"pass_terminal\":\"COMPLETE\",\"fail_branch\":[\"K\",\"L\"],\"fail_terminal\":\"ROLLED_BACK\",\"successful_branch\":\"PASS\"}}\nAny valid six-stage common plan is accepted.\n",
+  "common_tasks": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H"
+  ],
+  "stage_count": 6,
+  "stage_capacity": 3,
+  "dependencies": [
+    [
+      "A",
+      "D"
+    ],
+    [
+      "B",
+      "E"
+    ],
+    [
+      "C",
+      "F"
+    ],
+    [
+      "D",
+      "F"
+    ],
+    [
+      "E",
+      "F"
+    ],
+    [
+      "F",
+      "G"
+    ],
+    [
+      "G",
+      "H"
+    ]
+  ],
+  "pass_branch": [
+    "I",
+    "J"
+  ],
+  "pass_terminal": "COMPLETE",
+  "fail_branch": [
+    "K",
+    "L"
+  ],
+  "fail_terminal": "ROLLED_BACK",
+  "successful_branch": "PASS"
+}

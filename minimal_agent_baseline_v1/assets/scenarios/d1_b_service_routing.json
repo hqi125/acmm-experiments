@@ -1,0 +1,232 @@
+{
+  "id": "d1_b_service_routing",
+  "family": "d1",
+  "kind": "ordered_policy",
+  "title": "Service Routing",
+  "prompt": "Apply the following fictional routing policy to cases C1-C9. Check rules from R1 through R9 and use the first matching rule. Return the governing rule ID, queue, and priority for each case.\n\nR1: security_flag=true -> SECURITY_REVIEW, P1\nR2: regional_outage=true and severity=high -> INCIDENT_DESK, P1\nR3: category=access and locked=true -> ACCESS_RECOVERY, P2\nR4: tier=premium and category=billing -> PRIORITY_BILLING, P2\nR5: category=technical and severity=high -> TECHNICAL, P2\nR6: category=technical -> TECHNICAL, P3\nR7: category=billing -> BILLING, P3\nR8: category=access -> ACCESS, P3\nR9: otherwise -> GENERAL, P4\n\nCases (category, severity, tier, security_flag, regional_outage, locked):\nC1 billing, high, premium, true, true, false\nC2 technical, high, standard, false, true, false\nC3 access, medium, premium, false, false, true\nC4 billing, medium, premium, false, false, false\nC5 technical, high, premium, false, false, false\nC6 technical, medium, standard, false, false, false\nC7 billing, low, standard, false, false, false\nC8 access, low, standard, false, false, false\nC9 profile, low, standard, false, false, false\n\nReturn one JSON object with this shape:\n{\"result\":{\"cases\":[{\"id\":\"C1\",\"rule\":\"R1\",\"queue\":\"SECURITY_REVIEW\",\"priority\":\"P1\"}, ...]}}\nInclude exactly C1-C9 once each.\n",
+  "rules": [
+    {
+      "id": "R1",
+      "all": [
+        {
+          "field": "security_flag",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "output": {
+        "queue": "SECURITY_REVIEW",
+        "priority": "P1"
+      }
+    },
+    {
+      "id": "R2",
+      "all": [
+        {
+          "field": "regional_outage",
+          "op": "eq",
+          "value": true
+        },
+        {
+          "field": "severity",
+          "op": "eq",
+          "value": "high"
+        }
+      ],
+      "output": {
+        "queue": "INCIDENT_DESK",
+        "priority": "P1"
+      }
+    },
+    {
+      "id": "R3",
+      "all": [
+        {
+          "field": "category",
+          "op": "eq",
+          "value": "access"
+        },
+        {
+          "field": "locked",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "output": {
+        "queue": "ACCESS_RECOVERY",
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "R4",
+      "all": [
+        {
+          "field": "tier",
+          "op": "eq",
+          "value": "premium"
+        },
+        {
+          "field": "category",
+          "op": "eq",
+          "value": "billing"
+        }
+      ],
+      "output": {
+        "queue": "PRIORITY_BILLING",
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "R5",
+      "all": [
+        {
+          "field": "category",
+          "op": "eq",
+          "value": "technical"
+        },
+        {
+          "field": "severity",
+          "op": "eq",
+          "value": "high"
+        }
+      ],
+      "output": {
+        "queue": "TECHNICAL",
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "R6",
+      "all": [
+        {
+          "field": "category",
+          "op": "eq",
+          "value": "technical"
+        }
+      ],
+      "output": {
+        "queue": "TECHNICAL",
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "R7",
+      "all": [
+        {
+          "field": "category",
+          "op": "eq",
+          "value": "billing"
+        }
+      ],
+      "output": {
+        "queue": "BILLING",
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "R8",
+      "all": [
+        {
+          "field": "category",
+          "op": "eq",
+          "value": "access"
+        }
+      ],
+      "output": {
+        "queue": "ACCESS",
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "R9",
+      "all": [],
+      "output": {
+        "queue": "GENERAL",
+        "priority": "P4"
+      }
+    }
+  ],
+  "cases": [
+    {
+      "id": "C1",
+      "category": "billing",
+      "severity": "high",
+      "tier": "premium",
+      "security_flag": true,
+      "regional_outage": true,
+      "locked": false
+    },
+    {
+      "id": "C2",
+      "category": "technical",
+      "severity": "high",
+      "tier": "standard",
+      "security_flag": false,
+      "regional_outage": true,
+      "locked": false
+    },
+    {
+      "id": "C3",
+      "category": "access",
+      "severity": "medium",
+      "tier": "premium",
+      "security_flag": false,
+      "regional_outage": false,
+      "locked": true
+    },
+    {
+      "id": "C4",
+      "category": "billing",
+      "severity": "medium",
+      "tier": "premium",
+      "security_flag": false,
+      "regional_outage": false,
+      "locked": false
+    },
+    {
+      "id": "C5",
+      "category": "technical",
+      "severity": "high",
+      "tier": "premium",
+      "security_flag": false,
+      "regional_outage": false,
+      "locked": false
+    },
+    {
+      "id": "C6",
+      "category": "technical",
+      "severity": "medium",
+      "tier": "standard",
+      "security_flag": false,
+      "regional_outage": false,
+      "locked": false
+    },
+    {
+      "id": "C7",
+      "category": "billing",
+      "severity": "low",
+      "tier": "standard",
+      "security_flag": false,
+      "regional_outage": false,
+      "locked": false
+    },
+    {
+      "id": "C8",
+      "category": "access",
+      "severity": "low",
+      "tier": "standard",
+      "security_flag": false,
+      "regional_outage": false,
+      "locked": false
+    },
+    {
+      "id": "C9",
+      "category": "profile",
+      "severity": "low",
+      "tier": "standard",
+      "security_flag": false,
+      "regional_outage": false,
+      "locked": false
+    }
+  ]
+}

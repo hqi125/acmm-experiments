@@ -1,0 +1,147 @@
+{
+  "id": "v1_a_schedule_repair",
+  "family": "v1",
+  "kind": "schedule_repair",
+  "title": "Schedule Repair",
+  "prompt": "Audit the supplied schedule for sessions J-Q and repair it with the minimum number of changed session assignments. A session assignment is its (slot, room) pair; changing slot, room, or both for one session costs one change.\n\nGoverning rules:\nR1: Every session J-Q appears exactly once and every (slot, room) position contains exactly one session.\nR2: Availability: J in {1,2}; K in {1,2,3}; L in {2,3}; M in {1,2,3,4}; N in {1,2,3,4}; O in {2,3,4}; P in {3,4}; Q in {3,4}.\nR3: K must use R1.\nR4: O must use R2.\nR5: J occurs before N.\nR6: L occurs before Q.\nR7: K and L do not share a slot.\nR8: M and O do not share a slot.\nR9: N and P do not share a slot.\n\nSupplied schedule:\nslot 1: R1=J, R2=M\nslot 2: R1=Q, R2=O\nslot 3: R1=L, R2=K\nslot 4: R1=N, R2=P\n\nReturn one JSON object with this shape:\n{\"result\":{\"violations\":[\"R2\",\"R3\"],\"schedule\":[{\"session\":\"J\",\"slot\":1,\"room\":\"R1\"}, ...]}}\nReport the complete set of violated rule IDs in the supplied schedule and a complete repaired schedule. Any valid minimum-change repair is accepted.\n",
+  "entities": [
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "O",
+    "P",
+    "Q"
+  ],
+  "slots": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "rooms": [
+    "R1",
+    "R2"
+  ],
+  "availability": {
+    "J": [
+      1,
+      2
+    ],
+    "K": [
+      1,
+      2,
+      3
+    ],
+    "L": [
+      2,
+      3
+    ],
+    "M": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "N": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "O": [
+      2,
+      3,
+      4
+    ],
+    "P": [
+      3,
+      4
+    ],
+    "Q": [
+      3,
+      4
+    ]
+  },
+  "room_requirements": {
+    "K": "R1",
+    "O": "R2"
+  },
+  "precedence": [
+    [
+      "J",
+      "N"
+    ],
+    [
+      "L",
+      "Q"
+    ]
+  ],
+  "different_slot": [
+    [
+      "K",
+      "L"
+    ],
+    [
+      "M",
+      "O"
+    ],
+    [
+      "N",
+      "P"
+    ]
+  ],
+  "rule_ids": {
+    "structure": "R1",
+    "availability": "R2",
+    "room_K": "R3",
+    "room_O": "R4",
+    "J_before_N": "R5",
+    "L_before_Q": "R6",
+    "K_L_separation": "R7",
+    "M_O_separation": "R8",
+    "N_P_separation": "R9"
+  },
+  "initial_assignment": {
+    "J": {
+      "slot": 1,
+      "room": "R1"
+    },
+    "M": {
+      "slot": 1,
+      "room": "R2"
+    },
+    "Q": {
+      "slot": 2,
+      "room": "R1"
+    },
+    "O": {
+      "slot": 2,
+      "room": "R2"
+    },
+    "L": {
+      "slot": 3,
+      "room": "R1"
+    },
+    "K": {
+      "slot": 3,
+      "room": "R2"
+    },
+    "N": {
+      "slot": 4,
+      "room": "R1"
+    },
+    "P": {
+      "slot": 4,
+      "room": "R2"
+    }
+  },
+  "minimum_changes": 3,
+  "required_unchanged": [
+    "J",
+    "M",
+    "L",
+    "O"
+  ]
+}

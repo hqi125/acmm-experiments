@@ -1,7 +1,7 @@
 # W1 — Conditional Workflow Execution
 
-> **Design status:** provisionally frozen. Concrete workflows, frozen cases, expected traces, and
-> terminal dispositions are defined. Runtime workflow-interpreter code has not yet been implemented.
+> **Design status:** provisionally frozen and implemented. Frozen workflow traces and terminal outcomes
+> are now evaluated deterministically from structured assets; live smoke qualification remains pending.
 
 W1 changes the baseline from deciding *what* outcome is correct to executing *how* a task must
 proceed. Each variant provides a closed-world finite workflow and several cases. The agent must

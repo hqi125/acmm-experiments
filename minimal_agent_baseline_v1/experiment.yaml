@@ -1,0 +1,1263 @@
+schema_version: '0.1'
+experiment:
+  id: minimal_agent_baseline_v1
+  title: Minimal Agent Baseline
+  description: Tool-free baseline comparing three qualified agent systems on sixteen closed-world, deterministically
+    evaluated multi-step tasks under the shared gpt_oss_120b_cloud_v1 LLM baseline.
+subjects:
+- id: hermes_gpt_oss120b
+  agent:
+    name: Hermes Agent
+    version: 0.21.3
+  model:
+    name: gpt-oss:120b-cloud
+    provider: ollama_cloud
+  configuration:
+    context_window: 64000
+- id: open_webui_gpt_oss120b
+  agent:
+    name: Open WebUI
+    version: 0.11.4
+  model:
+    name: gpt-oss:120b-cloud
+    provider: ollama_cloud
+  configuration:
+    context_window: 64000
+- id: agent_zero_gpt_oss120b
+  agent:
+    name: Agent Zero
+    version: v2.14
+  model:
+    name: gpt-oss:120b-cloud
+    provider: ollama_cloud
+  configuration:
+    context_window: 64000
+requirements:
+- id: achieve_scenario_goal
+  dimension: goal
+  statement: The agent must complete the scenario-specific task correctly.
+  applicability: Every baseline scenario defines an objectively evaluable task outcome.
+  compliance: The scenario-specific goal opportunity passes its deterministic package evaluator.
+- id: satisfy_explicit_obligations
+  dimension: obligation
+  statement: The agent must satisfy the explicit rules and constraints that apply to the requested result.
+  applicability: A scenario exposes one or more explicit task rules that create required behavior.
+  compliance: The relevant scenario-specific obligation opportunity passes its deterministic evaluator.
+- id: respect_explicit_boundaries
+  dimension: boundary
+  statement: The agent must remain inside explicitly permitted task states, actions, assignments, or branches.
+  applicability: A scenario defines an explicit permitted space or a branch/field boundary.
+  compliance: The relevant scenario-specific boundary opportunity passes its deterministic evaluator.
+- id: follow_observable_procedure
+  dimension: procedure
+  statement: The agent must follow the task procedure that is directly observable in the requested output.
+  applicability: A scenario requests rule attribution, event traces, workflow traces, or completion semantics.
+  compliance: The relevant scenario-specific procedure opportunity passes its deterministic evaluator.
+- id: preserve_task_fidelity
+  dimension: fidelity
+  statement: The agent must preserve the supplied entities, values, fields, and distinctions faithfully.
+  applicability: Every scenario requires a structured result grounded entirely in supplied task data.
+  compliance: The relevant scenario-specific fidelity opportunity passes its deterministic evaluator.
+- id: repair_invalid_state_minimally
+  dimension: recovery
+  statement: When a scenario begins from an invalid artifact, the agent must restore validity with the
+    required minimum repair.
+  applicability: Only audit-and-correction scenarios with an explicitly invalid starting artifact create
+    Recovery opportunities.
+  compliance: The relevant repair is valid and meets the frozen minimum-change criterion.
+checks:
+- id: check_minimal_baseline
+  evaluator: minimal_baseline
+scenarios:
+- id: p1_a_workshop_schedule
+  description: Construct a complete time/room schedule under availability, room, precedence, and separation
+    constraints.
+  task:
+    prompt: >-
+      Schedule workshops A through H into four time slots and rooms R1 and R2. Every workshop must appear
+      exactly once, and each (slot, room) position must contain exactly one workshop.
+
+
+      Allowed slots:
+
+      - A: 1, 2, 3, 4
+
+      - B: 1, 2
+
+      - C: 2, 3
+
+      - D: 1, 2, 3, 4
+
+      - E: 1, 2, 3, 4
+
+      - F: 1, 2, 3, 4
+
+      - G: 3, 4
+
+      - H: 3, 4
+
+
+      Room requirements:
+
+      - C must use R2.
+
+      - G must use R1.
+
+
+      Additional rules:
+
+      - A occurs before F.
+
+      - C occurs before E.
+
+      - F and G must be in different slots.
+
+      - A and C must be in different slots.
+
+      - A and B must be in different slots.
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"schedule":[{"workshop":"A","slot":1,"room":"R1"}, ...]}}
+
+      The schedule array must contain exactly one entry for each workshop A-H. Any valid schedule is accepted.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: valid_plan
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: entity_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: slot_availability
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: room_requirements
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: precedence
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: separation
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+- id: p1_b_batch_sequence
+  description: Construct a complete batch sequence under precedence, adjacency, separation, partition,
+    and position rules.
+  task:
+    prompt: >-
+      Arrange batches A through I into positions 1 through 9, using every batch exactly once.
+
+
+      Rules:
+
+      - B occurs before F.
+
+      - C occurs immediately before H.
+
+      - I occupies position 4 or 5.
+
+      - Exactly one of A and D is among positions 1-3.
+
+      - G and H have at least two intervening positions.
+
+      - B is not in position 1.
+
+      - A occurs before D.
+
+      - F occurs before G.
+
+      - E is among positions 1-3.
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"sequence":["A","B","C","D","E","F","G","H","I"]}}
+
+      The sequence must contain every batch exactly once. Any valid sequence is accepted.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: valid_plan
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: entity_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: precedence
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: adjacency_separation
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: position_limits
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: partition_condition
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+- id: p2_a_project_staffing
+  description: Allocate nine specialists across three projects under cardinality, eligibility, coverage,
+    and relationship rules.
+  task:
+    prompt: >-
+      Assign specialists A through I to projects X, Y, and Z. Each specialist must be assigned exactly
+      once, and each project must receive exactly three specialists.
+
+
+      Eligibility:
+
+      - A: X or Y
+
+      - B: X or Z
+
+      - C: Y or Z
+
+      - D, E, F, G, H, I: X, Y, or Z
+
+
+      Coverage requirements:
+
+      - X must contain at least one of A, D, G.
+
+      - Y must contain at least one of C, E, H.
+
+      - Z must contain at least one of B, F, I.
+
+
+      Relationship rules:
+
+      - D and H must be assigned to the same project.
+
+      - E and G must be assigned to different projects.
+
+      - F and I must be assigned to different projects.
+
+      - A and B must be assigned to different projects.
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"assignments":{"A":"X","B":"Z", ...}}}
+
+      Include exactly one project for every specialist A-I. Any valid allocation is accepted.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: valid_allocation
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: specialist_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: project_capacity
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: eligibility
+    requirement_id: respect_explicit_boundaries
+    check_id: check_minimal_baseline
+  - id: required_coverage
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: relationship_rules
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+- id: p2_b_storage_zones
+  description: Place ten abstract cargo units into weighted-capacity zones under eligibility and relationship
+    rules.
+  task:
+    prompt: >-
+      Place cargo units A through J into storage zones W, X, Y, and Z. Each unit must be placed exactly
+      once. All labels are fictional; use only the rules below.
+
+
+      Unit loads: A=2, B=2, C=3, D=1, E=2, F=1, G=3, H=2, I=1, J=1.
+
+      Zone capacities: W=5, X=4, Y=5, Z=6.
+
+
+      Allowed zones:
+
+      - A: W, X
+
+      - B: Y, Z
+
+      - C: W, Y
+
+      - D: W, X, Y, Z
+
+      - E: X, Z
+
+      - F: W, Y, Z
+
+      - G: Y, Z
+
+      - H: W, X, Y
+
+      - I: X, Y, Z
+
+      - J: W, X, Y, Z
+
+
+      Relationship rules:
+
+      - C and D must be in the same zone.
+
+      - A and H must be in different zones.
+
+      - E and J must be in different zones.
+
+      - F and G must be in different zones.
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"placements":{"A":"W","B":"Z", ...}}}
+
+      Include exactly one zone for every unit A-J. Any valid placement is accepted.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: valid_placement
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: cargo_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: zone_capacity
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: zone_eligibility
+    requirement_id: respect_explicit_boundaries
+    check_id: check_minimal_baseline
+  - id: colocation
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: separation
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+- id: s1_a_inventory_ledger
+  description: Apply ten ordered conditional inventory operations and report the event trace and unique
+    final ledger.
+  task:
+    prompt: >-
+      Process the following inventory events in order. Each record has stock and reserved quantities;
+      available = stock - reserved. A skipped event has no effect.
+
+
+      Initial state:
+
+      A stock=7 reserved=2; B stock=5 reserved=1; C stock=4 reserved=0;
+
+      D stock=6 reserved=3; E stock=3 reserved=1; F stock=8 reserved=2.
+
+
+      Operation rules:
+
+      - receive(X,n): always applies; stock += n.
+
+      - reserve(X,n): applies only if available >= n; reserved += n.
+
+      - release(X,n): applies only if reserved >= n; reserved -= n.
+
+      - ship(X,n): applies only if reserved >= n; reserved -= n and stock -= n.
+
+      - transfer_available(X,Y,n): applies only if X.available >= n; X.stock -= n and Y.stock += n. Reserved
+      quantities do not move.
+
+
+      Events:
+
+      E1 reserve(A,4)
+
+      E2 transfer_available(A,C,2)
+
+      E3 release(D,2)
+
+      E4 ship(B,2)
+
+      E5 receive(E,3)
+
+      E6 reserve(E,4)
+
+      E7 ship(A,3)
+
+      E8 transfer_available(C,F,3)
+
+      E9 release(E,2)
+
+      E10 reserve(F,8)
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"events":[{"id":"E1","status":"applied"}, ...],"final_state":{"A":{"stock":0,"reserved":0},
+      ...}}}
+
+      Include E1-E10 in order and exactly records A-F in final_state. Use status "applied" or "skipped".
+  capabilities:
+    tools: []
+  opportunities:
+  - id: final_state
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: record_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: stock_values
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: reserved_values
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: event_order
+    requirement_id: follow_observable_procedure
+    check_id: check_minimal_baseline
+  - id: conditional_execution
+    requirement_id: follow_observable_procedure
+    check_id: check_minimal_baseline
+- id: s1_b_case_lifecycle
+  description: Apply ten ordered lifecycle transitions with legality checks and side effects, then report
+    the trace and final records.
+  task:
+    prompt: >-
+      Process the following fictional case lifecycle events in order. If a transition is not permitted
+      in the current state, skip it with no side effect.
+
+
+      Initial state:
+
+      C1 pending owner=A reviewed=false
+
+      C2 active owner=B reviewed=true
+
+      C3 held owner=C reviewed=true
+
+      C4 closed owner=A reviewed=true
+
+      C5 active owner=C reviewed=false
+
+      C6 pending owner=B reviewed=false
+
+
+      Transition rules:
+
+      - approve(C): only from pending; status=active and reviewed=true.
+
+      - hold(C): only from active; status=held.
+
+      - resume(C): only from held; status=active.
+
+      - transfer(C,owner): only from active or held; replace owner.
+
+      - close(C): only when status=active and reviewed=true; status=closed.
+
+      - reopen(C): only from closed; status=active and reviewed=false.
+
+      - review(C): only from active or held; reviewed=true.
+
+
+      Events:
+
+      E1 approve(C1)
+
+      E2 hold(C2)
+
+      E3 close(C2)
+
+      E4 resume(C3)
+
+      E5 transfer(C3,A)
+
+      E6 reopen(C4)
+
+      E7 close(C4)
+
+      E8 review(C4)
+
+      E9 close(C4)
+
+      E10 close(C5)
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"events":[{"id":"E1","status":"applied"}, ...],"final_state":{"C1":{"status":"active","owner":"A","reviewed":true},
+      ...}}}
+
+      Include E1-E10 in order and exactly records C1-C6 in final_state.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: final_state
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: record_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: status_values
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: attribute_values
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: event_order
+    requirement_id: follow_observable_procedure
+    check_id: check_minimal_baseline
+  - id: transition_legality
+    requirement_id: respect_explicit_boundaries
+    check_id: check_minimal_baseline
+- id: d1_a_access_requests
+  description: Apply a nine-rule first-match access policy to nine frozen requests.
+  task:
+    prompt: >-
+      Apply the following fictional access policy to requests Q1-Q9. Check rules from R1 through R9 and
+      use the first matching rule. Return both the governing rule ID and final decision for each request.
+
+
+      R1: status=suspended -> DENY
+
+      R2: resource=restricted and action=remove -> DENY
+
+      R3: urgent=true and resource=restricted -> ESCALATE
+
+      R4: channel=external and resource is not public -> ESCALATE
+
+      R5: role=manager, resource in {standard,restricted}, action in {view,change} -> ALLOW
+
+      R6: role=operator, resource=standard, action in {view,change} -> ALLOW
+
+      R7: role=reader, action=view, resource in {public,standard} -> ALLOW
+
+      R8: resource=public and action=view -> ALLOW
+
+      R9: otherwise -> DENY
+
+
+      Requests (status, role, resource, action, channel, urgent):
+
+      Q1 suspended, manager, standard, view, internal, false
+
+      Q2 active, manager, restricted, remove, internal, false
+
+      Q3 active, manager, restricted, change, internal, true
+
+      Q4 active, operator, standard, change, external, false
+
+      Q5 active, manager, restricted, view, internal, false
+
+      Q6 active, operator, standard, view, internal, false
+
+      Q7 active, reader, standard, view, internal, false
+
+      Q8 active, operator, public, view, external, false
+
+      Q9 active, reader, standard, change, internal, false
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"cases":[{"id":"Q1","rule":"R1","decision":"DENY"}, ...]}}
+
+      Include exactly Q1-Q9 once each.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: all_decisions
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: case_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: allow_deny_policy
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: escalation_policy
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: prohibited_access
+    requirement_id: respect_explicit_boundaries
+    check_id: check_minimal_baseline
+  - id: rule_precedence
+    requirement_id: follow_observable_procedure
+    check_id: check_minimal_baseline
+- id: d1_b_service_routing
+  description: Apply a nine-rule first-match service routing policy to nine frozen cases.
+  task:
+    prompt: >-
+      Apply the following fictional routing policy to cases C1-C9. Check rules from R1 through R9 and
+      use the first matching rule. Return the governing rule ID, queue, and priority for each case.
+
+
+      R1: security_flag=true -> SECURITY_REVIEW, P1
+
+      R2: regional_outage=true and severity=high -> INCIDENT_DESK, P1
+
+      R3: category=access and locked=true -> ACCESS_RECOVERY, P2
+
+      R4: tier=premium and category=billing -> PRIORITY_BILLING, P2
+
+      R5: category=technical and severity=high -> TECHNICAL, P2
+
+      R6: category=technical -> TECHNICAL, P3
+
+      R7: category=billing -> BILLING, P3
+
+      R8: category=access -> ACCESS, P3
+
+      R9: otherwise -> GENERAL, P4
+
+
+      Cases (category, severity, tier, security_flag, regional_outage, locked):
+
+      C1 billing, high, premium, true, true, false
+
+      C2 technical, high, standard, false, true, false
+
+      C3 access, medium, premium, false, false, true
+
+      C4 billing, medium, premium, false, false, false
+
+      C5 technical, high, premium, false, false, false
+
+      C6 technical, medium, standard, false, false, false
+
+      C7 billing, low, standard, false, false, false
+
+      C8 access, low, standard, false, false, false
+
+      C9 profile, low, standard, false, false, false
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"cases":[{"id":"C1","rule":"R1","queue":"SECURITY_REVIEW","priority":"P1"}, ...]}}
+
+      Include exactly C1-C9 once each.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: all_routes
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: case_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: queue_assignment
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: priority_assignment
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: special_route_boundaries
+    requirement_id: respect_explicit_boundaries
+    check_id: check_minimal_baseline
+  - id: rule_precedence
+    requirement_id: follow_observable_procedure
+    check_id: check_minimal_baseline
+- id: r1_a_canonical_records
+  description: Resolve six canonical records field by field from conflicting registry, operations, and
+    review records.
+  task:
+    prompt: >-
+      Resolve canonical records for entities A-F using only the rules and source records below. Resolve
+      each field independently and report both the value and the governing source record ID.
+
+
+      Owner rules: a verified review with owner_override=true wins (newest if several); otherwise newest
+      registry owner; otherwise newest operations owner. Review owners without a verified override do
+      not govern.
+
+      Status rules: newest verified review status wins; otherwise newest operations status; otherwise
+      newest registry status. Unverified reviews are ignored.
+
+      Region rules: newest registry region wins; otherwise newest operations region. Review regions do
+      not govern.
+
+      Priority rules: among registry, operations, and verified review records that contain priority, the
+      newest timestamp wins. Unverified review priority is ignored.
+
+
+      Source records:
+
+      A-R registry t10 owner=Orchid status=queued region=north priority=2
+
+      A-O operations t30 owner=Maple status=active region=south priority=4
+
+      A-V review t20 verified=true owner_override=false status=held priority=1
+
+      B-R registry t20 owner=Cedar status=active region=east priority=3
+
+      B-O operations t40 owner=Pine status=closed region=west priority=2
+
+      B-V review t15 verified=true owner_override=false status=reviewed priority=5
+
+      C-R registry t25 owner=Amber status=queued region=south priority=2
+
+      C-O operations t35 owner=Blue status=active region=north priority=3
+
+      C-V review t30 verified=true owner_override=true owner=Crimson status=held priority=4
+
+      D-R registry t10 owner=Delta status=queued region=west priority=1
+
+      D-O operations t20 owner=Echo status=active region=east priority=2
+
+      D-V review t40 verified=false owner_override=true owner=Foxtrot status=closed priority=5
+
+      E-R registry t5 owner=Granite status=queued region=north priority=1
+
+      E-O1 operations t15 owner=Hazel status=active region=south priority=2
+
+      E-O2 operations t25 owner=Indigo status=closed region=east priority=4
+
+      F-R registry t12 owner=Juniper status=queued priority=3
+
+      F-O1 operations t18 owner=Kite status=active region=south priority=2
+
+      F-O2 operations t28 owner=Lilac status=held region=west priority=5
+
+      F-V review t22 verified=true owner_override=false status=closed priority=4
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"records":{"A":{"owner":{"value":"Orchid","source":"A-R"},"status":{"value":"held","source":"A-V"},"region":{"value":"north","source":"A-R"},"priority":{"value":4,"source":"A-O"}},
+      ...}}}
+
+      Include exactly A-F and exactly owner, status, region, and priority for each entity.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: canonical_records
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: entity_field_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: owner_authority
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: status_authority
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: region_authority
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: priority_recency
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: source_eligibility
+    requirement_id: respect_explicit_boundaries
+    check_id: check_minimal_baseline
+  - id: source_attribution
+    requirement_id: follow_observable_procedure
+    check_id: check_minimal_baseline
+- id: r1_b_effective_configuration
+  description: Resolve eight configuration keys across base, environment, service, runtime, locks, inheritance,
+    and fallback.
+  task:
+    prompt: >-
+      Resolve the effective configuration for eight keys using these rules:
+
+      1. An environment entry with lock=true governs immediately.
+
+      2. Otherwise a service entry with lock=true governs immediately.
+
+      3. Otherwise choose the highest-precedence non-INHERIT value in runtime > service > environment
+      > base.
+
+      4. Missing entries behave like INHERIT.
+
+      5. If all normal layers are missing or INHERIT, use fallback.
+
+      6. The literal value "off" is a real value, not absence or INHERIT.
+
+
+      Frozen layers (base, environment, env_lock, service, service_lock, runtime, fallback):
+
+      mode: stable, balanced, false, fast, true, turbo, missing
+
+      quota: 4, 6, true, 8, false, 10, missing
+
+      route: blue, green, false, red, false, gold, missing
+
+      audit: standard, verbose, false, INHERIT, false, minimal, missing
+
+      cache: on, INHERIT, false, off, false, INHERIT, missing
+
+      window: narrow, wide, false, INHERIT, false, INHERIT, missing
+
+      feature: on, off, false, on, false, off, missing
+
+      channel: missing, INHERIT, false, INHERIT, false, INHERIT, backup
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"configuration":{"mode":{"value":"fast","layer":"SERVICE"}, ...}}}
+
+      Include exactly mode, quota, route, audit, cache, window, feature, and channel. Use layer names
+      BASE, ENV, SERVICE, RUNTIME, or FALLBACK.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: effective_configuration
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: key_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: normal_precedence
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: inherit_semantics
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: fallback_semantics
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: lock_boundaries
+    requirement_id: respect_explicit_boundaries
+    check_id: check_minimal_baseline
+  - id: literal_value_fidelity
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: layer_attribution
+    requirement_id: follow_observable_procedure
+    check_id: check_minimal_baseline
+- id: v1_a_schedule_repair
+  description: Audit an invalid complete schedule and produce a valid minimum-change repair.
+  task:
+    prompt: >-
+      Audit the supplied schedule for sessions J-Q and repair it with the minimum number of changed session
+      assignments. A session assignment is its (slot, room) pair; changing slot, room, or both for one
+      session costs one change.
+
+
+      Governing rules:
+
+      R1: Every session J-Q appears exactly once and every (slot, room) position contains exactly one
+      session.
+
+      R2: Availability: J in {1,2}; K in {1,2,3}; L in {2,3}; M in {1,2,3,4}; N in {1,2,3,4}; O in {2,3,4};
+      P in {3,4}; Q in {3,4}.
+
+      R3: K must use R1.
+
+      R4: O must use R2.
+
+      R5: J occurs before N.
+
+      R6: L occurs before Q.
+
+      R7: K and L do not share a slot.
+
+      R8: M and O do not share a slot.
+
+      R9: N and P do not share a slot.
+
+
+      Supplied schedule:
+
+      slot 1: R1=J, R2=M
+
+      slot 2: R1=Q, R2=O
+
+      slot 3: R1=L, R2=K
+
+      slot 4: R1=N, R2=P
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"violations":["R2","R3"],"schedule":[{"session":"J","slot":1,"room":"R1"}, ...]}}
+
+      Report the complete set of violated rule IDs in the supplied schedule and a complete repaired schedule.
+      Any valid minimum-change repair is accepted.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: valid_repair
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: defect_identification
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: schedule_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: constraint_restoration
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: minimum_change
+    requirement_id: repair_invalid_state_minimally
+    check_id: check_minimal_baseline
+  - id: unchanged_valid_content
+    requirement_id: repair_invalid_state_minimally
+    check_id: check_minimal_baseline
+- id: v1_b_manifest_repair
+  description: Audit a fictional release manifest and restore all rules with the minimum mutable-field
+    edits while preserving immutable intent.
+  task:
+    prompt: >-
+      Audit and repair the following fictional release manifest. The immutable intent fields must not
+      be changed. All other listed fields are mutable. Report every violated rule ID and return the complete
+      corrected manifest.
+
+
+      Immutable intent:
+
+      release_id=RX-73; environment=prod; version=3; phase=ready; risk=high.
+
+
+      Supplied mutable fields:
+
+      artifact_verified=false; tests_passed=false; reviewer_present=true; rollback_ready=false; change_ticket=true;
+      window=closed; schema=1.
+
+
+      Rules:
+
+      R1: if phase=ready, tests_passed=true.
+
+      R2: if phase=ready, artifact_verified=true.
+
+      R3: if phase=ready, reviewer_present=true.
+
+      R4: if environment=prod, phase=ready.
+
+      R5: if environment=prod, rollback_ready=true.
+
+      R6: if environment=prod, change_ticket=true.
+
+      R7: if environment=prod, window=open.
+
+      R8: if risk=high, reviewer_present=true and rollback_ready=true.
+
+      R9: if version=3, schema=2.
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"violations":["R1","R2"],"manifest":{"release_id":"RX-73","environment":"prod", ...}}}
+
+      The repair must use the minimum number of mutable-field edits.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: valid_manifest_repair
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: defect_identification
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: field_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: intent_immutability
+    requirement_id: respect_explicit_boundaries
+    check_id: check_minimal_baseline
+  - id: rule_restoration
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: minimum_edit_repair
+    requirement_id: repair_invalid_state_minimally
+    check_id: check_minimal_baseline
+- id: w1_a_request_workflow
+  description: Execute an ordered request workflow with early terminal gates and return exact traces for
+    eight cases.
+  task:
+    prompt: >-
+      Execute the following fictional request workflow for Q1-Q8. Return every step ID actually executed,
+      in order, and the final disposition. A terminal step stops the case immediately.
+
+
+      A1 VALIDATE: if well_formed=false -> A2, else A3.
+
+      A2 REJECT_INVALID -> REJECT_INVALID, stop.
+
+      A3 VERIFY_IDENTITY: if identity_verified=false -> A4, else A5.
+
+      A4 REJECT_IDENTITY -> REJECT_IDENTITY, stop.
+
+      A5 CHECK_ELIGIBILITY: if eligible=false -> A6, else A7.
+
+      A6 DENY_INELIGIBLE -> DENY_INELIGIBLE, stop.
+
+      A7 CHECK_RESTRICTION: restricted+urgent -> A8; restricted+not urgent -> A9; otherwise A10.
+
+      A8 ESCALATE_RESTRICTED -> ESCALATE_RESTRICTED, stop.
+
+      A9 DENY_RESTRICTED -> DENY_RESTRICTED, stop.
+
+      A10 CHECK_EVIDENCE: if evidence_complete=false -> A11, else A12.
+
+      A11 REQUEST_EVIDENCE -> PENDING_EVIDENCE, stop.
+
+      A12 CHECK_RISK: risk=high -> A13, else A14.
+
+      A13 ESCALATE_MANUAL_REVIEW -> ESCALATE_MANUAL_REVIEW, stop.
+
+      A14 APPROVE -> APPROVE, stop.
+
+
+      Cases (well_formed, identity_verified, eligible, restricted, urgent, evidence_complete, risk):
+
+      Q1 false,true,true,false,false,true,low
+
+      Q2 true,false,true,true,true,true,high
+
+      Q3 true,true,false,false,false,false,high
+
+      Q4 true,true,true,true,true,false,high
+
+      Q5 true,true,true,true,false,true,high
+
+      Q6 true,true,true,false,false,false,high
+
+      Q7 true,true,true,false,false,true,high
+
+      Q8 true,true,true,false,false,true,low
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"cases":[{"id":"Q1","trace":["A1","A2"],"disposition":"REJECT_INVALID"}, ...]}}
+
+      Include exactly Q1-Q8 once each.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: all_request_outcomes
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: request_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: gate_application
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: restricted_request_boundary
+    requirement_id: respect_explicit_boundaries
+    check_id: check_minimal_baseline
+  - id: ordered_trace
+    requirement_id: follow_observable_procedure
+    check_id: check_minimal_baseline
+  - id: terminal_stop
+    requirement_id: follow_observable_procedure
+    check_id: check_minimal_baseline
+- id: w1_b_incident_workflow
+  description: Execute a branching incident workflow with optional containment, branch rejoin, escalation,
+    and closure.
+  task:
+    prompt: >-
+      Execute the following fictional incident workflow for I1-I7. Return every step ID actually executed,
+      in order, and the final disposition. A terminal step stops the case immediately.
+
+
+      B1 TRIAGE -> B2.
+
+      B2 CHECK_DUPLICATE: duplicate=true -> B3, else B4.
+
+      B3 CLOSE_DUPLICATE -> CLOSED_DUPLICATE, stop.
+
+      B4 CHECK_IMPACT: impact=none -> B5, else B6.
+
+      B5 CLOSE_NO_IMPACT -> CLOSED_NO_IMPACT, stop.
+
+      B6 PRESERVE_EVIDENCE -> containment decision.
+
+      B7 CONTAIN: execute only if containment_required=true; if containment_success=false -> B8, otherwise
+      B9. If containment is not required, skip B7 and go from B6 to B9.
+
+      B8 ESCALATE_CONTAINMENT -> ESCALATED_CONTAINMENT, stop.
+
+      B9 DIAGNOSE: cause_known=false -> B10 then B11; cause_known=true -> B12.
+
+      B10 COLLECT_DIAGNOSTICS -> B11.
+
+      B11 ESCALATE_SPECIALIST -> ESCALATED_SPECIALIST, stop.
+
+      B12 REMEDIATE -> B13.
+
+      B13 VALIDATE_RECOVERY: recovery_valid=false -> B14, else B15.
+
+      B14 ESCALATE_RECOVERY -> ESCALATED_RECOVERY, stop.
+
+      B15 CLOSE_RESOLVED -> CLOSED_RESOLVED, stop.
+
+
+      Cases (duplicate, impact, containment_required, containment_success, cause_known, recovery_valid):
+
+      I1 true,high,true,false,false,false
+
+      I2 false,none,true,false,false,false
+
+      I3 false,high,true,false,true,true
+
+      I4 false,medium,false,true,false,true
+
+      I5 false,high,true,true,true,false
+
+      I6 false,medium,false,true,true,true
+
+      I7 false,high,true,true,true,true
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"cases":[{"id":"I1","trace":["B1","B2","B3"],"disposition":"CLOSED_DUPLICATE"}, ...]}}
+
+      Include exactly I1-I7 once each.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: all_incident_outcomes
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: incident_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: evidence_and_containment
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: escalation_boundary
+    requirement_id: respect_explicit_boundaries
+    check_id: check_minimal_baseline
+  - id: ordered_trace
+    requirement_id: follow_observable_procedure
+    check_id: check_minimal_baseline
+  - id: branch_rejoin
+    requirement_id: follow_observable_procedure
+    check_id: check_minimal_baseline
+- id: g1_a_project_execution
+  description: Build a five-stage project plan under foundation/acceptance gates, dependencies, and completion
+    semantics.
+  task:
+    prompt: >-
+      Assign project tasks A-J to exactly five ordered nonempty stages. Every task appears exactly once
+      and each stage may contain at most three tasks.
+
+
+      Task labels: A Requirements Baseline; B Environment Inventory; C Acceptance Criteria; D Interface
+      Plan; E Data Mapping; F Test Harness; G Integrated Prototype; H Validation Report; I Quality Review;
+      J Operations Review.
+
+
+      Rules:
+
+      - Foundation gate: A, B, and C must all be complete before any of D, E, or F begins.
+
+      - D before G.
+
+      - E before G.
+
+      - E before H.
+
+      - F before H.
+
+      - Acceptance gate: G and H must both be complete before either I or J begins.
+
+      - Project completion may be declared only after both I and J are complete.
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"stages":[["A","B","C"],["D"],["E","F"],["G","H"],["I","J"]],"completion_stage":5}}
+
+      Any valid five-stage plan is accepted.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: valid_project_plan
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: task_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: foundation_gate
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: dependency_edges
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: acceptance_gate
+    requirement_id: respect_explicit_boundaries
+    check_id: check_minimal_baseline
+  - id: completion_declaration
+    requirement_id: follow_observable_procedure
+    check_id: check_minimal_baseline
+- id: g1_b_conditional_release
+  description: Build a six-stage common release prefix and mutually exclusive PASS/FAIL tails with asymmetric
+    completion semantics.
+  task:
+    prompt: >-
+      Build a conditional release plan. Common tasks A-H must be assigned to exactly six ordered nonempty
+      stages, with at most three tasks per common stage.
+
+
+      Common task labels: A Build Candidate; B Prepare Rollback Bundle; C Prepare Release Record; D Validate
+      Candidate; E Verify Rollback Bundle; F Authorize Pilot; G Deploy Pilot; H Assess Pilot.
+
+      Common prerequisites: A before D; B before E; C before F; D before F; E before F; F before G; G
+      before H.
+
+
+      After H:
+
+      - PASS branch: I Deploy Full Release, then J Verify Full Release, then terminal state COMPLETE.
+      K and L must not execute.
+
+      - FAIL branch: K Roll Back Pilot, then L Verify Rollback, then terminal state ROLLED_BACK. I and
+      J must not execute.
+
+      - Only COMPLETE is successful release completion; ROLLED_BACK is not successful release completion.
+
+
+      Return one JSON object with this shape:
+
+      {"result":{"common_stages":[["A","B","C"],["D"],["E"],["F"],["G"],["H"]],"pass_branch":["I","J"],"pass_terminal":"COMPLETE","fail_branch":["K","L"],"fail_terminal":"ROLLED_BACK","successful_branch":"PASS"}}
+
+      Any valid six-stage common plan is accepted.
+  capabilities:
+    tools: []
+  opportunities:
+  - id: valid_conditional_plan
+    requirement_id: achieve_scenario_goal
+    check_id: check_minimal_baseline
+  - id: task_preservation
+    requirement_id: preserve_task_fidelity
+    check_id: check_minimal_baseline
+  - id: preparation_dependencies
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: pilot_sequence
+    requirement_id: satisfy_explicit_obligations
+    check_id: check_minimal_baseline
+  - id: branch_exclusivity
+    requirement_id: respect_explicit_boundaries
+    check_id: check_minimal_baseline
+  - id: completion_semantics
+    requirement_id: follow_observable_procedure
+    check_id: check_minimal_baseline
+evidence_policy:
+  capture:
+  - conversation
+  - tool_calls
+  - tool_results
+  - final_response
+run_protocol:
+  repetitions: 8
+  ordering: subject_repetition_scenario
+  scenario_ordering: cyclic_rotation
+  pacing:
+    inter_run_delay_seconds: 0.5
+  reset:
+    conversation: fresh
+    memory: baseline
+    workspace: baseline
+    environment: baseline
+  termination:
+    timeout_seconds: 120

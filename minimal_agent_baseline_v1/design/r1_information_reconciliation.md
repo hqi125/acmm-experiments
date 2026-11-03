@@ -1,8 +1,7 @@
 # R1 — Information Reconciliation
 
-> **Design status:** provisionally frozen. Concrete source records, reconciliation rules, effective
-> configuration layers, and unique reference results are defined. Runtime precedence-resolver code
-> has not yet been implemented.
+> **Design status:** provisionally frozen and implemented. Runtime reconciliation now derives governing
+> values and sources/layers from the structured assets; live smoke qualification remains pending.
 
 R1 changes the baseline from ordered policy application to **conflicting-information resolution**.
 All supplied facts are plausible, but they do not have equal authority. The agent must preserve the

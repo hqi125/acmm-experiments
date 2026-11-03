@@ -1,0 +1,97 @@
+{
+  "id": "p1_a_workshop_schedule",
+  "family": "p1",
+  "kind": "schedule_constraints",
+  "title": "Workshop Schedule",
+  "prompt": "Schedule workshops A through H into four time slots and rooms R1 and R2. Every workshop must appear exactly once, and each (slot, room) position must contain exactly one workshop.\n\nAllowed slots:\n- A: 1, 2, 3, 4\n- B: 1, 2\n- C: 2, 3\n- D: 1, 2, 3, 4\n- E: 1, 2, 3, 4\n- F: 1, 2, 3, 4\n- G: 3, 4\n- H: 3, 4\n\nRoom requirements:\n- C must use R2.\n- G must use R1.\n\nAdditional rules:\n- A occurs before F.\n- C occurs before E.\n- F and G must be in different slots.\n- A and C must be in different slots.\n- A and B must be in different slots.\n\nReturn one JSON object with this shape:\n{\"result\":{\"schedule\":[{\"workshop\":\"A\",\"slot\":1,\"room\":\"R1\"}, ...]}}\nThe schedule array must contain exactly one entry for each workshop A-H. Any valid schedule is accepted.\n",
+  "entities": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H"
+  ],
+  "slots": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "rooms": [
+    "R1",
+    "R2"
+  ],
+  "availability": {
+    "A": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "B": [
+      1,
+      2
+    ],
+    "C": [
+      2,
+      3
+    ],
+    "D": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "E": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "F": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "G": [
+      3,
+      4
+    ],
+    "H": [
+      3,
+      4
+    ]
+  },
+  "room_requirements": {
+    "C": "R2",
+    "G": "R1"
+  },
+  "precedence": [
+    [
+      "A",
+      "F"
+    ],
+    [
+      "C",
+      "E"
+    ]
+  ],
+  "different_slot": [
+    [
+      "F",
+      "G"
+    ],
+    [
+      "A",
+      "C"
+    ],
+    [
+      "A",
+      "B"
+    ]
+  ]
+}

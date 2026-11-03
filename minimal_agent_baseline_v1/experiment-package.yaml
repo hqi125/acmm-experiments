@@ -1,0 +1,8 @@
+schema_version: "0.1"
+experiment_id: minimal_agent_baseline_v1
+contract: experiment.yaml
+
+runtime:
+  api_version: "0.1"
+  root: runtime
+  entrypoint: build_runtime

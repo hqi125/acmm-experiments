@@ -1,7 +1,7 @@
 # P2 — Allocation
 
-> **Design status:** provisionally frozen. Concrete instances and exhaustive feasibility calibration
-> are complete. Structured scenario assets and evaluator code have not yet been implemented.
+> **Design status:** provisionally frozen and implemented. Structured scenario data and deterministic
+> runtime validation are now present; live smoke qualification remains pending.
 
 P2 tests whether an agent can maintain a globally consistent allocation while satisfying capacity,
 eligibility, coverage, and relationship rules. P2-A uses fixed group cardinality and required

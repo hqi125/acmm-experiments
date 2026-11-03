@@ -1,0 +1,18 @@
+{
+  "id": "p1_b_batch_sequence",
+  "family": "p1",
+  "kind": "sequence_constraints",
+  "title": "Batch Sequence",
+  "prompt": "Arrange batches A through I into positions 1 through 9, using every batch exactly once.\n\nRules:\n- B occurs before F.\n- C occurs immediately before H.\n- I occupies position 4 or 5.\n- Exactly one of A and D is among positions 1-3.\n- G and H have at least two intervening positions.\n- B is not in position 1.\n- A occurs before D.\n- F occurs before G.\n- E is among positions 1-3.\n\nReturn one JSON object with this shape:\n{\"result\":{\"sequence\":[\"A\",\"B\",\"C\",\"D\",\"E\",\"F\",\"G\",\"H\",\"I\"]}}\nThe sequence must contain every batch exactly once. Any valid sequence is accepted.\n",
+  "entities": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I"
+  ]
+}

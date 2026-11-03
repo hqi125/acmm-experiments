@@ -1,9 +1,9 @@
 # Minimal Agent Baseline Design Notes
 
-This directory is the living design record for `minimal_agent_baseline_v1`. It exists before the
-package is executable so experiment decisions can be reviewed and tracked in Git as they are made.
-The notes are intentionally allowed to contain provisional wording; implementation-specific language
-will be tightened when the Contract, structured scenario assets, evaluators, and tests are added.
+This directory is the living design and implementation record for `minimal_agent_baseline_v1`.
+The package is now executable, but these notes preserve the scientific reasoning behind each mind
+game and the decisions made while translating the frozen drafts into structured assets and runtime
+validators. Provisional wording can still be tightened during smoke qualification.
 
 ## Documents
 
@@ -26,7 +26,9 @@ will be tightened when the Contract, structured scenario assets, evaluators, and
 - [`g1_goal_decomposition.md`](g1_goal_decomposition.md) — concrete G1-A Project Execution and
   G1-B Conditional Release Sequence designs, including exhaustive staged-plan calibration.
 - [`design_checkpoint.md`](design_checkpoint.md) — end-of-design checkpoint summarizing the frozen
-  8-family / 16-scenario architecture before package implementation begins.
+  8-family / 16-scenario architecture before package implementation began.
+- [`implementation_checkpoint.md`](implementation_checkpoint.md) — first executable checkpoint,
+  including Contract/runtime structure, no-tool semantics, response format, and validation status.
 
 ## Design-to-implementation convention
 

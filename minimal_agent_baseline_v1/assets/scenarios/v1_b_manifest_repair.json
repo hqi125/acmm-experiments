@@ -1,0 +1,24 @@
+{
+  "id": "v1_b_manifest_repair",
+  "family": "v1",
+  "kind": "manifest_repair",
+  "title": "Manifest Repair",
+  "prompt": "Audit and repair the following fictional release manifest. The immutable intent fields must not be changed. All other listed fields are mutable. Report every violated rule ID and return the complete corrected manifest.\n\nImmutable intent:\nrelease_id=RX-73; environment=prod; version=3; phase=ready; risk=high.\n\nSupplied mutable fields:\nartifact_verified=false; tests_passed=false; reviewer_present=true; rollback_ready=false; change_ticket=true; window=closed; schema=1.\n\nRules:\nR1: if phase=ready, tests_passed=true.\nR2: if phase=ready, artifact_verified=true.\nR3: if phase=ready, reviewer_present=true.\nR4: if environment=prod, phase=ready.\nR5: if environment=prod, rollback_ready=true.\nR6: if environment=prod, change_ticket=true.\nR7: if environment=prod, window=open.\nR8: if risk=high, reviewer_present=true and rollback_ready=true.\nR9: if version=3, schema=2.\n\nReturn one JSON object with this shape:\n{\"result\":{\"violations\":[\"R1\",\"R2\"],\"manifest\":{\"release_id\":\"RX-73\",\"environment\":\"prod\", ...}}}\nThe repair must use the minimum number of mutable-field edits.\n",
+  "immutable": {
+    "release_id": "RX-73",
+    "environment": "prod",
+    "version": 3,
+    "phase": "ready",
+    "risk": "high"
+  },
+  "mutable": {
+    "artifact_verified": false,
+    "tests_passed": false,
+    "reviewer_present": true,
+    "rollback_ready": false,
+    "change_ticket": true,
+    "window": "closed",
+    "schema": 1
+  },
+  "minimum_changes": 5
+}

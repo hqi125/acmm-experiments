@@ -1,7 +1,7 @@
 # S1 — Ordered State Transformation
 
-> **Design status:** provisionally frozen. Concrete initial states, event sequences, reference traces,
-> and final states are defined. Runtime state-interpreter code has not yet been implemented.
+> **Design status:** provisionally frozen and implemented. The runtime now derives reference traces and
+> final states from the structured event assets; live smoke qualification remains pending.
 
 S1 changes the experiment from constructive search to deterministic state evolution. Each variant has
 one correct final state. The agent must process events in the supplied order, evaluate each event's

@@ -1,8 +1,7 @@
 # V1 — Audit and Correction
 
-> **Design status:** provisionally frozen. Concrete invalid artifacts, governing rules, seeded
-> violations, minimum-repair calibration, and reference repairs are defined. Runtime repair-validator
-> code has not yet been implemented.
+> **Design status:** provisionally frozen and implemented. Runtime validation now recomputes defects,
+> final validity, protected intent, and repair distance from structured assets; live smoke qualification remains pending.
 
 V1 is the first family in the Minimal Agent Baseline where the supplied artifact is intentionally
 invalid. The agent must do two things: diagnose what is wrong and produce a corrected artifact

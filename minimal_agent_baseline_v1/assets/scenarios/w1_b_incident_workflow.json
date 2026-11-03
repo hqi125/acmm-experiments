@@ -1,0 +1,99 @@
+{
+  "id": "w1_b_incident_workflow",
+  "family": "w1",
+  "kind": "workflow_cases",
+  "title": "Incident Workflow",
+  "prompt": "Execute the following fictional incident workflow for I1-I7. Return every step ID actually executed, in order, and the final disposition. A terminal step stops the case immediately.\n\nB1 TRIAGE -> B2.\nB2 CHECK_DUPLICATE: duplicate=true -> B3, else B4.\nB3 CLOSE_DUPLICATE -> CLOSED_DUPLICATE, stop.\nB4 CHECK_IMPACT: impact=none -> B5, else B6.\nB5 CLOSE_NO_IMPACT -> CLOSED_NO_IMPACT, stop.\nB6 PRESERVE_EVIDENCE -> containment decision.\nB7 CONTAIN: execute only if containment_required=true; if containment_success=false -> B8, otherwise B9. If containment is not required, skip B7 and go from B6 to B9.\nB8 ESCALATE_CONTAINMENT -> ESCALATED_CONTAINMENT, stop.\nB9 DIAGNOSE: cause_known=false -> B10 then B11; cause_known=true -> B12.\nB10 COLLECT_DIAGNOSTICS -> B11.\nB11 ESCALATE_SPECIALIST -> ESCALATED_SPECIALIST, stop.\nB12 REMEDIATE -> B13.\nB13 VALIDATE_RECOVERY: recovery_valid=false -> B14, else B15.\nB14 ESCALATE_RECOVERY -> ESCALATED_RECOVERY, stop.\nB15 CLOSE_RESOLVED -> CLOSED_RESOLVED, stop.\n\nCases (duplicate, impact, containment_required, containment_success, cause_known, recovery_valid):\nI1 true,high,true,false,false,false\nI2 false,none,true,false,false,false\nI3 false,high,true,false,true,true\nI4 false,medium,false,true,false,true\nI5 false,high,true,true,true,false\nI6 false,medium,false,true,true,true\nI7 false,high,true,true,true,true\n\nReturn one JSON object with this shape:\n{\"result\":{\"cases\":[{\"id\":\"I1\",\"trace\":[\"B1\",\"B2\",\"B3\"],\"disposition\":\"CLOSED_DUPLICATE\"}, ...]}}\nInclude exactly I1-I7 once each.\n",
+  "expected": {
+    "I1": {
+      "trace": [
+        "B1",
+        "B2",
+        "B3"
+      ],
+      "disposition": "CLOSED_DUPLICATE"
+    },
+    "I2": {
+      "trace": [
+        "B1",
+        "B2",
+        "B4",
+        "B5"
+      ],
+      "disposition": "CLOSED_NO_IMPACT"
+    },
+    "I3": {
+      "trace": [
+        "B1",
+        "B2",
+        "B4",
+        "B6",
+        "B7",
+        "B8"
+      ],
+      "disposition": "ESCALATED_CONTAINMENT"
+    },
+    "I4": {
+      "trace": [
+        "B1",
+        "B2",
+        "B4",
+        "B6",
+        "B9",
+        "B10",
+        "B11"
+      ],
+      "disposition": "ESCALATED_SPECIALIST"
+    },
+    "I5": {
+      "trace": [
+        "B1",
+        "B2",
+        "B4",
+        "B6",
+        "B7",
+        "B9",
+        "B12",
+        "B13",
+        "B14"
+      ],
+      "disposition": "ESCALATED_RECOVERY"
+    },
+    "I6": {
+      "trace": [
+        "B1",
+        "B2",
+        "B4",
+        "B6",
+        "B9",
+        "B12",
+        "B13",
+        "B15"
+      ],
+      "disposition": "CLOSED_RESOLVED"
+    },
+    "I7": {
+      "trace": [
+        "B1",
+        "B2",
+        "B4",
+        "B6",
+        "B7",
+        "B9",
+        "B12",
+        "B13",
+        "B15"
+      ],
+      "disposition": "CLOSED_RESOLVED"
+    }
+  },
+  "containment_required_cases": [
+    "I3",
+    "I5",
+    "I7"
+  ],
+  "containment_skipped_cases": [
+    "I4",
+    "I6"
+  ]
+}

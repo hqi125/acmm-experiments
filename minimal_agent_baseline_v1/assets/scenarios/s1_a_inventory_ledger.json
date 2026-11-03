@@ -1,0 +1,97 @@
+{
+  "id": "s1_a_inventory_ledger",
+  "family": "s1",
+  "kind": "inventory_state",
+  "title": "Inventory Ledger",
+  "prompt": "Process the following inventory events in order. Each record has stock and reserved quantities; available = stock - reserved. A skipped event has no effect.\n\nInitial state:\nA stock=7 reserved=2; B stock=5 reserved=1; C stock=4 reserved=0;\nD stock=6 reserved=3; E stock=3 reserved=1; F stock=8 reserved=2.\n\nOperation rules:\n- receive(X,n): always applies; stock += n.\n- reserve(X,n): applies only if available >= n; reserved += n.\n- release(X,n): applies only if reserved >= n; reserved -= n.\n- ship(X,n): applies only if reserved >= n; reserved -= n and stock -= n.\n- transfer_available(X,Y,n): applies only if X.available >= n; X.stock -= n and Y.stock += n. Reserved quantities do not move.\n\nEvents:\nE1 reserve(A,4)\nE2 transfer_available(A,C,2)\nE3 release(D,2)\nE4 ship(B,2)\nE5 receive(E,3)\nE6 reserve(E,4)\nE7 ship(A,3)\nE8 transfer_available(C,F,3)\nE9 release(E,2)\nE10 reserve(F,8)\n\nReturn one JSON object with this shape:\n{\"result\":{\"events\":[{\"id\":\"E1\",\"status\":\"applied\"}, ...],\"final_state\":{\"A\":{\"stock\":0,\"reserved\":0}, ...}}}\nInclude E1-E10 in order and exactly records A-F in final_state. Use status \"applied\" or \"skipped\".\n",
+  "initial_state": {
+    "A": {
+      "stock": 7,
+      "reserved": 2
+    },
+    "B": {
+      "stock": 5,
+      "reserved": 1
+    },
+    "C": {
+      "stock": 4,
+      "reserved": 0
+    },
+    "D": {
+      "stock": 6,
+      "reserved": 3
+    },
+    "E": {
+      "stock": 3,
+      "reserved": 1
+    },
+    "F": {
+      "stock": 8,
+      "reserved": 2
+    }
+  },
+  "events": [
+    {
+      "id": "E1",
+      "op": "reserve",
+      "record": "A",
+      "amount": 4
+    },
+    {
+      "id": "E2",
+      "op": "transfer_available",
+      "source": "A",
+      "target": "C",
+      "amount": 2
+    },
+    {
+      "id": "E3",
+      "op": "release",
+      "record": "D",
+      "amount": 2
+    },
+    {
+      "id": "E4",
+      "op": "ship",
+      "record": "B",
+      "amount": 2
+    },
+    {
+      "id": "E5",
+      "op": "receive",
+      "record": "E",
+      "amount": 3
+    },
+    {
+      "id": "E6",
+      "op": "reserve",
+      "record": "E",
+      "amount": 4
+    },
+    {
+      "id": "E7",
+      "op": "ship",
+      "record": "A",
+      "amount": 3
+    },
+    {
+      "id": "E8",
+      "op": "transfer_available",
+      "source": "C",
+      "target": "F",
+      "amount": 3
+    },
+    {
+      "id": "E9",
+      "op": "release",
+      "record": "E",
+      "amount": 2
+    },
+    {
+      "id": "E10",
+      "op": "reserve",
+      "record": "F",
+      "amount": 8
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "id": "p2_a_project_staffing",
+  "family": "p2",
+  "kind": "group_allocation",
+  "title": "Project Staffing",
+  "prompt": "Assign specialists A through I to projects X, Y, and Z. Each specialist must be assigned exactly once, and each project must receive exactly three specialists.\n\nEligibility:\n- A: X or Y\n- B: X or Z\n- C: Y or Z\n- D, E, F, G, H, I: X, Y, or Z\n\nCoverage requirements:\n- X must contain at least one of A, D, G.\n- Y must contain at least one of C, E, H.\n- Z must contain at least one of B, F, I.\n\nRelationship rules:\n- D and H must be assigned to the same project.\n- E and G must be assigned to different projects.\n- F and I must be assigned to different projects.\n- A and B must be assigned to different projects.\n\nReturn one JSON object with this shape:\n{\"result\":{\"assignments\":{\"A\":\"X\",\"B\":\"Z\", ...}}}\nInclude exactly one project for every specialist A-I. Any valid allocation is accepted.\n",
+  "entities": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I"
+  ],
+  "groups": [
+    "X",
+    "Y",
+    "Z"
+  ],
+  "group_size": 3,
+  "eligibility": {
+    "A": [
+      "X",
+      "Y"
+    ],
+    "B": [
+      "X",
+      "Z"
+    ],
+    "C": [
+      "Y",
+      "Z"
+    ],
+    "D": [
+      "X",
+      "Y",
+      "Z"
+    ],
+    "E": [
+      "X",
+      "Y",
+      "Z"
+    ],
+    "F": [
+      "X",
+      "Y",
+      "Z"
+    ],
+    "G": [
+      "X",
+      "Y",
+      "Z"
+    ],
+    "H": [
+      "X",
+      "Y",
+      "Z"
+    ],
+    "I": [
+      "X",
+      "Y",
+      "Z"
+    ]
+  },
+  "coverage": {
+    "X": [
+      "A",
+      "D",
+      "G"
+    ],
+    "Y": [
+      "C",
+      "E",
+      "H"
+    ],
+    "Z": [
+      "B",
+      "F",
+      "I"
+    ]
+  },
+  "same_group": [
+    [
+      "D",
+      "H"
+    ]
+  ],
+  "different_group": [
+    [
+      "E",
+      "G"
+    ],
+    [
+      "F",
+      "I"
+    ],
+    [
+      "A",
+      "B"
+    ]
+  ]
+}

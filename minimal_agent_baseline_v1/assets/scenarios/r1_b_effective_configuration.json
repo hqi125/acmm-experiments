@@ -1,0 +1,73 @@
+{
+  "id": "r1_b_effective_configuration",
+  "family": "r1",
+  "kind": "configuration_reconciliation",
+  "title": "Effective Configuration",
+  "prompt": "Resolve the effective configuration for eight keys using these rules:\n1. An environment entry with lock=true governs immediately.\n2. Otherwise a service entry with lock=true governs immediately.\n3. Otherwise choose the highest-precedence non-INHERIT value in runtime > service > environment > base.\n4. Missing entries behave like INHERIT.\n5. If all normal layers are missing or INHERIT, use fallback.\n6. The literal value \"off\" is a real value, not absence or INHERIT.\n\nFrozen layers (base, environment, env_lock, service, service_lock, runtime, fallback):\nmode: stable, balanced, false, fast, true, turbo, missing\nquota: 4, 6, true, 8, false, 10, missing\nroute: blue, green, false, red, false, gold, missing\naudit: standard, verbose, false, INHERIT, false, minimal, missing\ncache: on, INHERIT, false, off, false, INHERIT, missing\nwindow: narrow, wide, false, INHERIT, false, INHERIT, missing\nfeature: on, off, false, on, false, off, missing\nchannel: missing, INHERIT, false, INHERIT, false, INHERIT, backup\n\nReturn one JSON object with this shape:\n{\"result\":{\"configuration\":{\"mode\":{\"value\":\"fast\",\"layer\":\"SERVICE\"}, ...}}}\nInclude exactly mode, quota, route, audit, cache, window, feature, and channel. Use layer names BASE, ENV, SERVICE, RUNTIME, or FALLBACK.\n",
+  "keys": {
+    "mode": {
+      "base": "stable",
+      "environment": "balanced",
+      "env_lock": false,
+      "service": "fast",
+      "service_lock": true,
+      "runtime": "turbo"
+    },
+    "quota": {
+      "base": 4,
+      "environment": 6,
+      "env_lock": true,
+      "service": 8,
+      "service_lock": false,
+      "runtime": 10
+    },
+    "route": {
+      "base": "blue",
+      "environment": "green",
+      "env_lock": false,
+      "service": "red",
+      "service_lock": false,
+      "runtime": "gold"
+    },
+    "audit": {
+      "base": "standard",
+      "environment": "verbose",
+      "env_lock": false,
+      "service": "INHERIT",
+      "service_lock": false,
+      "runtime": "minimal"
+    },
+    "cache": {
+      "base": "on",
+      "environment": "INHERIT",
+      "env_lock": false,
+      "service": "off",
+      "service_lock": false,
+      "runtime": "INHERIT"
+    },
+    "window": {
+      "base": "narrow",
+      "environment": "wide",
+      "env_lock": false,
+      "service": "INHERIT",
+      "service_lock": false,
+      "runtime": "INHERIT"
+    },
+    "feature": {
+      "base": "on",
+      "environment": "off",
+      "env_lock": false,
+      "service": "on",
+      "service_lock": false,
+      "runtime": "off"
+    },
+    "channel": {
+      "environment": "INHERIT",
+      "env_lock": false,
+      "service": "INHERIT",
+      "service_lock": false,
+      "runtime": "INHERIT",
+      "fallback": "backup"
+    }
+  }
+}

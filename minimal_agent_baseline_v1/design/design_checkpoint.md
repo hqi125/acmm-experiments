@@ -1,9 +1,9 @@
 # Minimal Agent Baseline — End-of-Design Checkpoint
 
 This checkpoint closes the conceptual scenario-design phase for `minimal_agent_baseline_v1`.
-All eight task families now have two concrete independently authored variants. The experiment remains
-**design-only** at this checkpoint: no Contract, runtime evaluator implementation, or executable
-package manifest has been populated yet.
+All eight task families have two concrete independently authored variants. This document records the
+end-of-design state; package implementation has since begun and the first executable Contract/runtime
+checkpoint is documented in [`implementation_checkpoint.md`](implementation_checkpoint.md).
 
 ## Frozen-draft scale
 
@@ -72,18 +72,17 @@ This asymmetry is intentional and should be preserved during implementation.
 
 ## Implementation transition
 
-The next phase should convert the design into executable package artifacts in a controlled order:
+The implementation phase was planned to convert the design into executable package artifacts in a controlled order:
 
-1. define the package/Contract skeleton and all 16 stable scenario IDs;
+1. define the package/Contract skeleton and all 16 stable scenario IDs; **implemented**
 2. introduce structured package-owned scenario assets rather than embedding evaluator state in
-   environment configuration;
-3. implement the reusable evaluator families established during design;
-4. render or validate Contract prompts against those structured assets so prompt and evaluator rules
-   cannot silently diverge;
-5. populate natural ACMM opportunities and checks;
-6. add exhaustive/reference tests for every calibration claim recorded in the pair notes;
-7. add package validation/integration tests against the current ACMM Core API;
-8. perform small engineering smoke runs before the planned 384-run acquisition.
+   environment configuration; **implemented**
+3. implement the reusable evaluator families established during design; **implemented in the first runtime pass**
+4. keep Contract prompts aligned with those structured assets; **implemented manually for this checkpoint**
+5. populate natural ACMM opportunities and checks; **implemented**
+6. validate the documented calibration claims and targeted wrong-answer behavior; **manual hardening remains**
+7. validate package/runtime integration against current ACMM Core; **implemented for the first checkpoint**
+8. perform small engineering smoke runs before the planned 384-run acquisition; **next execution milestone**
 
 The smoke runs are engineering validation only. They should not quietly replace or reduce the
 scientific acquisition target unless the frozen design itself is formally revised with justification.
@@ -94,7 +93,8 @@ The earlier repository audit found that the Experiment Package model supports a 
 but the current execution adapters still contain tool-bearing assumptions: Open WebUI and Agent Zero
 expect experiment tool configuration, while Hermes currently requests the `acmm` toolset. Before the
 baseline is executed, Core should gain a clean no-tool adapter path rather than giving this package a
-dummy tool or fake apparatus.
+dummy tool or fake apparatus. The paired Core working copy now contains that generic adapter change;
+full regression and live smoke qualification remain before freeze.
 
 That infrastructure fix is intentionally outside the scientific scenario design and should remain a
 generic Core capability.

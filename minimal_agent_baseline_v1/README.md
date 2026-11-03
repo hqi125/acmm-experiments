@@ -1,8 +1,8 @@
 # Minimal Agent Baseline
 
-> **Status:** design draft. This directory is not yet an executable Experiment Package. The
-> Contract, runtime, evaluators, and package manifest will be added after the scenario design is
-> frozen.
+> **Status:** executable implementation draft. The 16-scenario Contract, package manifest, structured
+> scenario assets, and deterministic runtime evaluator are implemented and pass Core package/runtime
+> validation. Live agent smoke execution and final acquisition qualification remain pending.
 
 `minimal_agent_baseline_v1` is the first experiment in the reworked ACMM research roadmap. It
 establishes a statistically mature, tool-free reference baseline for the three qualified agent
@@ -127,9 +127,9 @@ while overall difficulty remains comparable.
 | G1-B | Goal decomposition | Conditional Release Sequence | Build a shared release prefix plus mutually exclusive pass/fail branches |
 
 Detailed design notes live under [`design/`](design/README.md). All eight families — P1, P2, S1,
-D1, R1, V1, W1, and G1 — now have concrete frozen-draft instances and calibration results. The
-scenario-design phase is complete; the next phase is to translate the frozen drafts into structured
-scenario assets, Contract entries, deterministic evaluators, and package tests.
+D1, R1, V1, W1, and G1 — have concrete frozen-draft instances and calibration results. The current
+implementation translates all sixteen designs into `assets/scenarios/*.json`, `experiment.yaml`, and
+a package runtime that evaluates every declared opportunity deterministically.
 
 ## Common task-design rules
 
@@ -151,8 +151,9 @@ overall difficulty so that family effects are not confounded with a deliberately
 
 ## Evaluation direction
 
-The current design expects a small set of reusable evaluator families backed by scenario-specific
-structured data rather than sixteen unrelated evaluator programs. The working families are:
+The executable runtime uses one public evaluator entrypoint (`minimal_baseline`) backed by narrow
+scenario-specific validator modes and package-owned structured data rather than sixteen unrelated
+evaluator programs. The conceptual validator families remain:
 
 | Evaluator family | Primary scenarios | Purpose |
 | --- | --- | --- |
@@ -163,14 +164,14 @@ structured data rather than sixteen unrelated evaluator programs. The working fa
 | Repair validator | V1 | Detect invalidity, validate repaired artifacts, and measure edit cost |
 | Workflow/dependency validator | W1, G1 | Validate traces, dependencies, gates, and legitimate completion |
 
-Structured scenario assets should be package-owned and should drive prompt/evaluator consistency.
-The scientific task data should not be stuffed into generic environment configuration merely because
-that mapping accepts arbitrary keys.
+Structured scenario assets are package-owned under `assets/scenarios/`; scientific task data is not
+stuffed into generic environment configuration. The Contract explicitly declares `capabilities.tools: []`
+for every scenario, so Core can select the no-experiment-tool execution path without dummy apparatus.
 
-Package tests should eventually check, where applicable, that a scenario is solvable, declared rules
-are nonredundant, prompt text faithfully represents the structured specification, reference
-solutions pass, known invalid solutions fail for the expected reasons, and evaluator behavior is
-stable under harmless output formatting differences.
+For the first implementation checkpoint, validation is being performed collaboratively and manually
+rather than by adding package-local test files. Core package validation, staged runtime activation,
+and an end-to-end reference-answer sweep across every declared opportunity are used as immediate
+implementation checks. Automated package tests may still be added later if they become useful.
 
 ## Current design checkpoint
 
@@ -194,3 +195,23 @@ All eight pairs are provisionally frozen at the design level:
 The scenario-design phase is therefore complete. See
 [`design/design_checkpoint.md`](design/design_checkpoint.md) for the cross-family checkpoint and
 implementation transition.
+
+## Implementation checkpoint
+
+The first executable checkpoint contains:
+
+- `experiment-package.yaml` with runtime API `0.1` and no apparatus declaration;
+- `experiment.yaml` with the three qualified `gpt_oss_120b_cloud_v1` subjects, all 16 stable
+  scenarios, 8 repetitions, cyclic scenario rotation, and 384 planned executions;
+- explicit empty experiment-tool capability lists on every scenario;
+- one JSON scenario asset per frozen task under `assets/scenarios/`;
+- `runtime/` with JSON response parsing, scenario asset loading, deterministic state/reference
+  interpreters, and opportunity validators for all eight task families.
+
+The Contract uses six experiment-level ACMM requirements — one for each G/O/B/P/F/R dimension —
+while scenario-local opportunities provide the diagnostic resolution. All opportunities reference one
+package evaluator entrypoint; the evaluator uses the scenario ID and opportunity ID to select the
+appropriate deterministic check.
+
+See [`design/implementation_checkpoint.md`](design/implementation_checkpoint.md) for the concrete
+design-to-code decisions and current validation status.

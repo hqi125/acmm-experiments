@@ -1,0 +1,112 @@
+{
+  "id": "p2_b_storage_zones",
+  "family": "p2",
+  "kind": "weighted_allocation",
+  "title": "Storage Zones",
+  "prompt": "Place cargo units A through J into storage zones W, X, Y, and Z. Each unit must be placed exactly once. All labels are fictional; use only the rules below.\n\nUnit loads: A=2, B=2, C=3, D=1, E=2, F=1, G=3, H=2, I=1, J=1.\nZone capacities: W=5, X=4, Y=5, Z=6.\n\nAllowed zones:\n- A: W, X\n- B: Y, Z\n- C: W, Y\n- D: W, X, Y, Z\n- E: X, Z\n- F: W, Y, Z\n- G: Y, Z\n- H: W, X, Y\n- I: X, Y, Z\n- J: W, X, Y, Z\n\nRelationship rules:\n- C and D must be in the same zone.\n- A and H must be in different zones.\n- E and J must be in different zones.\n- F and G must be in different zones.\n\nReturn one JSON object with this shape:\n{\"result\":{\"placements\":{\"A\":\"W\",\"B\":\"Z\", ...}}}\nInclude exactly one zone for every unit A-J. Any valid placement is accepted.\n",
+  "entities": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J"
+  ],
+  "groups": [
+    "W",
+    "X",
+    "Y",
+    "Z"
+  ],
+  "loads": {
+    "A": 2,
+    "B": 2,
+    "C": 3,
+    "D": 1,
+    "E": 2,
+    "F": 1,
+    "G": 3,
+    "H": 2,
+    "I": 1,
+    "J": 1
+  },
+  "capacities": {
+    "W": 5,
+    "X": 4,
+    "Y": 5,
+    "Z": 6
+  },
+  "eligibility": {
+    "A": [
+      "W",
+      "X"
+    ],
+    "B": [
+      "Y",
+      "Z"
+    ],
+    "C": [
+      "W",
+      "Y"
+    ],
+    "D": [
+      "W",
+      "X",
+      "Y",
+      "Z"
+    ],
+    "E": [
+      "X",
+      "Z"
+    ],
+    "F": [
+      "W",
+      "Y",
+      "Z"
+    ],
+    "G": [
+      "Y",
+      "Z"
+    ],
+    "H": [
+      "W",
+      "X",
+      "Y"
+    ],
+    "I": [
+      "X",
+      "Y",
+      "Z"
+    ],
+    "J": [
+      "W",
+      "X",
+      "Y",
+      "Z"
+    ]
+  },
+  "same_group": [
+    [
+      "C",
+      "D"
+    ]
+  ],
+  "different_group": [
+    [
+      "A",
+      "H"
+    ],
+    [
+      "E",
+      "J"
+    ],
+    [
+      "F",
+      "G"
+    ]
+  ]
+}
