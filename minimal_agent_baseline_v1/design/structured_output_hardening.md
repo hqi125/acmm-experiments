@@ -45,34 +45,30 @@ content is scientifically correct. The ordinary scenario validators still decide
 
 ## Core recovery policy
 
-Structured-output recovery is now implemented as a generic Core Experiment API primitive rather than
-an Agent Zero or Minimal Agent Baseline workaround. Packages call `decode_json_object_text()` with
-required root keys. Recovery is ordered by conservatism and is bounded to syntax-only presentation
-artifacts:
+Structured-output recovery is now implemented as a generic Core interpretation primitive rather than an Agent Zero or Minimal Agent Baseline workaround. Contract v0.2 declares the evidence channel, payload path, and required payload keys; Core performs recovery before the package evaluator runs. Recovery is ordered by conservatism and is bounded to syntax-only presentation artifacts:
 
 1. exact/embedded valid JSON object extraction;
 2. one JSON-string wrapper;
 3. missing trailing delimiter completion;
 4. trailing comma removal;
 5. duplicated property-opening quote repair; and
-6. one escaped structural-quote layer when less invasive recovery does not succeed.
+6. up to three escaped structural-quote layers when less invasive recovery does not succeed.
 
 The decoder never mutates persisted evidence and exposes the normalization modes used. Required keys
 prevent a malformed outer response from degrading into a valid but unrelated nested row object.
 
-The Minimal Agent Baseline evaluator records any normalization mode in judgment detail. This makes
-format quality auditable separately from task correctness without introducing a new scientific
-opportunity or changing the frozen Contract.
+Core records any normalization mode in judgment detail for judgments that cite the interpreted evidence. This makes format quality auditable separately from task correctness without introducing a new scientific opportunity. Contract v0.2 now also binds the structured payload and applies declared scalar representation semantics before the package evaluator runs; the package no longer reparses raw evidence itself.
 
 ## What this correction does not do
 
-This pass intentionally does **not** perform semantic coercion. For example, the R1-B question of
-whether configuration value `6` and string `"6"` are equivalent is a scenario-specific semantic
-policy and should be handled separately from JSON syntax recovery. Likewise, the parser does not
-invent omitted fields, repair arbitrary prose, or reinterpret genuinely contradictory task content.
+This pass intentionally does **not** perform semantic coercion. R1-B's narrow numeric representation
+policy is now declared in Contract v0.2 at `result.configuration.quota.value`: the field is semantic
+`integer` and explicitly accepts both native JSON and `canonical_string` serialization. The package
+evaluator applies Core's public semantic-scalar comparator, while structured-output syntax recovery
+remains separate. Boolean values and symbolic configuration/layer values remain strict. Likewise, the parser
+does not invent omitted fields, repair arbitrary prose, or reinterpret genuinely contradictory task
+content.
 
 ## Re-adjudication implication
 
-The original 384 trajectories should be preserved and re-adjudicated under the corrected package
-runtime once the generic provenance-preserving re-adjudication workflow is available. No new model
-acquisition is justified by the structured-output issue alone.
+Historical trajectories remain immutable and can be replayed through the same deterministic interpretation/adjudication pipeline when qualification requires it. New acquisitions are judged once through the Contract-directed path; no permanent second adjudication layer is introduced.

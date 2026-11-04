@@ -10,6 +10,7 @@ def validate_opportunity(
     spec: dict[str, Any],
     opportunity_id: str,
     result: dict[str, Any],
+    scenario: dict[str, Any] | None = None,
 ) -> tuple[bool, str]:
     kind = spec.get("kind")
     validators = {
@@ -31,6 +32,13 @@ def validate_opportunity(
     validator = validators.get(kind)
     if validator is None:
         raise ValueError(f"Unsupported Minimal Agent Baseline scenario kind: {kind!r}")
+    if kind == "configuration_reconciliation":
+        return _validate_configuration_reconciliation(
+            spec,
+            opportunity_id,
+            result,
+            scenario or {},
+        )
     return validator(spec, opportunity_id, result)
 
 
@@ -664,7 +672,10 @@ def _configuration_reference(spec: dict[str, Any]) -> dict[str, tuple[Any, str]]
 
 
 def _validate_configuration_reconciliation(
-    spec: dict[str, Any], opportunity: str, result: dict[str, Any]
+    spec: dict[str, Any],
+    opportunity: str,
+    result: dict[str, Any],
+    scenario: dict[str, Any],
 ) -> tuple[bool, str]:
     expected = _configuration_reference(spec)
     returned_raw = result.get("configuration")
@@ -673,7 +684,13 @@ def _validate_configuration_reconciliation(
     preservation = set(returned) == set(expected) and all(isinstance(returned[k], dict) for k in expected)
 
     def values(keys: list[str]) -> bool:
-        return preservation and all(scalar_equal(returned[k].get("value"), expected[k][0]) for k in keys)
+        return preservation and all(
+            scalar_equal(
+                returned[k].get("value"),
+                expected[k][0],
+            )
+            for k in keys
+        )
 
     layers = preservation and all(
         normalized_symbol(returned[k].get("layer")) == expected[k][1]

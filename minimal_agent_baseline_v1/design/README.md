@@ -30,7 +30,7 @@ validators. Provisional wording can still be tightened during smoke qualificatio
 - [`implementation_checkpoint.md`](implementation_checkpoint.md) — first executable checkpoint,
   including Contract/runtime structure, no-tool semantics, response format, and validation status.
 - [`structured_output_hardening.md`](structured_output_hardening.md) — post-acquisition JSON
-  presentation-noise audit, generic Core recovery policy, and re-adjudication implications.
+  presentation-noise audit, generic Core recovery policy, and final Contract-directed interpretation path.
 
 ## Design-to-implementation convention
 
@@ -48,3 +48,5 @@ Each pair should move through the same sequence:
 For constructive tasks, the evaluator must accept any valid solution rather than compare against one
 canonical answer. For unique-result tasks, the reference interpreter should derive the result from
 frozen scenario data rather than hard-code an answer string.
+
+- [`output_semantics_v0_2.md`](output_semantics_v0_2.md) records the Contract v0.2 migration that moves R1-B scalar representation tolerance into an explicit, auditable declaration.

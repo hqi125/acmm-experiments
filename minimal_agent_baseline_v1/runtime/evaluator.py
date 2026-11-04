@@ -5,10 +5,8 @@ from typing import Any
 from acmm.experiment_api import (
     evaluation_context,
     judgment_result,
-    load_text_evidence,
 )
 
-from .parsing import load_result_object
 from .validators import validate_opportunity
 
 
@@ -31,26 +29,25 @@ class minimal_baseline_evaluator:
         if not isinstance(opportunity_id, str) or not opportunity_id:
             raise ValueError("Minimal Agent Baseline opportunity has no valid id.")
 
-        response_text = load_text_evidence(context.evidence, "final_response")
-        parsed = load_result_object(response_text, self._scenarios[scenario_id]["kind"])
-        if parsed is None:
+        interpreted = context.interpreted_evidence.get("final_response")
+        if interpreted is None or interpreted.payload is None:
+            error = (
+                interpreted.error
+                if interpreted is not None and interpreted.error
+                else "The final response has no Contract-interpreted structured payload."
+            )
             return judgment_result(
                 outcome="violation",
                 evidence_ids=("final_response",),
-                detail="The final response did not contain a readable JSON result object.",
+                detail=error,
             )
 
         compliant, detail = validate_opportunity(
             self._scenarios[scenario_id],
             opportunity_id,
-            parsed.value,
+            interpreted.payload,
+            context.scenario,
         )
-
-        if parsed.normalizations:
-            detail = (
-                f"{detail} Structured-output normalization: "
-                f"{', '.join(parsed.normalizations)}."
-            )
 
         return judgment_result(
             outcome="compliant" if compliant else "violation",

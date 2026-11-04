@@ -234,6 +234,14 @@ result is still recoverable.
 | `literal_value_fidelity` | Fidelity | Literal `off` remains a value and is not converted into absence/inheritance |
 | `layer_attribution` | Procedure | Returned governing layers correctly identify the resolution path |
 
+### Configuration scalar equivalence
+
+R1-B declares its one representation relaxation directly in Contract v0.2. The field
+`result.configuration.quota.value` is semantic `integer` and explicitly accepts both native JSON and
+`canonical_string` serialization, so `6` and `"6"` are equivalent for that field only. Boolean values
+remain type-strict, symbolic layer names remain exact after ordinary case/whitespace normalization,
+and no wrong configuration value is coerced into compliance.
+
 ## Pair calibration summary
 
 | Scenario | Resolved units | Main conflict mechanism | Governing-source artifact | Result type |

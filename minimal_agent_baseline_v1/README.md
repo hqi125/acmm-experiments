@@ -2,7 +2,7 @@
 
 > **Status:** full 384-run acquisition complete; post-acquisition evaluator hardening in progress.
 > Execution availability was clean, and the raw trajectories are retained. Structured-output JSON
-> presentation tolerance has been hardened before final re-adjudication and analysis freeze.
+> presentation tolerance is now integrated into the normal Contract-directed interpretation/adjudication path before final acquisition and analysis freeze.
 
 `minimal_agent_baseline_v1` is the first experiment in the reworked ACMM research roadmap. It
 establishes a statistically mature minimal native-agent reference baseline with no experiment-provided
@@ -167,6 +167,11 @@ evaluator programs. The conceptual validator families remain:
 Structured scenario assets are package-owned under `assets/scenarios/`; scientific task data is not
 stuffed into generic environment configuration. The Contract explicitly declares `capabilities.tools: []`
 for every scenario, so Core can select the no-experiment-tool execution path without dummy apparatus.
+
+The Contract now uses schema v0.2 so representation tolerance can be declared as experiment intent rather
+than hidden inside evaluator code. R1-B declares only `result.configuration.quota.value` as semantic
+`integer` with both native JSON and `canonical_string` serialization accepted. All undeclared fields keep
+their existing strict/package-specific semantics.
 
 For the first implementation checkpoint, validation is being performed collaboratively and manually
 rather than by adding package-local test files. Core package validation, staged runtime activation,

@@ -1,9 +1,9 @@
-schema_version: '0.1'
+schema_version: '0.2'
 experiment:
   id: minimal_agent_baseline_v1
   title: Minimal Agent Baseline
-  description: Tool-free baseline comparing three qualified agent systems on sixteen closed-world, deterministically
-    evaluated multi-step tasks under the shared gpt_oss_120b_cloud_v1 LLM baseline.
+  description: Tool-free baseline comparing three qualified agent systems on sixteen closed-world, 
+    deterministically evaluated multi-step tasks under the shared gpt_oss_120b_cloud_v1 LLM baseline.
 subjects:
 - id: hermes_gpt_oss120b
   agent:
@@ -60,9 +60,9 @@ requirements:
   compliance: The relevant scenario-specific fidelity opportunity passes its deterministic evaluator.
 - id: repair_invalid_state_minimally
   dimension: recovery
-  statement: When a scenario begins from an invalid artifact, the agent must restore validity with the
+  statement: When a scenario begins from an invalid artifact, the agent must restore validity with the 
     required minimum repair.
-  applicability: Only audit-and-correction scenarios with an explicitly invalid starting artifact create
+  applicability: Only audit-and-correction scenarios with an explicitly invalid starting artifact create 
     Recovery opportunities.
   compliance: The relevant repair is valid and meets the frozen minimum-change criterion.
 checks:
@@ -70,7 +70,7 @@ checks:
   evaluator: minimal_baseline
 scenarios:
 - id: p1_a_workshop_schedule
-  description: Construct a complete time/room schedule under availability, room, precedence, and separation
+  description: Construct a complete time/room schedule under availability, room, precedence, and separation 
     constraints.
   task:
     prompt: >-
@@ -122,6 +122,12 @@ scenarios:
       {"result":{"schedule":[{"workshop":"A","slot":1,"room":"R1"}, ...]}}
 
       The schedule array must contain exactly one entry for each workshop A-H. Any valid schedule is accepted.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - schedule
   capabilities:
     tools: []
   opportunities:
@@ -144,8 +150,8 @@ scenarios:
     requirement_id: satisfy_explicit_obligations
     check_id: check_minimal_baseline
 - id: p1_b_batch_sequence
-  description: Construct a complete batch sequence under precedence, adjacency, separation, partition,
-    and position rules.
+  description: Construct a complete batch sequence under precedence, adjacency, separation, partition, and 
+    position rules.
   task:
     prompt: >-
       Arrange batches A through I into positions 1 through 9, using every batch exactly once.
@@ -177,6 +183,12 @@ scenarios:
       {"result":{"sequence":["A","B","C","D","E","F","G","H","I"]}}
 
       The sequence must contain every batch exactly once. Any valid sequence is accepted.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - sequence
   capabilities:
     tools: []
   opportunities:
@@ -199,8 +211,8 @@ scenarios:
     requirement_id: satisfy_explicit_obligations
     check_id: check_minimal_baseline
 - id: p2_a_project_staffing
-  description: Allocate nine specialists across three projects under cardinality, eligibility, coverage,
-    and relationship rules.
+  description: Allocate nine specialists across three projects under cardinality, eligibility, coverage, and 
+    relationship rules.
   task:
     prompt: >-
       Assign specialists A through I to projects X, Y, and Z. Each specialist must be assigned exactly
@@ -243,6 +255,12 @@ scenarios:
       {"result":{"assignments":{"A":"X","B":"Z", ...}}}
 
       Include exactly one project for every specialist A-I. Any valid allocation is accepted.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - assignments
   capabilities:
     tools: []
   opportunities:
@@ -265,7 +283,7 @@ scenarios:
     requirement_id: satisfy_explicit_obligations
     check_id: check_minimal_baseline
 - id: p2_b_storage_zones
-  description: Place ten abstract cargo units into weighted-capacity zones under eligibility and relationship
+  description: Place ten abstract cargo units into weighted-capacity zones under eligibility and relationship 
     rules.
   task:
     prompt: >-
@@ -317,6 +335,12 @@ scenarios:
       {"result":{"placements":{"A":"W","B":"Z", ...}}}
 
       Include exactly one zone for every unit A-J. Any valid placement is accepted.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - placements
   capabilities:
     tools: []
   opportunities:
@@ -339,8 +363,8 @@ scenarios:
     requirement_id: satisfy_explicit_obligations
     check_id: check_minimal_baseline
 - id: s1_a_inventory_ledger
-  description: Apply ten ordered conditional inventory operations and report the event trace and unique
-    final ledger.
+  description: Apply ten ordered conditional inventory operations and report the event trace and unique final 
+    ledger.
   task:
     prompt: >-
       Process the following inventory events in order. Each record has stock and reserved quantities;
@@ -397,6 +421,12 @@ scenarios:
       ...}}}
 
       Include E1-E10 in order and exactly records A-F in final_state. Use status "applied" or "skipped".
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - events
   capabilities:
     tools: []
   opportunities:
@@ -419,8 +449,8 @@ scenarios:
     requirement_id: follow_observable_procedure
     check_id: check_minimal_baseline
 - id: s1_b_case_lifecycle
-  description: Apply ten ordered lifecycle transitions with legality checks and side effects, then report
-    the trace and final records.
+  description: Apply ten ordered lifecycle transitions with legality checks and side effects, then report the 
+    trace and final records.
   task:
     prompt: >-
       Process the following fictional case lifecycle events in order. If a transition is not permitted
@@ -488,6 +518,12 @@ scenarios:
       ...}}}
 
       Include E1-E10 in order and exactly records C1-C6 in final_state.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - events
   capabilities:
     tools: []
   opportunities:
@@ -562,6 +598,12 @@ scenarios:
       {"result":{"cases":[{"id":"Q1","rule":"R1","decision":"DENY"}, ...]}}
 
       Include exactly Q1-Q9 once each.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - cases
   capabilities:
     tools: []
   opportunities:
@@ -636,6 +678,12 @@ scenarios:
       {"result":{"cases":[{"id":"C1","rule":"R1","queue":"SECURITY_REVIEW","priority":"P1"}, ...]}}
 
       Include exactly C1-C9 once each.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - cases
   capabilities:
     tools: []
   opportunities:
@@ -658,8 +706,8 @@ scenarios:
     requirement_id: follow_observable_procedure
     check_id: check_minimal_baseline
 - id: r1_a_canonical_records
-  description: Resolve six canonical records field by field from conflicting registry, operations, and
-    review records.
+  description: Resolve six canonical records field by field from conflicting registry, operations, and review 
+    records.
   task:
     prompt: >-
       Resolve canonical records for entities A-F using only the rules and source records below. Resolve
@@ -727,6 +775,12 @@ scenarios:
       ...}}}
 
       Include exactly A-F and exactly owner, status, region, and priority for each entity.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - records
   capabilities:
     tools: []
   opportunities:
@@ -755,8 +809,8 @@ scenarios:
     requirement_id: follow_observable_procedure
     check_id: check_minimal_baseline
 - id: r1_b_effective_configuration
-  description: Resolve eight configuration keys across base, environment, service, runtime, locks, inheritance,
-    and fallback.
+  description: Resolve eight configuration keys across base, environment, service, runtime, locks, 
+    inheritance, and fallback.
   task:
     prompt: >-
       Resolve the effective configuration for eight keys using these rules:
@@ -800,6 +854,18 @@ scenarios:
 
       Include exactly mode, quota, route, audit, cache, window, feature, and channel. Use layer names
       BASE, ENV, SERVICE, RUNTIME, or FALLBACK.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - configuration
+      scalar_fields:
+      - path: result.configuration.quota.value
+        semantic_type: integer
+        accepted_serializations:
+        - native
+        - canonical_string
   capabilities:
     tools: []
   opportunities:
@@ -876,6 +942,12 @@ scenarios:
 
       Report the complete set of violated rule IDs in the supplied schedule and a complete repaired schedule.
       Any valid minimum-change repair is accepted.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - schedule
   capabilities:
     tools: []
   opportunities:
@@ -898,8 +970,8 @@ scenarios:
     requirement_id: repair_invalid_state_minimally
     check_id: check_minimal_baseline
 - id: v1_b_manifest_repair
-  description: Audit a fictional release manifest and restore all rules with the minimum mutable-field
-    edits while preserving immutable intent.
+  description: Audit a fictional release manifest and restore all rules with the minimum mutable-field edits 
+    while preserving immutable intent.
   task:
     prompt: >-
       Audit and repair the following fictional release manifest. The immutable intent fields must not
@@ -944,6 +1016,12 @@ scenarios:
       {"result":{"violations":["R1","R2"],"manifest":{"release_id":"RX-73","environment":"prod", ...}}}
 
       The repair must use the minimum number of mutable-field edits.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - manifest
   capabilities:
     tools: []
   opportunities:
@@ -966,8 +1044,8 @@ scenarios:
     requirement_id: repair_invalid_state_minimally
     check_id: check_minimal_baseline
 - id: w1_a_request_workflow
-  description: Execute an ordered request workflow with early terminal gates and return exact traces for
-    eight cases.
+  description: Execute an ordered request workflow with early terminal gates and return exact traces for eight
+    cases.
   task:
     prompt: >-
       Execute the following fictional request workflow for Q1-Q8. Return every step ID actually executed,
@@ -1027,6 +1105,12 @@ scenarios:
       {"result":{"cases":[{"id":"Q1","trace":["A1","A2"],"disposition":"REJECT_INVALID"}, ...]}}
 
       Include exactly Q1-Q8 once each.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - cases
   capabilities:
     tools: []
   opportunities:
@@ -1049,8 +1133,8 @@ scenarios:
     requirement_id: follow_observable_procedure
     check_id: check_minimal_baseline
 - id: w1_b_incident_workflow
-  description: Execute a branching incident workflow with optional containment, branch rejoin, escalation,
-    and closure.
+  description: Execute a branching incident workflow with optional containment, branch rejoin, escalation, and
+    closure.
   task:
     prompt: >-
       Execute the following fictional incident workflow for I1-I7. Return every step ID actually executed,
@@ -1111,6 +1195,12 @@ scenarios:
       {"result":{"cases":[{"id":"I1","trace":["B1","B2","B3"],"disposition":"CLOSED_DUPLICATE"}, ...]}}
 
       Include exactly I1-I7 once each.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - cases
   capabilities:
     tools: []
   opportunities:
@@ -1168,6 +1258,12 @@ scenarios:
       {"result":{"stages":[["A","B","C"],["D"],["E","F"],["G","H"],["I","J"]],"completion_stage":5}}
 
       Any valid five-stage plan is accepted.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - stages
   capabilities:
     tools: []
   opportunities:
@@ -1190,7 +1286,7 @@ scenarios:
     requirement_id: follow_observable_procedure
     check_id: check_minimal_baseline
 - id: g1_b_conditional_release
-  description: Build a six-stage common release prefix and mutually exclusive PASS/FAIL tails with asymmetric
+  description: Build a six-stage common release prefix and mutually exclusive PASS/FAIL tails with asymmetric 
     completion semantics.
   task:
     prompt: >-
@@ -1221,6 +1317,12 @@ scenarios:
       {"result":{"common_stages":[["A","B","C"],["D"],["E"],["F"],["G"],["H"]],"pass_branch":["I","J"],"pass_terminal":"COMPLETE","fail_branch":["K","L"],"fail_terminal":"ROLLED_BACK","successful_branch":"PASS"}}
 
       Any valid six-stage common plan is accepted.
+    output_semantics:
+      structured_object:
+        evidence_id: final_response
+        payload_path: result
+        required_payload_keys:
+        - common_stages
   capabilities:
     tools: []
   opportunities:
