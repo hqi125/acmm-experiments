@@ -25,7 +25,7 @@ def _decode_object(text: str) -> dict[str, Any] | None:
         return direct
 
     decoder = json.JSONDecoder()
-    objects: list[dict[str, Any]] = []
+    first_object: dict[str, Any] | None = None
 
     for index, char in enumerate(stripped):
         if char != "{":
@@ -34,12 +34,15 @@ def _decode_object(text: str) -> dict[str, Any] | None:
             value, _ = decoder.raw_decode(stripped[index:])
         except json.JSONDecodeError:
             continue
-        if isinstance(value, dict):
-            objects.append(value)
+        if not isinstance(value, dict):
+            continue
 
-    if not objects:
-        return None
-    return objects[-1]
+        if first_object is None:
+            first_object = value
+        if "result" in value:
+            return value
+
+    return first_object
 
 
 def _try_json(text: str) -> Any:
