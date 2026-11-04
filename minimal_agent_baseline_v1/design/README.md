@@ -29,6 +29,8 @@ validators. Provisional wording can still be tightened during smoke qualificatio
   8-family / 16-scenario architecture before package implementation began.
 - [`implementation_checkpoint.md`](implementation_checkpoint.md) — first executable checkpoint,
   including Contract/runtime structure, no-tool semantics, response format, and validation status.
+- [`structured_output_hardening.md`](structured_output_hardening.md) — post-acquisition JSON
+  presentation-noise audit, generic Core recovery policy, and re-adjudication implications.
 
 ## Design-to-implementation convention
 

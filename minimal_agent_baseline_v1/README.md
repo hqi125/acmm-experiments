@@ -1,12 +1,12 @@
 # Minimal Agent Baseline
 
-> **Status:** executable implementation draft. The 16-scenario Contract, package manifest, structured
-> scenario assets, and deterministic runtime evaluator are implemented and pass Core package/runtime
-> validation. Live agent smoke execution and final acquisition qualification remain pending.
+> **Status:** full 384-run acquisition complete; post-acquisition evaluator hardening in progress.
+> Execution availability was clean, and the raw trajectories are retained. Structured-output JSON
+> presentation tolerance has been hardened before final re-adjudication and analysis freeze.
 
 `minimal_agent_baseline_v1` is the first experiment in the reworked ACMM research roadmap. It
-establishes a statistically mature, tool-free reference baseline for the three qualified agent
-systems before later experiments add a controlled real tool and then isolated agent-side features.
+establishes a statistically mature minimal native-agent reference baseline with no experiment-provided
+tools before later experiments add a controlled real tool and then isolated agent-side features.
 
 The experiment is intentionally designed as an independent study rather than as a continuation of
 the retired built-in Experiment 1-4 series. ACMM is the measurement instrument; the scientific

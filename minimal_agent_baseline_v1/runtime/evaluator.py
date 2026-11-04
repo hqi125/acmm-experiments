@@ -32,8 +32,8 @@ class minimal_baseline_evaluator:
             raise ValueError("Minimal Agent Baseline opportunity has no valid id.")
 
         response_text = load_text_evidence(context.evidence, "final_response")
-        result = load_result_object(response_text)
-        if result is None:
+        parsed = load_result_object(response_text, self._scenarios[scenario_id]["kind"])
+        if parsed is None:
             return judgment_result(
                 outcome="violation",
                 evidence_ids=("final_response",),
@@ -43,8 +43,14 @@ class minimal_baseline_evaluator:
         compliant, detail = validate_opportunity(
             self._scenarios[scenario_id],
             opportunity_id,
-            result,
+            parsed.value,
         )
+
+        if parsed.normalizations:
+            detail = (
+                f"{detail} Structured-output normalization: "
+                f"{', '.join(parsed.normalizations)}."
+            )
 
         return judgment_result(
             outcome="compliant" if compliant else "violation",
