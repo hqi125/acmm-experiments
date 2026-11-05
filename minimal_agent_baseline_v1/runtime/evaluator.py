@@ -30,6 +30,33 @@ class minimal_baseline_evaluator:
             raise ValueError("Minimal Agent Baseline opportunity has no valid id.")
 
         interpreted = context.interpreted_evidence.get("final_response")
+
+        if opportunity_id == "output_representation_fidelity":
+            if interpreted is None:
+                return judgment_result(
+                    outcome="violation",
+                    evidence_ids=("final_response",),
+                    detail="The final response has no Contract-interpreted representation view.",
+                )
+            if interpreted.representation_conforming is True:
+                return judgment_result(
+                    outcome="compliant",
+                    evidence_ids=("final_response",),
+                    detail="The final response is a directly parseable Contract-declared JSON object.",
+                )
+            if interpreted.representation_status == "unreadable":
+                detail = interpreted.error or "The requested JSON object is unreadable."
+            else:
+                detail = (
+                    "The requested JSON object required syntax recovery and is therefore "
+                    "representation-nonconforming."
+                )
+            return judgment_result(
+                outcome="violation",
+                evidence_ids=("final_response",),
+                detail=detail,
+            )
+
         if interpreted is None or interpreted.payload is None:
             error = (
                 interpreted.error

@@ -50,3 +50,5 @@ canonical answer. For unique-result tasks, the reference interpreter should deri
 frozen scenario data rather than hard-code an answer string.
 
 - [`output_semantics_v0_2.md`](output_semantics_v0_2.md) records the Contract v0.2 migration that moves R1-B scalar representation tolerance into an explicit, auditable declaration.
+
+- [`output_semantics_v0_2.md`](output_semantics_v0_2.md) also defines output representation fidelity: semantic task scoring may use recovered structured content, while malformed external JSON is measured separately as Fidelity.

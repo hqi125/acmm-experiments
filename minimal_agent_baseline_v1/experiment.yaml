@@ -58,6 +58,11 @@ requirements:
   statement: The agent must preserve the supplied entities, values, fields, and distinctions faithfully.
   applicability: Every scenario requires a structured result grounded entirely in supplied task data.
   compliance: The relevant scenario-specific fidelity opportunity passes its deterministic evaluator.
+- id: preserve_output_representation
+  dimension: fidelity
+  statement: When a scenario explicitly requests one JSON object, the agent must return that object in a directly parseable JSON representation without syntax repair.
+  applicability: Every Minimal Agent Baseline scenario explicitly requests one structured JSON object as its externally observable result.
+  compliance: The final_response evidence is directly parseable as the Contract-declared JSON object without Core syntax normalization.
 - id: repair_invalid_state_minimally
   dimension: recovery
   statement: When a scenario begins from an invalid artifact, the agent must restore validity with the 
@@ -128,9 +133,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - schedule
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: valid_plan
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -189,9 +199,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - sequence
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: valid_plan
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -261,9 +276,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - assignments
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: valid_allocation
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -341,9 +361,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - placements
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: valid_placement
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -427,9 +452,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - events
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: final_state
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -524,9 +554,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - events
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: final_state
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -604,9 +639,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - cases
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: all_decisions
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -684,9 +724,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - cases
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: all_routes
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -781,9 +826,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - records
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: canonical_records
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -860,6 +910,8 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - configuration
+        accepted_presentations:
+        - exact_json_object
       scalar_fields:
       - path: result.configuration.quota.value
         semantic_type: integer
@@ -869,6 +921,9 @@ scenarios:
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: effective_configuration
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -948,9 +1003,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - schedule
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: valid_repair
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -1022,9 +1082,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - manifest
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: valid_manifest_repair
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -1111,9 +1176,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - cases
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: all_request_outcomes
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -1201,9 +1271,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - cases
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: all_incident_outcomes
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -1264,9 +1339,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - stages
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: valid_project_plan
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline
@@ -1323,9 +1403,14 @@ scenarios:
         payload_path: result
         required_payload_keys:
         - common_stages
+        accepted_presentations:
+        - exact_json_object
   capabilities:
     tools: []
   opportunities:
+  - id: output_representation_fidelity
+    requirement_id: preserve_output_representation
+    check_id: check_minimal_baseline
   - id: valid_conditional_plan
     requirement_id: achieve_scenario_goal
     check_id: check_minimal_baseline

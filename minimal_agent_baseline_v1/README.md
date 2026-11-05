@@ -138,7 +138,7 @@ All scenarios should obey the following rules:
 - Everything needed to solve the task is supplied in the prompt; external knowledge is irrelevant.
 - No hidden state or experiment-provided tools are required.
 - Core outcomes are deterministically evaluable; no LLM-as-judge is needed for headline outcomes.
-- Harmless Markdown, whitespace, or field-order differences should not become scientific failures.
+- Semantic task scoring tolerates bounded presentation noise through Core interpretation, but because every task explicitly requests one JSON object, syntax recovery is recorded separately as an output-representation Fidelity failure. Whitespace and field ordering remain harmless.
 - The prompt asks for observable task outputs, never hidden chain-of-thought.
 - Difficulty should arise from interacting task constraints, state, precedence, or workflow rules,
   not from wording tricks.
@@ -148,6 +148,12 @@ All scenarios should obey the following rules:
 
 The final scenarios should cluster around moderate-high difficulty. Task type should vary more than
 overall difficulty so that family effects are not confounded with a deliberately easy/hard split.
+
+## Output representation fidelity
+
+Every scenario explicitly asks the subject to return one JSON object. The Contract therefore declares `exact_json_object` as the accepted external presentation for `final_response`. Core may still recover bounded syntax noise to construct the semantic task view, but any run requiring syntax recovery receives a separate Fidelity violation on `output_representation_fidelity`. Semantic opportunities continue to judge the recovered content. Contract-permitted scalar semantics, such as R1-B accepting numeric string `"6"` as integer 6, do not violate representation fidelity because the raw response remains valid JSON.
+
+This separates two observable properties that should not be collapsed: **whether the subject solved the task** and **whether it delivered the requested structured artifact faithfully**.
 
 ## Evaluation direction
 
@@ -213,8 +219,7 @@ The first executable checkpoint contains:
 - `runtime/` with JSON response parsing, scenario asset loading, deterministic state/reference
   interpreters, and opportunity validators for all eight task families.
 
-The Contract uses six experiment-level ACMM requirements — one for each G/O/B/P/F/R dimension —
-while scenario-local opportunities provide the diagnostic resolution. All opportunities reference one
+The Contract uses seven experiment-level ACMM requirements: one Goal, one Obligation, one Boundary, one Procedure, two distinct Fidelity requirements (task-content fidelity and output-representation fidelity), and one Recovery requirement. Scenario-local opportunities provide the diagnostic resolution. All opportunities reference one
 package evaluator entrypoint; the evaluator uses the scenario ID and opportunity ID to select the
 appropriate deterministic check.
 

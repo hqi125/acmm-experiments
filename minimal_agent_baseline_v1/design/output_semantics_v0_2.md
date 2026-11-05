@@ -17,6 +17,8 @@ output_semantics:
     payload_path: result
     required_payload_keys:
       - schedule
+    accepted_presentations:
+      - exact_json_object
 ```
 
 The required payload key differs by scenario (`schedule`, `sequence`, `events`, `configuration`, and so on). This declaration replaces package-local JSON parsing and prevents malformed outer responses from being mistaken for an arbitrary nested row.
@@ -32,6 +34,8 @@ output_semantics:
     payload_path: result
     required_payload_keys:
       - configuration
+    accepted_presentations:
+      - exact_json_object
   scalar_fields:
     - path: result.configuration.quota.value
       semantic_type: integer
@@ -49,8 +53,10 @@ The final path is:
 1. adapters persist raw `final_response.txt` unchanged;
 2. Core derives a bounded structured interpretation from the Contract declaration;
 3. Core applies declared representation semantics to the interpreted view only;
-4. the package evaluator receives `context.interpreted_evidence["final_response"].payload` and judges task correctness; and
-5. Core records any interpretation normalization automatically in judgment detail.
+4. Core classifies the external representation as exact, recovered-nonconforming, or unreadable according to the Contract presentation policy;
+5. the package evaluator receives `context.interpreted_evidence["final_response"].payload` and judges task correctness;
+6. the dedicated representation-Fidelity opportunity judges the Contract-derived conformance flag; and
+7. Core records interpretation normalization automatically in judgment detail.
 
 The Minimal Agent Baseline runtime no longer calls the JSON decoder or semantic scalar comparator directly. Its validators contain only scientific task logic.
 
@@ -66,3 +72,11 @@ Replaying the latest 128-run Agent Zero leg through the integrated path preserve
 | All other 13 scenarios | 8/8 each |
 
 Thirty-four runs require syntax interpretation, and eight R1-B runs use canonical-string-to-integer semantic interpretation. The remaining failures are substantive rather than representation artifacts.
+
+## Representation fidelity
+
+`accepted_presentations: [exact_json_object]` makes the requested JSON representation scientifically observable without making syntax damage erase otherwise recoverable task content. Exact JSON (ignoring surrounding whitespace) is conforming. Any bounded Core syntax recovery makes the representation nonconforming; an unreadable payload is also nonconforming. Semantic scalar normalization is independent and does not reduce representation fidelity when the raw response is already valid JSON.
+
+## Representation-fidelity qualification signal
+
+Replaying the earlier 384-run qualification corpus under the exact-JSON policy produced a strong agent-system signal before any final reacquisition: Hermes was representation-conformant in 128/128 runs, Open WebUI in 126/128, and Agent Zero in 98/128. Those counts are diagnostic qualification observations rather than the final scientific result, but they confirm that representation fidelity captures a real externally observable difference rather than merely duplicating semantic task correctness.

@@ -57,7 +57,7 @@ Structured-output recovery is now implemented as a generic Core interpretation p
 The decoder never mutates persisted evidence and exposes the normalization modes used. Required keys
 prevent a malformed outer response from degrading into a valid but unrelated nested row object.
 
-Core records any normalization mode in judgment detail for judgments that cite the interpreted evidence. This makes format quality auditable separately from task correctness without introducing a new scientific opportunity. Contract v0.2 now also binds the structured payload and applies declared scalar representation semantics before the package evaluator runs; the package no longer reparses raw evidence itself.
+Core records any normalization mode in judgment detail for judgments that cite interpreted evidence. The final baseline design also declares `exact_json_object` as the accepted presentation and adds one explicit `output_representation_fidelity` opportunity to every scenario. A recovered answer can therefore remain semantically compliant while receiving a Fidelity violation for malformed external representation. Contract v0.2 also binds the structured payload and applies declared scalar representation semantics before the package evaluator runs; the package no longer reparses raw evidence itself.
 
 ## What this correction does not do
 

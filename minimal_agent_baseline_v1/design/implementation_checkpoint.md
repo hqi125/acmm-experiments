@@ -115,7 +115,7 @@ The following checks have been run successfully:
    from that store with the same package, Contract, and runtime digests.
 3. The staged runtime declares no fixtures, no tools, one evaluator, and the expected evidence
    channels.
-4. A known-valid structured answer was constructed for every one of the 16 scenarios. All **100**
+4. A known-valid structured answer was constructed for every one of the 16 scenarios. All **116**
    declared scenario opportunities across those reference answers evaluated as compliant.
 5. Targeted wrong-answer checks were exercised across representative families: invalid scheduling
    availability, incorrect policy precedence, use of an ineligible reconciliation source, an incomplete
