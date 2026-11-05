@@ -25,6 +25,10 @@ Experiment directories currently include:
 - `minimal_agent_baseline_v1/` — the frozen first experiment in the new research roadmap. It
   contains the final 16-scenario Contract, package-owned structured scenario assets, deterministic
   no-apparatus runtime evaluators, and the completed 384-run acquisition/interpretation baseline.
+- `github_mcp_integration_qualification_v1/` — an engineering-only qualification package for the
+  first real external-tool integration. It reconciles the official hosted GitHub MCP Server through
+  each pinned agent's native MCP client and verifies native tool discovery. Its placeholder Contract
+  is not scientific research data.
 
 A normal workflow from the ACMM development environment is:
 
@@ -38,7 +42,7 @@ acmm run minimal_agent_baseline_v1 --preview
 Experiment-specific tests stay with each package. From the ACMM virtual environment, run:
 
 ```text
-pytest ../acmm-experiments/controlled_authoritative_state_interference_v1/tests
+pytest ../acmm-experiments
 ```
 ## Local secrets
 

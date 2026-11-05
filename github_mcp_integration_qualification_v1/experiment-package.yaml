@@ -1,0 +1,18 @@
+schema_version: "0.2"
+experiment_id: github_mcp_integration_qualification_v1
+contract: experiment.yaml
+
+integrations:
+  - id: github_mcp
+    api_version: "0.2"
+    root: integration/github_mcp
+    entrypoint: build_integration
+    preset: github_issues_minimal_v1
+    configuration:
+      endpoint: https://api.githubcopilot.com/mcp/
+      credential_env: ACMM_GITHUB_MCP_TOKEN
+      server_id: github
+      tools:
+        - issue_read
+        - issue_write
+        - add_issue_comment

@@ -1,0 +1,76 @@
+schema_version: "0.2"
+experiment:
+  id: github_mcp_integration_qualification_v1
+  title: GitHub MCP Integration Qualification
+  description: >-
+    Engineering qualification package for reconciling the official remote GitHub MCP Server
+    across the three pinned ACMM agent systems. This package is not a behavioral research
+    experiment and its placeholder scenario is not intended for scientific execution.
+subjects:
+  - id: hermes_gpt_oss120b
+    agent:
+      name: Hermes Agent
+      version: 0.21.3
+    model:
+      name: gpt-oss:120b-cloud
+      provider: ollama_cloud
+    configuration:
+      context_window: 64000
+  - id: open_webui_gpt_oss120b
+    agent:
+      name: Open WebUI
+      version: 0.11.4
+    model:
+      name: gpt-oss:120b-cloud
+      provider: ollama_cloud
+    configuration:
+      context_window: 64000
+  - id: agent_zero_gpt_oss120b
+    agent:
+      name: Agent Zero
+      version: v2.14
+    model:
+      name: gpt-oss:120b-cloud
+      provider: ollama_cloud
+    configuration:
+      context_window: 64000
+requirements:
+  - id: qualification_placeholder
+    dimension: goal
+    statement: The qualification placeholder must not be interpreted as research evidence.
+    applicability: Only if the placeholder scenario is deliberately executed.
+    compliance: The response returns the declared non-scientific qualification marker.
+checks:
+  - id: check_qualification_placeholder
+    evaluator: qualification_placeholder
+scenarios:
+  - id: integration_configuration_placeholder
+    description: Non-scientific placeholder retained only so the Contract remains structurally complete.
+    task:
+      prompt: >-
+        This is an engineering qualification placeholder, not a research task. Return exactly
+        {"result":{"qualification":"configured"}} without calling any tool.
+      output_semantics:
+        structured_object:
+          evidence_id: final_response
+          payload_path: result
+          required_payload_keys:
+            - qualification
+          accepted_presentations:
+            - exact_json_object
+    opportunities:
+      - id: placeholder
+        requirement_id: qualification_placeholder
+        check_id: check_qualification_placeholder
+evidence_policy:
+  capture:
+    - final_response
+run_protocol:
+  repetitions: 1
+  reset:
+    conversation: fresh
+    memory: baseline
+    workspace: baseline
+    environment: baseline
+  termination:
+    max_steps: 1
