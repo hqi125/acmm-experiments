@@ -8,16 +8,16 @@ import shutil
 import pytest
 
 from acmm.experiment_package import (
-    compose_staged_experiment_integrations,
+    compose_staged_experiment_profile_integrations,
     compose_staged_experiment_manager_integrations,
     install_experiment_package,
     load_staged_experiment_integrations,
 )
 from acmm_infra.common import doctor_check, doctor_report
-from acmm_infra.profiles.agent_zero import load_agent_zero_profile
+from acmm_infra.subjects.agent_zero.profile import load_agent_zero_profile
 from acmm_infra.profiles.common import default_repo_root
-from acmm_infra.profiles.hermes import load_hermes_profile
-from acmm_infra.profiles.open_webui import load_open_webui_profile
+from acmm_infra.subjects.hermes.profile import load_hermes_profile
+from acmm_infra.subjects.open_webui.profile import load_open_webui_profile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,7 +52,7 @@ def _compose_profile(package, infrastructure_subject: str):
         raise AssertionError(infrastructure_subject)
 
     loaded = load_staged_experiment_integrations(package)
-    return compose_staged_experiment_integrations(
+    return compose_staged_experiment_profile_integrations(
         package,
         infrastructure_subject,
         "gpt_oss_120b_cloud_v1",

@@ -30,7 +30,7 @@ minimal_agent_baseline_v1/
         ...
 ```
 
-No apparatus component is declared. Every Contract scenario explicitly declares
+No integration component is declared. Every Contract scenario explicitly declares
 `capabilities.tools: []`, which distinguishes the baseline from tool-bearing packages and allows Core
 to skip the experiment Tool overlay/configuration path.
 
@@ -98,7 +98,7 @@ generic language would make the package harder to understand.
 The paired Core implementation now treats an explicit `capabilities.tools: []` as a no-experiment-tool
 scenario:
 
-- Hermes omits the `acmm` toolset overlay;
+- Hermes exposes no experiment-provided capability integration;
 - Open WebUI skips experiment Tool valve configuration and sends an empty tool-ID list;
 - Agent Zero skips experiment plugin configuration/restoration.
 
@@ -109,7 +109,7 @@ tool-bearing behavior. Existing tool-bearing adapter tests therefore remain unch
 
 The following checks have been run successfully:
 
-1. Core package validation accepts the package with zero Contract warnings, no apparatus component,
+1. Core package validation accepts the package with zero Contract warnings, no integration component,
    and no supplementary-analysis dependency.
 2. The package installs into a disposable immutable Experiment Package store and can be resolved back
    from that store with the same package, Contract, and runtime digests.
@@ -121,7 +121,7 @@ The following checks have been run successfully:
    availability, incorrect policy precedence, use of an ineligible reconciliation source, an incomplete
    repair, a wrong workflow trace with the correct final disposition, and incorrect release-success
    semantics all failed at the intended opportunity boundary.
-6. Direct no-tool adapter smoke checks confirm that Hermes omits the experiment toolset overlay, Open
+6. Direct no-tool adapter smoke checks confirm that Hermes exposes no experiment-provided capability integration, Open
    WebUI leaves Tool valves untouched and sends an empty Tool-ID list, and Agent Zero leaves experiment
    plugin configuration untouched.
 7. The complete Core regression suite passes: **469/469 tests**.
@@ -136,7 +136,7 @@ collaboratively through Git diffs and manual/reference validation first, as inte
 The remaining work before scientific acquisition is primarily live-environment qualification:
 
 - apply the installed package to the qualified three-agent cohort so package provenance and the
-  apparatus-free baseline state are established on each subject;
+  integration-free baseline state are established on each subject;
 - preview a small selected run set and inspect the resolved plan/order;
 - execute a very small engineering smoke selection across all three agents;
 - inspect real agent output against the JSON parser and evaluator diagnostics, adjusting prompt or

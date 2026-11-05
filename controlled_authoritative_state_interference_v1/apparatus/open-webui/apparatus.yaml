@@ -1,8 +1,0 @@
-schema_version: '0.1'
-experiment_id: controlled_authoritative_state_interference_v1
-tools:
-  managed:
-  - id: acmm_tools
-    name: ACMM Authoritative State Tools
-    description: Controlled versioned source and target used by ACMM Experiment 4.
-    source: tools/acmm_tools.py

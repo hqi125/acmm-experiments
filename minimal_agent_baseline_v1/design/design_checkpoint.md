@@ -89,11 +89,11 @@ scientific acquisition target unless the frozen design itself is formally revise
 
 ## Core prerequisite carried into implementation
 
-The earlier repository audit found that the Experiment Package model supports a no-apparatus study,
+The earlier repository audit found that the Experiment Package model supports a no-integration study,
 but the current execution adapters still contain tool-bearing assumptions: Open WebUI and Agent Zero
 expect experiment tool configuration, while Hermes currently requests the `acmm` toolset. Before the
 baseline is executed, Core should gain a clean no-tool adapter path rather than giving this package a
-dummy tool or fake apparatus. The paired Core working copy now contains that generic adapter change;
+dummy tool or fake integration. The paired Core working copy now contains that generic adapter change;
 full regression and live smoke qualification remain before freeze.
 
 That infrastructure fix is intentionally outside the scientific scenario design and should remain a

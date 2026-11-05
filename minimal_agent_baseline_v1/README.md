@@ -44,7 +44,7 @@ double the condition space, and blur the reference condition. The later tool exp
 statistically mature in its own right and can deliberately carry forward matched task constructs
 where causal comparison is useful.
 
-No dummy tool, empty fake apparatus, or artificial tool-violation scenario should be introduced to
+No dummy tool, empty fake integration, or artificial tool-violation scenario should be introduced to
 make a tool-free study fit old infrastructure assumptions.
 
 ## Planned scale
@@ -172,7 +172,7 @@ evaluator programs. The conceptual validator families remain:
 
 Structured scenario assets are package-owned under `assets/scenarios/`; scientific task data is not
 stuffed into generic environment configuration. The Contract explicitly declares `capabilities.tools: []`
-for every scenario, so Core can select the no-experiment-tool execution path without dummy apparatus.
+for every scenario, so Core can select the no-experiment-tool execution path without dummy integration.
 
 The Contract now uses schema v0.2 so representation tolerance can be declared as experiment intent rather
 than hidden inside evaluator code. R1-B declares only `result.configuration.quota.value` as semantic
@@ -211,7 +211,7 @@ implementation transition.
 
 The first executable checkpoint contains:
 
-- `experiment-package.yaml` with runtime API `0.1` and no apparatus declaration;
+- `experiment-package.yaml` with runtime API `0.1` and no integration declaration;
 - `experiment.yaml` with the three qualified `gpt_oss_120b_cloud_v1` subjects, all 16 stable
   scenarios, 8 repetitions, cyclic scenario rotation, and 384 planned executions;
 - explicit empty experiment-tool capability lists on every scenario;

@@ -23,7 +23,6 @@ def build_runtime(
         capabilities=harness_capabilities(
             evaluators=frozenset({"minimal_baseline"}),
             fixtures=frozenset(),
-            tools=frozenset(),
             evidence_channels=frozenset(
                 {
                     "conversation",
