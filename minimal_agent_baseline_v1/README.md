@@ -1,8 +1,8 @@
 # Minimal Agent Baseline
 
-> **Status:** full 384-run acquisition complete; post-acquisition evaluator hardening in progress.
-> Execution availability was clean, and the raw trajectories are retained. Structured-output JSON
-> presentation tolerance is now integrated into the normal Contract-directed interpretation/adjudication path before final acquisition and analysis freeze.
+> **Status:** **FROZEN.** The final 384-run acquisition and strict analysis are complete.
+> All 384 planned runs resolved validly on the first attempt. Contract v0.2 structured-output
+> interpretation and separate representation-Fidelity adjudication are part of the frozen package revision.
 
 `minimal_agent_baseline_v1` is the first experiment in the reworked ACMM research roadmap. It
 establishes a statistically mature minimal native-agent reference baseline with no experiment-provided

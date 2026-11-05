@@ -1,9 +1,10 @@
 # Minimal Agent Baseline Design Notes
 
-This directory is the living design and implementation record for `minimal_agent_baseline_v1`.
-The package is now executable, but these notes preserve the scientific reasoning behind each mind
-game and the decisions made while translating the frozen drafts into structured assets and runtime
-validators. Provisional wording can still be tightened during smoke qualification.
+This directory is the frozen design and implementation record for `minimal_agent_baseline_v1`.
+The notes preserve the scientific reasoning behind each mind game and the decisions made while
+translating the design into structured assets and runtime validators. Individual checkpoint documents
+retain their historical milestone wording; the package itself completed smoke qualification, full
+384-run acquisition, post-acquisition hardening, and final analysis before freeze.
 
 ## Documents
 
