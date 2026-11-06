@@ -20,8 +20,9 @@ revisions into its managed runtime store.
 
 Experiment directories currently include:
 
-  contains the final 16-scenario Contract, package-owned structured scenario assets, deterministic
-  no-integration runtime evaluators, and the completed 384-run acquisition/interpretation baseline.
+- `minimal_agent_baseline_v1/` — contains the final 16-scenario Contract, package-owned structured
+  scenario assets, deterministic no-integration runtime evaluators, and the completed 384-run
+  acquisition/interpretation baseline.
 - `github_mcp_integration_qualification_v1/` — an engineering-only qualification package for the
   first real external-tool integration. It reconciles the pinned local official GitHub MCP Server
   through each pinned agent's native MCP client, verifies exact native tool discovery, and performs
@@ -31,8 +32,8 @@ Experiment directories currently include:
 A normal workflow from the ACMM development environment is:
 
 ```text
-acmm package validate ../acmm-experiments/minimal_agent_baseline_v1
-acmm package install ../acmm-experiments/minimal_agent_baseline_v1
+acmm package validate ~/acmm_experiments/minimal_agent_baseline_v1
+acmm package install ~/acmm_experiments/minimal_agent_baseline_v1
 acmm package apply minimal_agent_baseline_v1
 acmm run minimal_agent_baseline_v1 --preview
 ```
@@ -40,8 +41,9 @@ acmm run minimal_agent_baseline_v1 --preview
 Experiment-specific tests stay with each package. From the ACMM virtual environment, run:
 
 ```text
-pytest ../acmm-experiments
+pytest ~/acmm_experiments
 ```
+
 ## Local secrets
 
 Do not place provider API keys or other live credentials in Experiment Packages. Local `.env`,
