@@ -13,6 +13,8 @@ from acmm.experiment_package import (
     install_experiment_package,
     load_staged_experiment_integrations,
 )
+from acmm.secret_bindings import bind_secret_file, secret_binding_key
+from acmm.integration_api import shared_integration_context
 from acmm_infra.common import doctor_check, doctor_report
 from acmm_infra.subjects.agent_zero.profile import load_agent_zero_profile
 from acmm_infra.profiles.common import default_repo_root
@@ -22,7 +24,6 @@ from acmm_infra.subjects.open_webui.profile import load_open_webui_profile
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPERIMENT_ID = "github_mcp_integration_qualification_v1"
-TOKEN_ENV = "ACMM_GITHUB_MCP_TOKEN"
 TOKEN = "qualification-" + "secret-" + "value"
 EXPECTED_TOOLS = ("issue_read", "issue_write", "add_issue_comment")
 
@@ -37,6 +38,18 @@ def _install_copy(tmp_path: Path):
     return install_experiment_package(
         source,
         tmp_path / "runtime-root",
+    )
+
+
+def _bind_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    secret = tmp_path / "github-token"
+    secret.write_text(TOKEN + "\n", encoding="utf-8")
+    secret.chmod(0o600)
+    bindings = tmp_path / "secret-bindings.yaml"
+    monkeypatch.setenv("ACMM_SECRET_BINDINGS_FILE", str(bindings))
+    bind_secret_file(
+        secret_binding_key(EXPERIMENT_ID, "github_mcp", "access_token"),
+        secret,
     )
 
 
@@ -65,16 +78,15 @@ def test_staged_integration_composes_native_profiles(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(TOKEN_ENV, TOKEN)
+    _bind_token(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
 
     hermes = _compose_profile(package, "hermes")
     key, value = hermes.managed_config_overrides[-1]
     assert key == "mcp_servers.github"
     server = json.loads(value)
-    assert server["url"] == "https://api.githubcopilot.com/mcp/"
+    assert server["url"] == "http://host.docker.internal:8082"
     assert server["headers"]["Authorization"] == f"Bearer {TOKEN}"
-    assert server["headers"]["X-MCP-Tools"] == ",".join(EXPECTED_TOOLS)
     assert tuple(server["tools"]["include"]) == EXPECTED_TOOLS
     assert server["tools"]["resources"] is False
     assert server["tools"]["prompts"] is False
@@ -89,7 +101,6 @@ def test_staged_integration_composes_native_profiles(
     assert connection["auth_type"] == "bearer"
     assert connection["key"] == TOKEN
     assert connection["info"]["id"] == "github"
-    assert connection["headers"]["X-MCP-Tools"] == ",".join(EXPECTED_TOOLS)
     persistent = dict(open_webui.managed_config_overrides)
     assert persistent["tool_server.connections"] == [connection]
 
@@ -101,7 +112,6 @@ def test_staged_integration_composes_native_profiles(
     github = servers["mcpServers"]["github"]
     assert github["type"] == "streamable-http"
     assert github["headers"]["Authorization"] == f"Bearer {TOKEN}"
-    assert github["headers"]["X-MCP-Tools"] == ",".join(EXPECTED_TOOLS)
     assert agent_zero.experiment_isolation.mcp_tool_default == "block"
     for tool in EXPECTED_TOOLS:
         assert f"mcp:github:{tool}" in agent_zero.experiment_isolation.allowed_tools
@@ -111,10 +121,10 @@ def test_integration_requires_external_credential(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv(TOKEN_ENV, raising=False)
+    monkeypatch.setenv("ACMM_SECRET_BINDINGS_FILE", str(tmp_path / "missing.yaml"))
     package = _install_copy(tmp_path)
 
-    with pytest.raises(ValueError, match=TOKEN_ENV):
+    with pytest.raises(ValueError, match="No local secret binding"):
         _compose_profile(package, "hermes")
 
 
@@ -122,7 +132,7 @@ def test_package_source_never_contains_credential_value(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(TOKEN_ENV, TOKEN)
+    _bind_token(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
     load_staged_experiment_integrations(package)
 
@@ -140,7 +150,7 @@ def test_manager_wrapper_redacts_secret_from_returned_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(TOKEN_ENV, TOKEN)
+    _bind_token(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
     loaded = load_staged_experiment_integrations(package)
     docker = _fake_docker(running=False)
@@ -156,8 +166,10 @@ def test_manager_wrapper_redacts_secret_from_returned_state(
 
     assert wrapped.deployment_root == manager.deployment_root
     assert wrapped.docker is manager.docker
-    assert TOKEN not in repr(wrapped.apply())
+    messages = []
+    assert TOKEN not in repr(wrapped.apply(progress=messages.append))
     assert "<redacted>" in repr(wrapped.apply())
+    assert messages == ["configured credential=<redacted>"]
     assert TOKEN not in repr(wrapped.status())
     report = wrapped.doctor()
     assert TOKEN not in repr(report)
@@ -170,7 +182,7 @@ def test_manager_wrapper_uses_agent_zero_native_detail_probe(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(TOKEN_ENV, TOKEN)
+    _bind_token(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
     loaded = load_staged_experiment_integrations(package)
     api = _fake_agent_zero_api(EXPECTED_TOOLS)
@@ -200,6 +212,116 @@ def test_manager_wrapper_uses_agent_zero_native_detail_probe(
     assert report.checks[-1].ok is True
 
 
+
+@dataclass(frozen=True)
+class _fake_command_result:
+    returncode: int = 0
+    stdout: str = ""
+    stderr: str = ""
+    timed_out: bool = False
+
+    @property
+    def succeeded(self) -> bool:
+        return self.returncode == 0 and not self.timed_out
+
+
+class _fake_resource_runner:
+    def __init__(self) -> None:
+        self.image_present = True
+        self.container_present = True
+        self.running = False
+        self.calls: list[tuple[str, ...]] = []
+
+    def run(self, args, **kwargs):
+        del kwargs
+        call = tuple(str(value) for value in args)
+        self.calls.append(call)
+
+        if call[:2] == ("docker", "inspect"):
+            if not self.container_present:
+                return _fake_command_result(returncode=1, stderr="not found")
+            return _fake_command_result(
+                stdout=(
+                    ("true" if self.running else "false")
+                    + "\tghcr.io/github/github-mcp-server:v2.0.3\n"
+                )
+            )
+        if call[:3] == ("docker", "container", "inspect"):
+            if self.container_present:
+                return _fake_command_result(stdout="{}")
+            return _fake_command_result(returncode=1, stderr="not found")
+        if call[:3] == ("docker", "rm", "-f"):
+            self.container_present = False
+            self.running = False
+            return _fake_command_result()
+        if call[:3] == ("docker", "image", "inspect"):
+            if not self.image_present:
+                return _fake_command_result(returncode=1, stderr="missing")
+            if "--format" in call:
+                return _fake_command_result(
+                    stdout=(
+                        '["ghcr.io/github/github-mcp-server@sha256:testdigest"]\n'
+                    )
+                )
+            return _fake_command_result(stdout="{}")
+        if call[:2] == ("docker", "compose"):
+            if "up" in call:
+                self.container_present = True
+                self.running = True
+            elif "down" in call:
+                self.container_present = False
+                self.running = False
+            return _fake_command_result()
+        if call[:2] == ("docker", "--version"):
+            return _fake_command_result(stdout="Docker version test")
+        raise AssertionError(f"unexpected command: {call!r}")
+
+def test_local_shared_resource_uses_ephemeral_container(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_token(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_integrations(package)
+    resource = loaded[0].integration.shared_resource
+    assert resource is not None
+
+    runner = _fake_resource_runner()
+    resource._runner = runner
+    component = package.integrations[0]
+    context = shared_integration_context(
+        experiment_id=package.experiment_id,
+        integration_id=component.integration_id,
+        preset=component.preset,
+        configuration=component.configuration,
+        package_sha256=package.package_sha256,
+        package_root=package.root,
+        runtime_root=tmp_path / "runtime-root",
+        state_root=tmp_path / "resource-state",
+        secret_ids=("access_token",),
+    )
+
+    status = resource.apply(context)
+    assert status["image_present"] is True
+    assert status["container_present"] is False
+    assert status["running"] is False
+
+    resource.up(context)
+    assert resource.status(context)["container_present"] is True
+    assert resource.status(context)["running"] is True
+
+    resource.down(context)
+    final = resource.status(context)
+    assert final["container_present"] is False
+    assert final["running"] is False
+
+    commands = [" ".join(call) for call in runner.calls]
+    assert any("config --quiet" in command for command in commands)
+    assert any("down --remove-orphans" in command for command in commands)
+    assert not any(" create " in f" {command} " for command in commands)
+    assert not any(" stop " in f" {command} " for command in commands)
+
+
 @dataclass(frozen=True)
 class _fake_profile:
     llm_baseline_id: str = "gpt_oss_120b_cloud_v1"
@@ -220,7 +342,9 @@ class _fake_manager:
         self._token = token
 
     def apply(self, *, timeout_seconds: float = 120.0, progress=None):
-        del timeout_seconds, progress
+        del timeout_seconds
+        if progress is not None:
+            progress(f"configured credential={self._token}")
         return {"secret": self._token, "nested": [f"Bearer {self._token}"]}
 
     def status(self):

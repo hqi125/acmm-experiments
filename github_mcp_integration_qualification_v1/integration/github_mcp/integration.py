@@ -2,32 +2,39 @@ from __future__ import annotations
 
 from dataclasses import fields, is_dataclass, replace
 import json
-import os
-import re
+from pathlib import Path
+import shutil
 from typing import Any, Mapping
 
 from acmm.integration_api import (
     experiment_integration,
     experiment_integration_context,
+    integration_check,
+    integration_report,
+    shared_integration_context,
     subject_integration,
     subject_integration_context,
 )
-from acmm_infra.common import doctor_check, doctor_report
+from acmm_infra.common import doctor_check, doctor_report, infrastructure_error
+from acmm_infra.process import command_runner
 
 
-_ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
-_SERVER_ID = re.compile(r"^[a-z0-9_]+$")
 _REDACTED = "<redacted>"
 
 
 def build_integration(
     context: experiment_integration_context,
 ) -> experiment_integration:
+    if context.preset != "local_pinned":
+        raise ValueError(
+            f"Unsupported GitHub MCP qualification preset: {context.preset!r}."
+        )
     settings = _settings(context.configuration)
     profile = _github_mcp_profile_integration(settings)
     manager = _github_mcp_manager_integration(settings)
 
     return experiment_integration(
+        shared_resource=_local_github_mcp_resource(settings),
         subjects={
             "hermes": subject_integration(profile=profile, manager=manager),
             "open-webui": subject_integration(profile=profile, manager=manager),
@@ -45,7 +52,7 @@ class _github_mcp_profile_integration:
         context: subject_integration_context,
         profile: object,
     ) -> object:
-        token = _credential(self._settings)
+        token = context.resolve_secret("access_token").strip()
 
         if context.infrastructure_subject == "hermes":
             return self._hermes(profile, token)
@@ -157,7 +164,7 @@ class _github_mcp_manager_integration:
         context: subject_integration_context,
         manager: object,
     ) -> object:
-        token = _credential(self._settings)
+        token = context.resolve_secret("access_token").strip()
         return _redacting_qualification_manager(
             manager=manager,
             infrastructure_subject=context.infrastructure_subject,
@@ -187,10 +194,17 @@ class _redacting_qualification_manager:
         return getattr(self._manager, name)
 
     def apply(self, *, timeout_seconds: float = 120.0, progress=None):
-        value = self._manager.apply(
-            timeout_seconds=timeout_seconds,
-            progress=progress,
-        )
+        safe_progress = None
+        if progress is not None:
+            safe_progress = lambda message: progress(_redact(message, self._token))
+        try:
+            value = self._manager.apply(
+                timeout_seconds=timeout_seconds,
+                progress=safe_progress,
+            )
+        except Exception as exc:
+            detail = str(_redact(str(exc), self._token))
+            raise infrastructure_error(detail) from exc
         return _redact(value, self._token)
 
     def status(self):
@@ -307,65 +321,301 @@ class _integration_settings:
         self,
         *,
         endpoint: str,
-        credential_env: str,
         server_id: str,
         tools: tuple[str, ...],
+        image: str,
+        container_name: str,
+        host_port: int,
     ) -> None:
         self.endpoint = endpoint
-        self.credential_env = credential_env
         self.server_id = server_id
         self.tools = tools
+        self.image = image
+        self.container_name = container_name
+        self.host_port = host_port
 
 
 def _settings(configuration: Mapping[str, Any]) -> _integration_settings:
     endpoint = _required_configuration_text(configuration, "endpoint")
-    if not endpoint.startswith("https://"):
-        raise ValueError("GitHub MCP endpoint must use HTTPS.")
-
-    credential_env = _required_configuration_text(configuration, "credential_env")
-    if _ENV_NAME.fullmatch(credential_env) is None:
-        raise ValueError("credential_env must be a safe uppercase environment name.")
-
+    if not endpoint.startswith("http://host.docker.internal:"):
+        raise ValueError("local_pinned endpoint must use host.docker.internal HTTP.")
     server_id = _required_configuration_text(configuration, "server_id")
-    if _SERVER_ID.fullmatch(server_id) is None:
-        raise ValueError("server_id must match [a-z0-9_]+.")
-
     raw_tools = configuration.get("tools")
     if not isinstance(raw_tools, (list, tuple)) or not raw_tools:
         raise ValueError("tools must be a non-empty list of MCP tool names.")
-
-    tools: list[str] = []
-    for value in raw_tools:
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError("tools must contain only non-empty strings.")
-        tool = value.strip()
-        if tool in tools:
-            raise ValueError(f"Duplicate MCP tool name: '{tool}'.")
-        tools.append(tool)
-
+    tools = tuple(str(value).strip() for value in raw_tools)
+    if any(not value for value in tools) or len(set(tools)) != len(tools):
+        raise ValueError("tools must contain unique non-empty names.")
+    service = configuration.get("local_service")
+    if not isinstance(service, Mapping):
+        raise ValueError("local_service must be a mapping.")
+    image = _required_configuration_text(service, "image")
+    container_name = _required_configuration_text(service, "container_name")
+    host_port = service.get("host_port")
+    if not isinstance(host_port, int) or isinstance(host_port, bool) or not (1 <= host_port <= 65535):
+        raise ValueError("local_service.host_port must be a valid TCP port.")
     return _integration_settings(
         endpoint=endpoint,
-        credential_env=credential_env,
         server_id=server_id,
-        tools=tuple(tools),
+        tools=tools,
+        image=image,
+        container_name=container_name,
+        host_port=host_port,
     )
 
 
-def _credential(settings: _integration_settings) -> str:
-    value = os.environ.get(settings.credential_env, "")
-    if not value.strip():
-        raise ValueError(
-            f"Required integration credential environment variable "
-            f"'{settings.credential_env}' is unset or empty."
+class _local_github_mcp_resource:
+    def __init__(self, settings: _integration_settings) -> None:
+        self._settings = settings
+        self._runner = command_runner()
+
+    def apply(
+        self,
+        context: shared_integration_context,
+        *,
+        timeout_seconds: float = 120.0,
+        progress=None,
+    ):
+        context.state_root.mkdir(parents=True, exist_ok=True)
+        source = context.package_root / "integration/github_mcp/payloads/compose.yaml"
+        shutil.copy2(source, context.state_root / "compose.yaml")
+        env_path = context.state_root / ".env"
+        env_path.write_text(
+            "ACMM_GITHUB_MCP_IMAGE=" + self._settings.image + "\n"
+            "ACMM_GITHUB_MCP_CONTAINER=" + self._settings.container_name + "\n"
+            "ACMM_GITHUB_MCP_TOOLS=" + ",".join(self._settings.tools) + "\n"
+            "ACMM_GITHUB_MCP_HOST_PORT=" + str(self._settings.host_port) + "\n",
+            encoding="utf-8",
         )
-    return value.strip()
+
+        initially_running = self.is_running(context)
+        if self._image_present():
+            if progress is not None:
+                progress(f"image: already present ({self._settings.image})")
+        else:
+            if progress is not None:
+                progress(f"image: pulling {self._settings.image}...")
+            pull = self._compose(context, ["pull", "github-mcp"], timeout_seconds)
+            if not pull.succeeded:
+                raise ValueError(
+                    pull.stderr.strip()
+                    or pull.stdout.strip()
+                    or "docker compose pull failed"
+                )
+            if progress is not None:
+                progress(f"image: pull complete ({self._settings.image})")
+
+        if initially_running:
+            if progress is not None:
+                progress("container: reconciling and preserving running state")
+            result = self._compose(
+                context,
+                ["up", "-d", "--force-recreate", "github-mcp"],
+                timeout_seconds,
+            )
+            if not result.succeeded:
+                raise ValueError(
+                    result.stderr.strip()
+                    or result.stdout.strip()
+                    or "docker compose resource reconciliation failed"
+                )
+        else:
+            if progress is not None:
+                progress("container: reconciling ephemeral stopped state")
+            self._remove_container_if_present()
+            result = self._compose(
+                context,
+                ["config", "--quiet"],
+                timeout_seconds,
+            )
+            if not result.succeeded:
+                raise ValueError(
+                    result.stderr.strip()
+                    or result.stdout.strip()
+                    or "docker compose resource validation failed"
+                )
+
+        status = dict(self.status(context))
+        if progress is not None:
+            digests = status.get("repo_digests") or []
+            if digests:
+                progress(f"image digest: {digests[0]}")
+            if status.get("running"):
+                progress("container: running after reconciliation")
+            elif status.get("container_present"):
+                progress("container: stopped after reconciliation")
+            else:
+                progress("container: absent after reconciliation")
+        return status
+
+    def status(self, context: shared_integration_context):
+        del context
+        running = False
+        container_present = False
+        observed_image = None
+        result = self._runner.run(
+            [
+                "docker",
+                "inspect",
+                "--format",
+                "{{.State.Running}}\t{{.Config.Image}}",
+                self._settings.container_name,
+            ],
+            timeout_seconds=15,
+        )
+        if result.succeeded:
+            container_present = True
+            fields = result.stdout.strip().split("\t", 1)
+            running = bool(fields) and fields[0].lower() == "true"
+            observed_image = fields[1] if len(fields) == 2 else None
+
+        repo_digests = self._repo_digests()
+        return {
+            "running": running,
+            "container_present": container_present,
+            "image": observed_image or self._settings.image,
+            "image_present": self._image_present(),
+            "repo_digests": repo_digests,
+            "endpoint": self._settings.endpoint,
+            "tools": list(self._settings.tools),
+        }
+
+    def is_running(self, context: shared_integration_context) -> bool:
+        return bool(self.status(context).get("running"))
+
+    def up(
+        self,
+        context: shared_integration_context,
+        *,
+        timeout_seconds: float = 120.0,
+        progress=None,
+    ) -> None:
+        if progress is not None:
+            progress("container: starting shared MCP service")
+        result = self._compose(context, ["up", "-d", "github-mcp"], timeout_seconds)
+        if not result.succeeded:
+            raise ValueError(
+                result.stderr.strip()
+                or result.stdout.strip()
+                or "docker compose up failed"
+            )
+        if not self.is_running(context):
+            raise ValueError("GitHub MCP container did not remain running after startup.")
+
+    def doctor(self, context: shared_integration_context) -> integration_report:
+        status = self.status(context)
+        return integration_report(
+            checks=(
+                integration_check(
+                    "docker",
+                    self._runner.run(["docker", "--version"], timeout_seconds=15).succeeded,
+                    "Docker CLI available",
+                ),
+                integration_check(
+                    "container_running",
+                    status.get("running") is True,
+                    f"container={self._settings.container_name}",
+                ),
+                integration_check(
+                    "image",
+                    status.get("image") == self._settings.image,
+                    f"observed={status.get('image')!r}, expected={self._settings.image!r}",
+                ),
+            )
+        )
+
+    def down(self, context: shared_integration_context) -> None:
+        if not (context.state_root / "compose.yaml").exists():
+            self._remove_container_if_present()
+            return
+        result = self._compose(
+            context,
+            ["down", "--remove-orphans"],
+            60.0,
+        )
+        if not result.succeeded:
+            raise ValueError(
+                result.stderr.strip()
+                or result.stdout.strip()
+                or "docker compose down failed"
+            )
+        self._remove_container_if_present()
+
+    def remove(self, context: shared_integration_context) -> None:
+        self.down(context)
+        if context.state_root.exists():
+            shutil.rmtree(context.state_root)
+
+    def _remove_container_if_present(self) -> None:
+        inspect = self._runner.run(
+            ["docker", "container", "inspect", self._settings.container_name],
+            timeout_seconds=15,
+        )
+        if not inspect.succeeded:
+            return
+        result = self._runner.run(
+            ["docker", "rm", "-f", self._settings.container_name],
+            timeout_seconds=30,
+        )
+        if not result.succeeded:
+            raise ValueError(
+                result.stderr.strip()
+                or result.stdout.strip()
+                or "docker container removal failed"
+            )
+
+    def _image_present(self) -> bool:
+        return self._runner.run(
+            ["docker", "image", "inspect", self._settings.image],
+            timeout_seconds=15,
+        ).succeeded
+
+    def _repo_digests(self) -> list[str]:
+        result = self._runner.run(
+            [
+                "docker",
+                "image",
+                "inspect",
+                "--format",
+                "{{json .RepoDigests}}",
+                self._settings.image,
+            ],
+            timeout_seconds=15,
+        )
+        if not result.succeeded:
+            return []
+        try:
+            parsed = json.loads(result.stdout.strip() or "[]")
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(parsed, list):
+            return []
+        return [item for item in parsed if isinstance(item, str) and item]
+
+    def _compose(
+        self,
+        context: shared_integration_context,
+        args: list[str],
+        timeout_seconds: float,
+    ):
+        return self._runner.run(
+            [
+                "docker",
+                "compose",
+                "--env-file",
+                str(context.state_root / ".env"),
+                "-f",
+                str(context.state_root / "compose.yaml"),
+                *args,
+            ],
+            cwd=context.state_root,
+            timeout_seconds=timeout_seconds,
+        )
 
 
 def _headers(token: str, tools: tuple[str, ...]) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {token}",
-        "X-MCP-Tools": ",".join(tools),
-    }
+    del tools
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _open_webui_connection(
@@ -378,7 +628,7 @@ def _open_webui_connection(
         "type": "mcp",
         "auth_type": "bearer",
         "forward_cookies": False,
-        "headers": {"X-MCP-Tools": ",".join(settings.tools)},
+        "headers": {},
         "key": token,
         "config": {"enable": True},
         "info": {

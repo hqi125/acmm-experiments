@@ -1,0 +1,10 @@
+services:
+  github-mcp:
+    image: ${ACMM_GITHUB_MCP_IMAGE}
+    container_name: ${ACMM_GITHUB_MCP_CONTAINER}
+    command: ["http"]
+    environment:
+      GITHUB_TOOLS: ${ACMM_GITHUB_MCP_TOOLS}
+    ports:
+      - "${ACMM_GITHUB_MCP_HOST_PORT}:8082"
+    restart: "no"

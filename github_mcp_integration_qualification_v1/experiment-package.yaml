@@ -7,12 +7,18 @@ integrations:
     api_version: "0.2"
     root: integration/github_mcp
     entrypoint: build_integration
-    preset: github_issues_minimal_v1
+    preset: local_pinned
+    secrets:
+      - id: access_token
+        required: true
     configuration:
-      endpoint: https://api.githubcopilot.com/mcp/
-      credential_env: ACMM_GITHUB_MCP_TOKEN
+      endpoint: http://host.docker.internal:8082
       server_id: github
       tools:
         - issue_read
         - issue_write
         - add_issue_comment
+      local_service:
+        image: ghcr.io/github/github-mcp-server:v2.0.3
+        container_name: acmm-github-mcp
+        host_port: 8082
