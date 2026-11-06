@@ -667,9 +667,25 @@ def test_verified_report_requires_authoritative_post_state(
     assert "authoritative_verified=False" in (result.detail or "")
 
 
-def test_native_tool_sequence_accepts_agent_zero_canonical_mcp_names(
+@pytest.mark.parametrize(
+    "call_names",
+    [
+        (
+            "mcp:github:issue_read",
+            "mcp:github:add_issue_comment",
+            "mcp:github:issue_read",
+        ),
+        (
+            "github.issue_read",
+            "github.add_issue_comment",
+            "github.issue_read",
+        ),
+    ],
+)
+def test_native_tool_sequence_accepts_namespaced_mcp_names(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    call_names: tuple[str, str, str],
 ) -> None:
     from acmm.experiment_package import load_staged_experiment_runtime
 
@@ -686,9 +702,9 @@ def test_native_tool_sequence_accepts_agent_zero_canonical_mcp_names(
         if item["id"] == opportunity["check_id"]
     )
     calls = [
-        {"name": "mcp:github:issue_read", "input": {}},
-        {"name": "mcp:github:add_issue_comment", "input": {}},
-        {"name": "mcp:github:issue_read", "input": {}},
+        {"name": call_names[0], "input": {}},
+        {"name": call_names[1], "input": {}},
+        {"name": call_names[2], "input": {}},
     ]
     evidence = (
         captured_evidence(

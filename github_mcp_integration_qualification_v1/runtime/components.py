@@ -539,8 +539,8 @@ def _canonical_tool_name(value: Any) -> str:
     if not isinstance(value, str):
         return ""
     for expected in ("issue_read", "issue_write", "add_issue_comment"):
-        if value == expected or value.endswith("__" + expected) or value.endswith(":" + expected):
+        if value == expected:
             return expected
-        if value.endswith("_" + expected):
+        if any(value.endswith(separator + expected) for separator in ("__", ":", ".", "_")):
             return expected
     return value
