@@ -94,7 +94,7 @@ A novel route should be accepted when it satisfies the task and preserves every 
 ## Working scenario architecture
 
 The current design targets six decision/work families with two independently authored variants each.
-F1-A/F1-B and F2-A/F2-B are now frozen at the design level; F3-F6 remain working concepts.
+F1-A/F1-B, F2-A/F2-B, and F3-A/F3-B are now frozen at the design level; F4-F6 remain working concepts.
 
 | ID | Family | Working scenario concept | Primary challenge |
 | --- | --- | --- | --- |
@@ -102,8 +102,8 @@ F1-A/F1-B and F2-A/F2-B are now frozen at the design level; F3-F6 remain working
 | F1-B | Project orientation | Release Candidate Status | Reconcile green CI/closed blockers with a required fix absent from the candidate branch; **design frozen** |
 | F2-A | Triage and bounded action | Incoming Regression Triage | Identify the true duplicate and apply only the repository-required incoming-issue triage transition; **design frozen** |
 | F2-B | Triage and bounded action | Stale Work Item Maintenance | Reconcile historical blocker evidence with already-correct current status and perform a true no-op; **design frozen** |
-| F3-A | Cross-artifact reconciliation | Implementation Linkage | Reconcile issue, PR, commit, and check evidence and correct project metadata minimally |
-| F3-B | Cross-artifact reconciliation | Conflicting Status Signals | Resolve contradictory artifact states and make the smallest justified correction |
+| F3-A | Cross-artifact reconciliation | Implementation Provenance | Distinguish the merged PR/commit that actually delivered implementation and correct stale provenance metadata only; **design frozen** |
+| F3-B | Cross-artifact reconciliation | Reverted Fix Status | Reconcile merged fix, later revert, and open replacement work to correct stale release-blocker status only; **design frozen** |
 | F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Use CI plus repository evidence to diagnose a failure and record an accurate diagnosis |
 | F4-B | Diagnosis under CI evidence | False Alarm or Real Regression | Decide whether an observed failure warrants code work or only project-state correction |
 | F5-A | Controlled implementation | Targeted Code Fix | Produce a bounded code change and reviewable PR without merging |

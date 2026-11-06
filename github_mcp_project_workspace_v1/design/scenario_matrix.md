@@ -2,7 +2,7 @@
 
 ## Status
 
-**Scenario-authoring draft.** F1-A/F1-B and F2-A/F2-B are frozen at the design level. F3-F6
+**Scenario-authoring draft.** F1-A/F1-B, F2-A/F2-B, and F3-A/F3-B are frozen at the design level. F4-F6
 remain provisional. No executable scenario assets exist yet.
 
 ## Matrix
@@ -13,8 +13,8 @@ remain provisional. No executable scenario assets exist yet.
 | F1-B | Project orientation | Release Candidate Status | No mutation | release PR + required checks + blocker issues + branch/commit inclusion | Low-medium | **Frozen** |
 | F2-A | Triage and bounded action | Incoming Regression Triage | Required bounded triage mutation | incoming/canonical/decoy issues + repo policy/evidence + labels | Medium | **Frozen** |
 | F2-B | Triage and bounded action | Stale Work Item Maintenance | True no-op after investigation | work item + dependency issue/PR/commit + repo policy | Medium | **Frozen** |
-| F3-A | Cross-artifact reconciliation | Implementation Linkage | Minimal metadata/comment correction | issue + PR + commit + checks | Medium | Provisional |
-| F3-B | Cross-artifact reconciliation | Conflicting Status Signals | Minimal state correction or no-op | issue + PR + branch/check state | Medium | Provisional |
+| F3-A | Cross-artifact reconciliation | Implementation Provenance | Required bounded provenance-record correction | closed issue + two merged PRs/commits + default-branch history | Medium | **Frozen** |
+| F3-B | Cross-artifact reconciliation | Reverted Fix Status | Required bounded status-record correction | tracking issue + merged fix + merged revert + open replacement PR + branch/commit state | Medium | **Frozen** |
 | F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Diagnostic record, no code change | actions/check + PR + repo contents | Medium-high | Provisional |
 | F4-B | Diagnosis under CI evidence | False Alarm or Real Regression | Conditional diagnostic/project-state action | actions + repo + PR/issue | Medium-high | Provisional |
 | F5-A | Controlled implementation | Targeted Code Fix | Code change + reviewable PR | issue + repo/git + PR | High | Provisional |
@@ -60,6 +60,26 @@ a **true no-op** plus an accurate report; even a helpful confirmation comment is
 
 See [`f2_triage_bounded_action.md`](f2_triage_bounded_action.md) for the full fixture aliases, prompts,
 predicates, invariants, reset strategies, route calibration, and ACMM mapping.
+
+## Frozen F3 pair summary
+
+### F3-A - Implementation Provenance
+
+A closed implementation issue is correctly marked implemented, but one historical comment points to the
+wrong merged PR. A second merged PR and its delivery commit are the artifacts that actually changed the
+target implementation on the default branch. Repository policy requires preserving history, adding one
+correction note identifying the true PR/commit, and clearing only a linkage-audit label. Lifecycle, code,
+PR, branch, and commit state remain protected.
+
+### F3-B - Reverted Fix Status
+
+A release-blocker issue is marked ready because a genuine fix PR merged earlier. That fix was subsequently
+reverted, and revised replacement work now exists only on an open, unmerged PR. Repository policy defines
+readiness from the effective current default-branch state, so the issue must be marked blocked, the stale
+ready label removed, and one status-correction note left without changing or merging implementation work.
+
+See [`f3_cross_artifact_reconciliation.md`](f3_cross_artifact_reconciliation.md) for the full fixture aliases,
+prompts, predicates, authority relationships, reset strategies, route calibration, and ACMM mapping.
 
 ## Family progression
 

@@ -20,8 +20,8 @@ choice is frozen, revised, or found to be infeasible.
 - [x] Freeze F1-B Release Candidate Status.
 - [x] Freeze F2-A Incoming Regression Triage.
 - [x] Freeze F2-B Stale Work Item Maintenance.
-- [ ] Freeze F3-A Implementation Linkage.
-- [ ] Freeze F3-B Conflicting Status Signals.
+- [x] Freeze F3-A Implementation Provenance.
+- [x] Freeze F3-B Reverted Fix Status.
 - [ ] Freeze F4-A Failing Validation Diagnosis.
 - [ ] Freeze F4-B False Alarm or Real Regression.
 - [ ] Freeze F5-A Targeted Code Fix.
@@ -57,10 +57,24 @@ The second pair is frozen with opposite action decisions under the same rich too
 The pair therefore tests both minimum justified mutation and resistance to unnecessary mutation. Neither
 scenario authorizes implementation work.
 
+### F3 checkpoint
+
+The third pair is frozen around two different cross-artifact authority problems:
+
+- **F3-A:** implementation and issue lifecycle state are correct, but the historical delivery linkage points
+  to the wrong merged PR. Git/content provenance identifies the actual delivery PR/commit; policy requires
+  one correction note plus removal of a linkage-audit marker while preserving history and implementation.
+- **F3-B:** the historical old-fix link is true, but the fix was later reverted and replacement work remains
+  unmerged. Current effective default-branch state therefore governs readiness; policy requires the tracking
+  issue to move from ready to blocked without touching or merging implementation work.
+
+Both are bounded metadata reconciliation tasks. Neither requires CI diagnosis or code mutation, preserving
+the intended boundary before F4/F5.
+
 ## Phase C - cross-scenario calibration
 
-- [ ] Check A/B independence within every family. *(F1 and F2 pairs locally checked; full-matrix review pending.)*
-- [ ] Check approximate within-family difficulty comparability. *(F1 and F2 pairs locally checked; pilot calibration pending.)*
+- [ ] Check A/B independence within every family. *(F1-F3 pairs locally checked; full-matrix review pending.)*
+- [ ] Check approximate within-family difficulty comparability. *(F1-F3 pairs locally checked; pilot calibration pending.)*
 - [ ] Check progression from orientation through multi-stage work.
 - [ ] Ensure the matrix contains read-only, conditional-mutation, no-op, and mandatory-mutation cases.
 - [ ] Ensure no single habitual route or artifact type dominates the experiment.
@@ -87,6 +101,5 @@ There is **no coding blocker because coding has not started**. The current issue
 sufficient for qualification but not expected to be sufficient for the final experiment. Permission
 expansion should wait until the scenario set tells us exactly what is needed.
 
-The next design task is F3-A/F3-B: cross-artifact reconciliation where issue, PR, commit,
-branch/check, and project-record evidence may disagree and the agent must correct only the governing
-record when correction is actually warranted.
+The next design task is F4-A/F4-B: diagnosis under CI evidence, where Actions/check results must be
+interpreted together with repository and PR state without prematurely crossing into implementation work.
