@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass, replace
 import json
 from pathlib import Path
+import re
 import shutil
 from typing import Any, Mapping
 
@@ -259,8 +260,30 @@ class _redacting_qualification_manager:
         )
         detail = (result.stdout or result.stderr or "").strip()
         if not detail:
-            detail = "Hermes MCP test returned no diagnostic output."
-        return bool(result.succeeded), detail
+            return False, "Hermes MCP test returned no diagnostic output."
+        if not result.succeeded:
+            return False, detail
+
+        plain = _strip_ansi(detail)
+        count_match = re.search(r"Tools discovered:\s*(\d+)", plain)
+        if count_match is None:
+            return False, "Hermes MCP test did not report a discovered-tool count."
+
+        expected = set(self._settings.tools)
+        observed = {
+            tool
+            for tool in expected
+            if re.search(rf"(?m)^\s*{re.escape(tool)}(?:\s|$)", plain)
+        }
+        discovered_count = int(count_match.group(1))
+        if discovered_count != len(expected) or observed != expected:
+            return (
+                False,
+                "Hermes discovered MCP tools "
+                f"{sorted(observed)!r} with reported count {discovered_count}; "
+                f"expected {sorted(expected)!r}.",
+            )
+        return True, f"discovered exactly {len(observed)} expected GitHub MCP tools"
 
     def _probe_open_webui(self) -> tuple[bool, str]:
         api = getattr(self._manager, "api")
@@ -314,6 +337,13 @@ class _redacting_qualification_manager:
                 f"{sorted(observed)!r}; expected {sorted(expected)!r}.",
             )
         return True, f"discovered exactly {len(observed)} expected GitHub MCP tools"
+
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(value: str) -> str:
+    return _ANSI_ESCAPE_RE.sub("", value)
 
 
 class _integration_settings:

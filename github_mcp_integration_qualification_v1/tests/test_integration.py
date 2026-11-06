@@ -213,6 +213,79 @@ def test_manager_wrapper_uses_agent_zero_native_detail_probe(
 
 
 
+def test_manager_wrapper_verifies_hermes_exact_tool_catalog(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_token(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    output = (
+        "Testing 'github'...\n"
+        "Connected (12ms)\n"
+        "Tools discovered: 3\n\n"
+        "  issue_read  Read issue\n"
+        "  issue_write  Write issue\n"
+        "  add_issue_comment  Add comment\n"
+    )
+    manager = _fake_manager(
+        docker=_fake_docker(
+            running=True,
+            exec_result=_fake_command_result(stdout=output),
+        ),
+        token=TOKEN,
+    )
+
+    wrapped = compose_staged_experiment_manager_integrations(
+        package,
+        "hermes",
+        "gpt_oss_120b_cloud_v1",
+        manager,
+        loaded_integrations=load_staged_experiment_integrations(package),
+    )
+    report = wrapped.doctor()
+
+    assert report.is_ready is True
+    assert report.checks[-1].name == "integration:github_mcp_discovery"
+    assert report.checks[-1].ok is True
+    assert "exactly 3 expected" in report.checks[-1].detail
+
+
+def test_manager_wrapper_rejects_hermes_wrong_tool_catalog(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_token(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    output = (
+        "Testing 'github'...\n"
+        "Connected (12ms)\n"
+        "Tools discovered: 2\n\n"
+        "  issue_read  Read issue\n"
+        "  issue_write  Write issue\n"
+    )
+    manager = _fake_manager(
+        docker=_fake_docker(
+            running=True,
+            exec_result=_fake_command_result(stdout=output),
+        ),
+        token=TOKEN,
+    )
+
+    wrapped = compose_staged_experiment_manager_integrations(
+        package,
+        "hermes",
+        "gpt_oss_120b_cloud_v1",
+        manager,
+        loaded_integrations=load_staged_experiment_integrations(package),
+    )
+    report = wrapped.doctor()
+
+    assert report.is_ready is False
+    assert report.checks[-1].ok is False
+    assert "reported count 2" in report.checks[-1].detail
+
+
+
 @dataclass(frozen=True)
 class _fake_command_result:
     returncode: int = 0
@@ -363,15 +436,23 @@ class _fake_manager:
 
 
 class _fake_docker:
-    def __init__(self, *, running: bool) -> None:
+    def __init__(
+        self,
+        *,
+        running: bool,
+        exec_result: _fake_command_result | None = None,
+    ) -> None:
         self._running = running
+        self._exec_result = exec_result
 
     def container_running(self) -> bool:
         return self._running
 
     def exec(self, args):
         del args
-        raise AssertionError("unexpected docker exec")
+        if self._exec_result is None:
+            raise AssertionError("unexpected docker exec")
+        return self._exec_result
 
 
 class _fake_agent_zero_api:

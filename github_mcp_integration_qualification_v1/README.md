@@ -60,7 +60,9 @@ preserves the resource's prior running state. On a normal stopped environment, t
 if missing and the Compose definition is validated, but no stopped container is retained.
 `env doctor --start-if-needed` temporarily creates/starts the shared MCP resource before native
 subject discovery, keeps it available while all subject checks run, and removes the container again
-afterward. The pinned Docker image remains cached; runtime container state is ephemeral.
+afterward. Each subject qualification requires discovery of exactly the three declared GitHub MCP
+tools; successful integration checks are printed in the doctor summary. The pinned Docker image
+remains cached; runtime container state is ephemeral.
 
 ## Ownership boundary
 
