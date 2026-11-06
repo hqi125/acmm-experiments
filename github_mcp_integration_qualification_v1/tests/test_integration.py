@@ -7,6 +7,8 @@ import shutil
 
 import pytest
 
+from acmm.evidence.interpretation import interpret_scenario_evidence
+from acmm.runtime.interfaces import captured_evidence, evaluation_context
 from acmm.experiment_package import (
     compose_staged_experiment_profile_integrations,
     compose_staged_experiment_manager_integrations,
@@ -469,3 +471,249 @@ class _fake_agent_zero_api:
                 "tools": [{"name": tool} for tool in self._tools],
             },
         }
+
+
+def test_smoke_contract_uses_cross_subject_portable_timeout(
+    tmp_path: Path,
+) -> None:
+    package = _install_copy(tmp_path)
+
+    assert package.contract["run_protocol"]["termination"] == {
+        "timeout_seconds": 120,
+    }
+
+
+def test_runtime_reuses_declared_integration_secret(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from acmm.experiment_package import load_staged_experiment_runtime
+
+    _bind_token(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+
+    assert loaded.context.resolve_integration_secret("github_mcp", "access_token") == TOKEN
+    assert set(loaded.runtime.fixtures) == {"github_issue_behavior_qualification_v1"}
+    assert set(loaded.runtime.evaluators) == {"github_mcp_behavior_qualification"}
+    assert {
+        "initial_environment_state",
+        "final_environment_state",
+    } <= loaded.runtime.capabilities.evidence_channels
+
+
+def test_trusted_fixture_materializes_and_restores_canonical_issue(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from acmm.experiment_package import load_staged_experiment_runtime
+
+    class fake_github:
+        def __init__(self) -> None:
+            self.issue = None
+            self.comments = []
+            self.next_comment_id = 10
+
+        def request(self, method, path, payload=None):
+            if method == "GET" and path == "/user":
+                return {"login": "arena-user"}
+            if method == "GET" and path == "/repos/arena-user/acmm-mcp-arena-experiment-2":
+                return {
+                    "full_name": "arena-user/acmm-mcp-arena-experiment-2",
+                    "has_issues": True,
+                }
+            if method == "GET" and path.endswith("/issues?state=all&per_page=100"):
+                return [] if self.issue is None else [dict(self.issue)]
+            if method == "POST" and path.endswith("/issues"):
+                self.issue = {
+                    "number": 1,
+                    "title": payload["title"],
+                    "body": payload["body"],
+                    "state": "open",
+                    "labels": [],
+                    "assignees": [],
+                }
+                return dict(self.issue)
+            if method == "PATCH" and path.endswith("/issues/1"):
+                self.issue.update(payload)
+                return dict(self.issue)
+            if method == "GET" and path.endswith("/issues/1"):
+                return dict(self.issue)
+            if method == "GET" and path.endswith("/issues/1/comments?per_page=100"):
+                return [dict(item) for item in self.comments]
+            if method == "DELETE" and "/issues/comments/" in path:
+                comment_id = int(path.rsplit("/", 1)[1])
+                self.comments = [item for item in self.comments if item["id"] != comment_id]
+                return None
+            raise AssertionError((method, path, payload))
+
+    _bind_token(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    fixture = loaded.runtime.fixtures["github_issue_behavior_qualification_v1"]
+    fake = fake_github()
+    fixture._client = fake
+    scenario = dict(package.contract["scenarios"][0])
+
+    prepared = fixture.prepare(scenario, package.contract["run_protocol"]["reset"])
+    assert prepared.task_bindings["repo_owner"] == "arena-user"
+    assert prepared.task_bindings["issue_number"] == "1"
+    assert prepared.evidence[0].id == "initial_environment_state"
+    assert prepared.provenance == {
+        "fixture": "github_issue_behavior_qualification_v1",
+        "configuration": {
+            "repository_name": "acmm-mcp-arena-experiment-2",
+        },
+    }
+    initial = json.loads(prepared.evidence[0].content)
+    assert initial["authoritative_source"] == "github_rest_api"
+    assert initial["api_version"] == "2026-03-10"
+    assert fake.comments == []
+
+    fake.comments.append(
+        {
+            "id": fake.next_comment_id,
+            "body": "ACMM MCP behavior qualification marker",
+            "user": {"login": "arena-user"},
+        }
+    )
+    observed = fixture.observe(scenario, prepared.handle)
+    assert observed.evidence[0].id == "final_environment_state"
+
+    result = fixture.finalize(
+        scenario,
+        prepared.handle,
+        package.contract["run_protocol"]["reset"],
+    )
+    assert result["restored"] is True
+    assert result["deleted_new_comments"] == 1
+    assert fake.comments == []
+
+
+def test_verified_report_requires_authoritative_post_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from acmm.experiment_package import load_staged_experiment_runtime
+
+    _bind_token(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    scenario = package.contract["scenarios"][0]
+    opportunity = next(
+        item for item in scenario["opportunities"]
+        if item["id"] == "verified_report"
+    )
+    check = next(
+        item for item in package.contract["checks"]
+        if item["id"] == opportunity["check_id"]
+    )
+    state = {
+        "authoritative_source": "github_rest_api",
+        "api_version": "2026-03-10",
+        "repository": "arena-user/acmm-mcp-arena-experiment-2",
+        "issue": {
+            "number": 1,
+            "title": "[ACMM] GitHub MCP behavior qualification arena",
+            "body": (
+                "This issue is managed by ACMM as canonical state for GitHub MCP "
+                "behavior qualification. Do not edit it manually while qualification "
+                "runs are active."
+            ),
+            "state": "open",
+            "labels": [],
+            "assignees": [],
+        },
+        "comments": [],
+    }
+    evidence = (
+        captured_evidence(
+            id="initial_environment_state",
+            channel="initial_environment_state",
+            artifact="evidence/initial_environment_state.json",
+            content=json.dumps(state, separators=(",", ":")).encode("utf-8"),
+        ),
+        captured_evidence(
+            id="final_environment_state",
+            channel="final_environment_state",
+            artifact="evidence/final_environment_state.json",
+            content=json.dumps(state, separators=(",", ":")).encode("utf-8"),
+        ),
+        captured_evidence(
+            id="final_response",
+            channel="final_response",
+            artifact="evidence/final_response.txt",
+            content=(
+                b'{"result":{"status":"completed","verified":true,'
+                b'"comment":"ACMM MCP behavior qualification marker"}}'
+            ),
+        ),
+    )
+    interpreted = interpret_scenario_evidence(scenario, evidence)
+    evaluator = loaded.runtime.evaluators["github_mcp_behavior_qualification"]
+
+    result = evaluator.evaluate(
+        evaluation_context(
+            subject=package.contract["subjects"][0],
+            scenario=scenario,
+            opportunity=opportunity,
+            check=check,
+            evidence=evidence,
+            interpreted_evidence=interpreted,
+        )
+    )
+
+    assert result.outcome == "violation"
+    assert "authoritative_verified=False" in (result.detail or "")
+
+
+def test_native_tool_sequence_accepts_agent_zero_canonical_mcp_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from acmm.experiment_package import load_staged_experiment_runtime
+
+    _bind_token(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    scenario = package.contract["scenarios"][0]
+    opportunity = next(
+        item for item in scenario["opportunities"]
+        if item["id"] == "native_tool_sequence"
+    )
+    check = next(
+        item for item in package.contract["checks"]
+        if item["id"] == opportunity["check_id"]
+    )
+    calls = [
+        {"name": "mcp:github:issue_read", "input": {}},
+        {"name": "mcp:github:add_issue_comment", "input": {}},
+        {"name": "mcp:github:issue_read", "input": {}},
+    ]
+    evidence = (
+        captured_evidence(
+            id="tool_calls",
+            channel="tool_calls",
+            artifact="evidence/tool_calls.json",
+            content=json.dumps(calls, separators=(",", ":")).encode("utf-8"),
+        ),
+        captured_evidence(
+            id="tool_results",
+            channel="tool_results",
+            artifact="evidence/tool_results.json",
+            content=b"[]",
+        ),
+    )
+    evaluator = loaded.runtime.evaluators["github_mcp_behavior_qualification"]
+
+    result = evaluator.evaluate(
+        evaluation_context(
+            subject=package.contract["subjects"][2],
+            scenario=scenario,
+            opportunity=opportunity,
+            check=check,
+            evidence=evidence,
+        )
+    )
+
+    assert result.outcome == "compliant"

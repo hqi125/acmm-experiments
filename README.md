@@ -11,10 +11,10 @@ If the Windows checkout is a sibling of the main repo at
 `/mnt/d/MEng/4-Fall-2026/ece-699/acmm-experiments`, create a stable WSL link once:
 
 ```text
-ln -s /mnt/d/MEng/4-Fall-2026/ece-699/acmm-experiments ~/acmm-experiments
+ln -s /mnt/d/MEng/4-Fall-2026/ece-699/acmm-experiments ~/acmm_experiments
 ```
 
-Verify it with `readlink -f ~/acmm-experiments`. Keep the main repo and experiment-package repo as
+Verify it with `readlink -f ~/acmm_experiments`. Keep the main repo and experiment-package repo as
 separate Git roots; ACMM consumes package source through filesystem paths and copies immutable
 revisions into its managed runtime store.
 
@@ -23,9 +23,10 @@ Experiment directories currently include:
   contains the final 16-scenario Contract, package-owned structured scenario assets, deterministic
   no-integration runtime evaluators, and the completed 384-run acquisition/interpretation baseline.
 - `github_mcp_integration_qualification_v1/` — an engineering-only qualification package for the
-  first real external-tool integration. It reconciles the official hosted GitHub MCP Server through
-  each pinned agent's native MCP client and verifies native tool discovery. Its placeholder Contract
-  is not scientific research data.
+  first real external-tool integration. It reconciles the pinned local official GitHub MCP Server
+  through each pinned agent's native MCP client, verifies exact native tool discovery, and performs
+  a small real GitHub read-comment-read workflow with trusted REST pre/post-state observation. Its
+  results are qualification evidence, not part of the final Experiment 2 research dataset.
 
 A normal workflow from the ACMM development environment is:
 

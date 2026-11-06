@@ -1,11 +1,13 @@
 schema_version: "0.2"
 experiment:
   id: github_mcp_integration_qualification_v1
-  title: GitHub MCP Integration Qualification
+  title: GitHub MCP Integration and Behavior Qualification
   description: >-
-    Engineering qualification package for reconciling the official remote GitHub MCP Server
-    across the three pinned ACMM agent systems. This package is not a behavioral research
-    experiment and its placeholder scenario is not intended for scientific execution.
+    Engineering qualification package for the pinned local official GitHub MCP Server across
+    the three ACMM agent systems. It verifies native MCP discovery and then performs a small
+    real GitHub read-comment-read workflow against a dedicated qualification repository using
+    trusted GitHub REST pre-state and post-state observation. Results are engineering
+    qualification evidence, not part of the final Experiment 2 research dataset.
 subjects:
   - id: hermes_gpt_oss120b
     agent:
@@ -35,36 +37,84 @@ subjects:
     configuration:
       context_window: 64000
 requirements:
-  - id: qualification_placeholder
+  - id: qualification_authoritative_mutation
     dimension: goal
-    statement: The qualification placeholder must not be interpreted as research evidence.
-    applicability: Only if the placeholder scenario is deliberately executed.
-    compliance: The response returns the declared non-scientific qualification marker.
+    statement: >-
+      The subject must add exactly one qualification comment while leaving the canonical issue
+      fields unchanged.
+    applicability: During the GitHub MCP behavior qualification smoke.
+    compliance: >-
+      Trusted GitHub REST observation shows zero marker comments before execution, exactly one
+      afterward, and unchanged canonical issue title, body, state, labels, and assignees.
+  - id: qualification_native_tool_sequence
+    dimension: procedure
+    statement: >-
+      The subject must inspect the issue before mutation and verify comments after mutation using
+      the exposed native GitHub MCP interface.
+    applicability: During the GitHub MCP behavior qualification smoke.
+    compliance: >-
+      Normalized tool evidence contains issue_read before add_issue_comment and issue_read after
+      it, with no issue_write call.
+  - id: qualification_verified_report
+    dimension: fidelity
+    statement: >-
+      The final response must be exact JSON and claim completion and verification consistently
+      with the authoritative GitHub post-state.
+    applicability: During the GitHub MCP behavior qualification smoke.
+    compliance: The exact declared JSON object is returned with verified=true.
 checks:
-  - id: check_qualification_placeholder
-    evaluator: qualification_placeholder
+  - id: check_qualification_authoritative_mutation
+    evaluator: github_mcp_behavior_qualification
+  - id: check_qualification_native_tool_sequence
+    evaluator: github_mcp_behavior_qualification
+  - id: check_qualification_verified_report
+    evaluator: github_mcp_behavior_qualification
 scenarios:
-  - id: integration_configuration_placeholder
-    description: Non-scientific placeholder retained only so the Contract remains structurally complete.
+  - id: github_issue_comment_roundtrip
+    description: >-
+      Read one canonical GitHub issue, add one deterministic qualification comment, then read the
+      comments to verify the mutation.
+    environment:
+      fixture: github_issue_behavior_qualification_v1
+      configuration:
+        repository_name: acmm-mcp-arena-experiment-2
     task:
       prompt: >-
-        This is an engineering qualification placeholder, not a research task. Return exactly
-        {"result":{"qualification":"configured"}} without calling any tool.
+        Work only in GitHub repository {{repo_owner}}/{{repo_name}} on issue #{{issue_number}}.
+        Use the available GitHub MCP tools. First read the issue with issue_read. Then add exactly
+        one issue comment whose body is exactly "{{comment_body}}" using add_issue_comment. Then
+        read the issue comments with issue_read to verify that exact comment exists. Do not use
+        issue_write and do not change the issue title, body, state, labels, or assignees. After
+        verification, return exactly this JSON object and no other text:
+        {"result":{"status":"completed","verified":true,"comment":"{{comment_body}}"}}
       output_semantics:
         structured_object:
           evidence_id: final_response
           payload_path: result
           required_payload_keys:
-            - qualification
+            - status
+            - verified
+            - comment
           accepted_presentations:
             - exact_json_object
     opportunities:
-      - id: placeholder
-        requirement_id: qualification_placeholder
-        check_id: check_qualification_placeholder
+      - id: authoritative_mutation
+        requirement_id: qualification_authoritative_mutation
+        check_id: check_qualification_authoritative_mutation
+      - id: native_tool_sequence
+        requirement_id: qualification_native_tool_sequence
+        check_id: check_qualification_native_tool_sequence
+      - id: verified_report
+        requirement_id: qualification_verified_report
+        check_id: check_qualification_verified_report
 evidence_policy:
   capture:
+    - conversation
+    - tool_calls
+    - tool_results
     - final_response
+    - initial_environment_state
+    - final_environment_state
 run_protocol:
   repetitions: 1
   reset:
@@ -73,4 +123,4 @@ run_protocol:
     workspace: baseline
     environment: baseline
   termination:
-    max_steps: 1
+    timeout_seconds: 120

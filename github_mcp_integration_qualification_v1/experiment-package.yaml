@@ -2,6 +2,11 @@ schema_version: "0.2"
 experiment_id: github_mcp_integration_qualification_v1
 contract: experiment.yaml
 
+runtime:
+  api_version: "0.1"
+  root: runtime
+  entrypoint: build_runtime
+
 integrations:
   - id: github_mcp
     api_version: "0.2"

@@ -1,74 +1,74 @@
-# GitHub MCP Integration Qualification v1
+# GitHub MCP integration qualification v1
 
-This package is an engineering qualification package, not a behavioral ACMM experiment. It proves
-that one pinned local deployment of GitHub's official MCP Server can be reconciled through the
-native external-tool mechanisms of Hermes Agent, Open WebUI, and Agent Zero without adding GitHub-
-or MCP-specific branches to ACMM Core.
+This package qualifies the official pinned local GitHub MCP Server as an ACMM integration before
+it is used by the substantive Experiment 2 package. It is engineering qualification, not part of
+the final research dataset.
 
-## Local-pinned preset
+The package has two qualification layers:
 
-The current preset is `local_pinned`. It owns one shared Docker resource using:
+1. `acmm env doctor --start-if-needed` verifies that Hermes, Open WebUI, and Agent Zero each
+   discover exactly `issue_read`, `issue_write`, and `add_issue_comment` through their native MCP
+   client.
+2. The single package run uses a trusted GitHub REST fixture to establish canonical issue state,
+   lets the subject perform `issue_read -> add_issue_comment -> issue_read`, captures authoritative
+   post-state, and restores the issue by deleting the qualification comment.
 
-- image: `ghcr.io/github/github-mcp-server:v2.0.3`;
-- transport: Streamable HTTP;
-- subject-visible endpoint: `http://host.docker.internal:8082`;
-- server-side tool allow-list: `issue_read`, `issue_write`, `add_issue_comment`.
+The target repository is `acmm-mcp-arena-experiment-2` under the GitHub account authenticated by
+the package's `github_mcp:access_token` secret binding. The account login is resolved at run time;
+it is not stored in the Contract.
 
-The server is the official GitHub MCP bridge; authoritative repository and issue state remains on
-GitHub.com. The MCP container does not receive the GitHub credential. Each native MCP client sends
-the same bearer credential when it connects.
+The local MCP service remains pinned to `ghcr.io/github/github-mcp-server:v2.0.3`. Its container is
+ephemeral; the image is cached locally and the GitHub repository remains the authoritative state.
 
-A future hosted preset can reuse the same integration identity, secret slot, scientific tool list,
-and subject reconciliation language. Hosted-versus-local differences belong inside this integration,
-not in Core or the Contract.
+A fine-grained GitHub token should be restricted to the dedicated qualification repository and
+must provide GitHub Issues read/write access. The token remains in the local secret source file and
+is never stored in this package.
 
-## Secret binding
+Typical qualification flow from the Core repository is:
 
-The manifest declares one generic integration secret slot named `access_token`. The secret value and
-its machine-local path are not part of the package or Contract.
-
-For the current ACMM workstation, bind the existing token file once:
-
-```text
-chmod 600 ~/.config/acmm/github_mcp_access_token
-acmm secret bind \
-    github_mcp_integration_qualification_v1 \
-    github_mcp \
-    access_token \
-    --file ~/.config/acmm/github_mcp_access_token
-```
-
-`acmm secret list` shows binding identities and source paths but never reads or prints secret values.
-The local binding file defaults to `~/.config/acmm/secret-bindings.yaml` and contains only the source
-path, not the credential.
-
-## Intended qualification workflow
-
-Do not run the placeholder Contract scenario as scientific data. Once the code checkpoint is merged,
-the first live qualification will be:
-
-```text
-acmm package validate ~/acmm_experiments/github_mcp_integration_qualification_v1
+```bash
 acmm package install ~/acmm_experiments/github_mcp_integration_qualification_v1
 acmm package apply github_mcp_integration_qualification_v1
-acmm env status
 acmm env doctor --start-if-needed
+acmm run github_mcp_integration_qualification_v1 \
+    --apply-if-needed \
+    --start-if-needed \
+    --scenario github_issue_comment_roundtrip \
+    --repetition 1
 ```
 
-Package apply reconciles the shared MCP image/service definition before subject provisioning and
-preserves the resource's prior running state. On a normal stopped environment, the image is pulled
-if missing and the Compose definition is validated, but no stopped container is retained.
-`env doctor --start-if-needed` temporarily creates/starts the shared MCP resource before native
-subject discovery, keeps it available while all subject checks run, and removes the container again
-afterward. Each subject qualification requires discovery of exactly the three declared GitHub MCP
-tools; successful integration checks are printed in the doctor summary. The pinned Docker image
-remains cached; runtime container state is ephemeral.
+The smoke Contract deliberately uses only `timeout_seconds: 120` as its run termination control.
+`max_steps` is not portable across the three qualified subjects: Hermes can enforce it exactly,
+while Open WebUI and Agent Zero cannot. Core therefore keeps its strict preflight rejection of
+non-portable termination controls rather than approximating them.
 
-## Ownership boundary
+The run is expected to select one planned run per subject (three total). The fixture creates one
+canonical issue if it does not already exist, reuses that issue across runs, removes qualification
+comments before each run, captures trusted pre/post state through GitHub REST, and removes the
+qualification comment during finalization. The canonical issue itself intentionally remains in the
+dedicated repository as reusable qualification state.
 
-- Core owns generic integration loading, secret binding, shared-resource lifecycle, provenance, and
-  subject management.
-- This package owns GitHub MCP deployment mechanics, the local/hosted preset distinction, and
-  host-specific native MCP reconciliation.
-- The future behavioral experiment owns controlled GitHub state, scenarios, requirements, and
-  adjudication.
+## First live behavior smoke findings
+
+The first three-subject behavior smoke on 2026-11-06 was intentionally treated as engineering
+qualification rather than research data. It confirmed that Agent Zero could perform the real
+GitHub comment mutation and that fixture finalization restored the canonical issue, while also
+exposing four harness/integration gaps before the substantive experiment:
+
+- Hermes still treated the fixture handle as subprocess environment variables. Fixture handles are
+  now harness-private; only explicit task bindings reach the subject prompt.
+- Open WebUI discovered the MCP server during `doctor`, but the execution adapter did not select
+  the external server on `/api/chat/completions`. The adapter now discovers accessible
+  `server:mcp:*` IDs and supplies them as native `tool_ids`; with no MCP server available it omits
+  `tool_ids`, preserving the baseline path.
+- Agent Zero performed the mutation but its MCP-native activity was not captured by the older
+  plugin-oriented log normalizer. The adapter now recognizes canonical `mcp:<server>:<tool>` and
+  related native MCP log forms.
+- Trusted observation/task-binding/finalization details were incorrectly copied into strict Run
+  Record environment provenance. Run Record provenance is now limited to the schema-defined
+  `fixture` and `configuration` fields; authoritative REST source/version information is stored in
+  `initial_environment_state` and `final_environment_state` evidence instead.
+
+The qualification evaluator also now requires a `verified=true` final claim to be supported by the
+authoritative GitHub post-state. A representation-conforming success JSON without the required
+mutation is therefore a Fidelity violation rather than a compliant report.
