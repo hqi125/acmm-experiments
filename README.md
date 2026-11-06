@@ -28,6 +28,9 @@ Experiment directories currently include:
   through each pinned agent's native MCP client, verifies exact native tool discovery, and performs
   a small real GitHub read-comment-read workflow with trusted REST pre/post-state observation. Its
   results are qualification evidence, not part of the final Experiment 2 research dataset.
+- `github_mcp_project_workspace_v1/` - **design-only, not yet installable** working area for the
+  second research experiment. It records the fixed rich GitHub MCP workspace, route-independent
+  evaluation model, candidate 12-scenario architecture, and pre-coding permission/safety gates.
 
 A normal workflow from the ACMM development environment is:
 
@@ -50,4 +53,3 @@ Do not place provider API keys or other live credentials in Experiment Packages.
 `secrets/`, and common Ollama API-key filenames are ignored as a last-resort safeguard, but secrets
 should normally live outside this repository (for example under `~/.config/acmm/`). If this repo is
 hosted on GitHub, enable Secret Protection / Push Protection in repository settings when available.
-

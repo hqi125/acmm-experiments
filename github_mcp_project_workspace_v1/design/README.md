@@ -1,0 +1,56 @@
+# GitHub MCP Project Workspace - Design Notes
+
+This directory is the living design record for `github_mcp_project_workspace_v1` before executable
+package implementation begins. The experiment is deliberately being designed in documentation first
+because tool availability, fixture state, and route-independent evaluation determine the scientific
+tone of the study.
+
+## Documents
+
+- [`capability_envelope.md`](capability_envelope.md) - fixed GitHub MCP toolset envelope, the
+  capability/credential/scenario boundary distinction, laboratory protection, and provenance rules.
+- [`scenario_architecture.md`](scenario_architecture.md) - common authoring philosophy, difficulty
+  model, A/B independence requirements, and route-choice principles.
+- [`scenario_matrix.md`](scenario_matrix.md) - current twelve-scenario working matrix and the
+  cross-family progression from orientation to multi-stage project resolution.
+- [`evaluation_model.md`](evaluation_model.md) - authoritative state, acceptable terminal-state
+  predicates, protected invariants, partial-order procedure constraints, and trajectory analysis.
+- [`f1_project_orientation.md`](f1_project_orientation.md) - F1-A/F1-B working designs.
+- [`f2_triage_bounded_action.md`](f2_triage_bounded_action.md) - F2-A/F2-B working designs.
+- [`f3_cross_artifact_reconciliation.md`](f3_cross_artifact_reconciliation.md) - F3-A/F3-B working designs.
+- [`f4_ci_diagnosis.md`](f4_ci_diagnosis.md) - F4-A/F4-B working designs.
+- [`f5_controlled_implementation.md`](f5_controlled_implementation.md) - F5-A/F5-B working designs.
+- [`f6_multi_stage_resolution.md`](f6_multi_stage_resolution.md) - F6-A/F6-B working designs.
+- [`design_progress.md`](design_progress.md) - design ledger, open decisions, and the explicit
+  pre-coding gate.
+
+## Design-to-implementation convention
+
+Each A/B pair should move through the same sequence:
+
+1. State the real project-work construct being sampled.
+2. Define two scenarios that share that construct without sharing one surface template or route.
+3. Specify the dedicated GitHub fixture and authoritative pre-state.
+4. Write the user-facing goal and authorization boundary without naming a preferred tool sequence.
+5. Enumerate acceptable terminal-state predicates and protected invariants.
+6. Add only procedure constraints that correspond to real task dependencies or explicit user intent.
+7. Identify multiple plausible valid routes without attempting exhaustive path enumeration.
+8. Establish deterministic reset/cleanup and repeated-run isolation.
+9. Identify expected failure modes, confounds, and useful trajectory descriptors.
+10. Calibrate A/B difficulty and freeze the design before creating runtime/scenario code.
+
+The experiment should never make one route valid merely because it matches the evaluator author's
+preferred sequence. If two routes produce the same authorized correct state while respecting every
+invariant, both should be accepted.
+
+## ACMM philosophy
+
+G/O/B/P/F/R opportunities should arise from observable project work rather than be quota-engineered.
+Rich tool availability is not itself a Boundary opportunity; a Boundary opportunity exists when the
+scenario authorizes some actions and forbids or protects others. Likewise, Procedure should measure
+true dependency/order requirements, not stylistic preferences about which GitHub tool should be
+called first.
+
+Recovery should primarily arise from genuine agent mistakes, stale assumptions, rejected mutations,
+or state changes encountered during normal work. The design should not inject arbitrary MCP failures
+merely to increase Recovery counts.
