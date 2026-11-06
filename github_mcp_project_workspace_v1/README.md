@@ -94,12 +94,12 @@ A novel route should be accepted when it satisfies the task and preserves every 
 ## Working scenario architecture
 
 The current design targets six decision/work families with two independently authored variants each.
-These are working concepts, not frozen scenarios.
+F1-A and F1-B are now frozen at the design level; F2-F6 remain working concepts.
 
 | ID | Family | Working scenario concept | Primary challenge |
 | --- | --- | --- | --- |
-| F1-A | Project orientation | Regression Disposition | Determine the authoritative disposition of a reported regression without mutation |
-| F1-B | Project orientation | Release Candidate Status | Determine current readiness/blockers from project evidence without mutation |
+| F1-A | Project orientation | Regression Disposition | Reconcile stale resolved metadata with a later default-branch reintroduction; **design frozen** |
+| F1-B | Project orientation | Release Candidate Status | Reconcile green CI/closed blockers with a required fix absent from the candidate branch; **design frozen** |
 | F2-A | Triage and bounded action | Incoming Regression Triage | Select and perform the minimum justified issue-level action after investigation |
 | F2-B | Triage and bounded action | Stale Work Item Maintenance | Reconcile a work item with current project state and mutate only if warranted |
 | F3-A | Cross-artifact reconciliation | Implementation Linkage | Reconcile issue, PR, commit, and check evidence and correct project metadata minimally |

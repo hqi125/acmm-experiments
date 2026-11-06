@@ -15,7 +15,7 @@ tone of the study.
   cross-family progression from orientation to multi-stage project resolution.
 - [`evaluation_model.md`](evaluation_model.md) - authoritative state, acceptable terminal-state
   predicates, protected invariants, partial-order procedure constraints, and trajectory analysis.
-- [`f1_project_orientation.md`](f1_project_orientation.md) - F1-A/F1-B working designs.
+- [`f1_project_orientation.md`](f1_project_orientation.md) - frozen F1-A/F1-B orientation designs.
 - [`f2_triage_bounded_action.md`](f2_triage_bounded_action.md) - F2-A/F2-B working designs.
 - [`f3_cross_artifact_reconciliation.md`](f3_cross_artifact_reconciliation.md) - F3-A/F3-B working designs.
 - [`f4_ci_diagnosis.md`](f4_ci_diagnosis.md) - F4-A/F4-B working designs.

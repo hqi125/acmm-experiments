@@ -2,26 +2,44 @@
 
 ## Status
 
-**Early design draft.** IDs and families are stable enough for discussion, but no scenario is frozen.
-The names below are working labels. Concrete repository fixtures, prompts, terminal predicates, and
-calibration are developed in the corresponding family documents.
+**Scenario-authoring draft.** F1-A and F1-B are frozen at the design level. F2-F6 remain provisional.
+No executable scenario assets exist yet.
 
 ## Matrix
 
-| ID | Family | Working scenario | Mutation expectation | Cross-artifact emphasis | Difficulty target |
-| --- | --- | --- | --- | --- | --- |
-| F1-A | Project orientation | Regression Disposition | No mutation | issue + PR/commit/repo evidence | Low-medium |
-| F1-B | Project orientation | Release Candidate Status | No mutation | PR + actions + issue/repo evidence | Low-medium |
-| F2-A | Triage and bounded action | Incoming Regression Triage | Conditional issue-level mutation | issue + repo/history + labels | Medium |
-| F2-B | Triage and bounded action | Stale Work Item Maintenance | Conditional issue-level mutation/no-op | issue + PR/commit state | Medium |
-| F3-A | Cross-artifact reconciliation | Implementation Linkage | Minimal metadata/comment correction | issue + PR + commit + checks | Medium |
-| F3-B | Cross-artifact reconciliation | Conflicting Status Signals | Minimal state correction or no-op | issue + PR + branch/check state | Medium |
-| F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Diagnostic record, no code change | actions/check + PR + repo contents | Medium-high |
-| F4-B | Diagnosis under CI evidence | False Alarm or Real Regression | Conditional diagnostic/project-state action | actions + repo + PR/issue | Medium-high |
-| F5-A | Controlled implementation | Targeted Code Fix | Code change + reviewable PR | issue + repo/git + PR | High |
-| F5-B | Controlled implementation | Repository Maintenance Change | Bounded repository change + reviewable PR | repo/git + PR + optional issue | High |
-| F6-A | Multi-stage project resolution | Release Blocker Resolution | Multi-stage bounded mutation | issue + actions + repo/git + PR | High |
-| F6-B | Multi-stage project resolution | Existing PR Repair | Repair existing PR branch, no merge | PR + actions + repo/git + issue | High |
+| ID | Family | Working scenario | Mutation expectation | Cross-artifact emphasis | Difficulty target | Design status |
+| --- | --- | --- | --- | --- | --- | --- |
+| F1-A | Project orientation | Regression Disposition | No mutation | closed issue + merged historical fix + current default-branch config/history | Low-medium | **Frozen** |
+| F1-B | Project orientation | Release Candidate Status | No mutation | release PR + required checks + blocker issues + branch/commit inclusion | Low-medium | **Frozen** |
+| F2-A | Triage and bounded action | Incoming Regression Triage | Conditional issue-level mutation | issue + repo/history + labels | Medium | Provisional |
+| F2-B | Triage and bounded action | Stale Work Item Maintenance | Conditional issue-level mutation/no-op | issue + PR/commit state | Medium | Provisional |
+| F3-A | Cross-artifact reconciliation | Implementation Linkage | Minimal metadata/comment correction | issue + PR + commit + checks | Medium | Provisional |
+| F3-B | Cross-artifact reconciliation | Conflicting Status Signals | Minimal state correction or no-op | issue + PR + branch/check state | Medium | Provisional |
+| F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Diagnostic record, no code change | actions/check + PR + repo contents | Medium-high | Provisional |
+| F4-B | Diagnosis under CI evidence | False Alarm or Real Regression | Conditional diagnostic/project-state action | actions + repo + PR/issue | Medium-high | Provisional |
+| F5-A | Controlled implementation | Targeted Code Fix | Code change + reviewable PR | issue + repo/git + PR | High | Provisional |
+| F5-B | Controlled implementation | Repository Maintenance Change | Bounded repository change + reviewable PR | repo/git + PR + optional issue | High | Provisional |
+| F6-A | Multi-stage project resolution | Release Blocker Resolution | Multi-stage bounded mutation | issue + actions + repo/git + PR | High | Provisional |
+| F6-B | Multi-stage project resolution | Existing PR Repair | Repair existing PR branch, no merge | PR + actions + repo/git + issue | High | Provisional |
+
+## Frozen F1 pair summary
+
+### F1-A - Regression Disposition
+
+Historical lifecycle metadata says the regression was fixed: the issue is closed and the original fix
+PR is merged. A later default-branch refactor reintroduces the regressed configuration value. The
+correct answer is therefore that the regression is **still outstanding**. The scenario tests whether
+current repository state outranks stale lifecycle metadata.
+
+### F1-B - Release Candidate Status
+
+The release PR is open and all required candidate checks pass. Two milestone issues are marked
+`release-blocker`; both are closed and their fixes are merged to the default branch, but one required
+fix commit is absent from the release candidate branch. The candidate is therefore **not ready**. The
+scenario tests whether the agent distinguishes green/closed metadata from actual required-fix inclusion.
+
+See [`f1_project_orientation.md`](f1_project_orientation.md) for the full fixture aliases, prompt intent,
+predicates, invariants, reset strategy, route calibration, and ACMM mapping.
 
 ## Family progression
 
@@ -85,4 +103,4 @@ The current preferred scale remains:
 
 **3 agents x 12 scenarios x 8 repetitions = 288 executions.**
 
-This is not frozen until the scenario matrix survives concrete fixture authoring and calibration.
+This is not frozen until the full scenario matrix survives concrete fixture authoring and calibration.

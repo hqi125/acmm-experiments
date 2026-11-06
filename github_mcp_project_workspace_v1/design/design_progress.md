@@ -16,8 +16,8 @@ choice is frozen, revised, or found to be infeasible.
 
 ## Phase B - scenario authoring
 
-- [ ] Freeze F1-A Regression Disposition.
-- [ ] Freeze F1-B Release Candidate Status.
+- [x] Freeze F1-A Regression Disposition.
+- [x] Freeze F1-B Release Candidate Status.
 - [ ] Freeze F2-A Incoming Regression Triage.
 - [ ] Freeze F2-B Stale Work Item Maintenance.
 - [ ] Freeze F3-A Implementation Linkage.
@@ -33,10 +33,21 @@ For each scenario, freezing requires a concrete fixture, prompt intent, acceptab
 predicates, protected invariants, reset strategy, plausible-route calibration, expected failure modes,
 and ACMM opportunities.
 
+### F1 checkpoint
+
+The first pair is frozen with intentionally different authoritative-state topology:
+
+- **F1-A:** closed issue + merged historical fix are stale relative to a later default-branch
+  reintroduction; current repository state governs the disposition.
+- **F1-B:** green release PR + closed blocker issues are insufficient because one required blocker-fix
+  commit is absent from the release branch; release policy + commit inclusion govern readiness.
+
+Both are read-only and expose the full experiment-wide MCP capability envelope.
+
 ## Phase C - cross-scenario calibration
 
-- [ ] Check A/B independence within every family.
-- [ ] Check approximate within-family difficulty comparability.
+- [ ] Check A/B independence within every family. *(F1 pair locally checked; full-matrix review pending.)*
+- [ ] Check approximate within-family difficulty comparability. *(F1 pair locally checked; pilot calibration pending.)*
 - [ ] Check progression from orientation through multi-stage work.
 - [ ] Ensure the matrix contains read-only, conditional-mutation, no-op, and mandatory-mutation cases.
 - [ ] Ensure no single habitual route or artifact type dominates the experiment.
@@ -62,3 +73,6 @@ and ACMM opportunities.
 There is **no coding blocker because coding has not started**. The current issue-only GitHub token is
 sufficient for qualification but not expected to be sufficient for the final experiment. Permission
 expansion should wait until the scenario set tells us exactly what is needed.
+
+The next design task is F2-A/F2-B: conditional project-management action where the full GitHub
+workspace remains visible and the agent must decide whether mutation is justified.
