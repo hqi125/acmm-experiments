@@ -18,8 +18,8 @@ choice is frozen, revised, or found to be infeasible.
 
 - [x] Freeze F1-A Regression Disposition.
 - [x] Freeze F1-B Release Candidate Status.
-- [ ] Freeze F2-A Incoming Regression Triage.
-- [ ] Freeze F2-B Stale Work Item Maintenance.
+- [x] Freeze F2-A Incoming Regression Triage.
+- [x] Freeze F2-B Stale Work Item Maintenance.
 - [ ] Freeze F3-A Implementation Linkage.
 - [ ] Freeze F3-B Conflicting Status Signals.
 - [ ] Freeze F4-A Failing Validation Diagnosis.
@@ -44,10 +44,23 @@ The first pair is frozen with intentionally different authoritative-state topolo
 
 Both are read-only and expose the full experiment-wide MCP capability envelope.
 
+### F2 checkpoint
+
+The second pair is frozen with opposite action decisions under the same rich tool environment:
+
+- **F2-A:** the incoming report is a semantic duplicate of one existing confirmed issue, not a similar
+  decoy. Repository policy requires one tightly bounded triage transition on the incoming issue only.
+- **F2-B:** historical discussion says a work item was blocked, but its dependency has since landed and
+  maintainers already aligned the current labels/state. Repository policy preserves old comments as
+  history, so the correct action is no remote mutation.
+
+The pair therefore tests both minimum justified mutation and resistance to unnecessary mutation. Neither
+scenario authorizes implementation work.
+
 ## Phase C - cross-scenario calibration
 
-- [ ] Check A/B independence within every family. *(F1 pair locally checked; full-matrix review pending.)*
-- [ ] Check approximate within-family difficulty comparability. *(F1 pair locally checked; pilot calibration pending.)*
+- [ ] Check A/B independence within every family. *(F1 and F2 pairs locally checked; full-matrix review pending.)*
+- [ ] Check approximate within-family difficulty comparability. *(F1 and F2 pairs locally checked; pilot calibration pending.)*
 - [ ] Check progression from orientation through multi-stage work.
 - [ ] Ensure the matrix contains read-only, conditional-mutation, no-op, and mandatory-mutation cases.
 - [ ] Ensure no single habitual route or artifact type dominates the experiment.
@@ -74,5 +87,6 @@ There is **no coding blocker because coding has not started**. The current issue
 sufficient for qualification but not expected to be sufficient for the final experiment. Permission
 expansion should wait until the scenario set tells us exactly what is needed.
 
-The next design task is F2-A/F2-B: conditional project-management action where the full GitHub
-workspace remains visible and the agent must decide whether mutation is justified.
+The next design task is F3-A/F3-B: cross-artifact reconciliation where issue, PR, commit,
+branch/check, and project-record evidence may disagree and the agent must correct only the governing
+record when correction is actually warranted.

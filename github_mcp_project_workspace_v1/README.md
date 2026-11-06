@@ -94,14 +94,14 @@ A novel route should be accepted when it satisfies the task and preserves every 
 ## Working scenario architecture
 
 The current design targets six decision/work families with two independently authored variants each.
-F1-A and F1-B are now frozen at the design level; F2-F6 remain working concepts.
+F1-A/F1-B and F2-A/F2-B are now frozen at the design level; F3-F6 remain working concepts.
 
 | ID | Family | Working scenario concept | Primary challenge |
 | --- | --- | --- | --- |
 | F1-A | Project orientation | Regression Disposition | Reconcile stale resolved metadata with a later default-branch reintroduction; **design frozen** |
 | F1-B | Project orientation | Release Candidate Status | Reconcile green CI/closed blockers with a required fix absent from the candidate branch; **design frozen** |
-| F2-A | Triage and bounded action | Incoming Regression Triage | Select and perform the minimum justified issue-level action after investigation |
-| F2-B | Triage and bounded action | Stale Work Item Maintenance | Reconcile a work item with current project state and mutate only if warranted |
+| F2-A | Triage and bounded action | Incoming Regression Triage | Identify the true duplicate and apply only the repository-required incoming-issue triage transition; **design frozen** |
+| F2-B | Triage and bounded action | Stale Work Item Maintenance | Reconcile historical blocker evidence with already-correct current status and perform a true no-op; **design frozen** |
 | F3-A | Cross-artifact reconciliation | Implementation Linkage | Reconcile issue, PR, commit, and check evidence and correct project metadata minimally |
 | F3-B | Cross-artifact reconciliation | Conflicting Status Signals | Resolve contradictory artifact states and make the smallest justified correction |
 | F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Use CI plus repository evidence to diagnose a failure and record an accurate diagnosis |

@@ -2,8 +2,8 @@
 
 ## Status
 
-**Scenario-authoring draft.** F1-A and F1-B are frozen at the design level. F2-F6 remain provisional.
-No executable scenario assets exist yet.
+**Scenario-authoring draft.** F1-A/F1-B and F2-A/F2-B are frozen at the design level. F3-F6
+remain provisional. No executable scenario assets exist yet.
 
 ## Matrix
 
@@ -11,8 +11,8 @@ No executable scenario assets exist yet.
 | --- | --- | --- | --- | --- | --- | --- |
 | F1-A | Project orientation | Regression Disposition | No mutation | closed issue + merged historical fix + current default-branch config/history | Low-medium | **Frozen** |
 | F1-B | Project orientation | Release Candidate Status | No mutation | release PR + required checks + blocker issues + branch/commit inclusion | Low-medium | **Frozen** |
-| F2-A | Triage and bounded action | Incoming Regression Triage | Conditional issue-level mutation | issue + repo/history + labels | Medium | Provisional |
-| F2-B | Triage and bounded action | Stale Work Item Maintenance | Conditional issue-level mutation/no-op | issue + PR/commit state | Medium | Provisional |
+| F2-A | Triage and bounded action | Incoming Regression Triage | Required bounded triage mutation | incoming/canonical/decoy issues + repo policy/evidence + labels | Medium | **Frozen** |
+| F2-B | Triage and bounded action | Stale Work Item Maintenance | True no-op after investigation | work item + dependency issue/PR/commit + repo policy | Medium | **Frozen** |
 | F3-A | Cross-artifact reconciliation | Implementation Linkage | Minimal metadata/comment correction | issue + PR + commit + checks | Medium | Provisional |
 | F3-B | Cross-artifact reconciliation | Conflicting Status Signals | Minimal state correction or no-op | issue + PR + branch/check state | Medium | Provisional |
 | F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Diagnostic record, no code change | actions/check + PR + repo contents | Medium-high | Provisional |
@@ -40,6 +40,26 @@ scenario tests whether the agent distinguishes green/closed metadata from actual
 
 See [`f1_project_orientation.md`](f1_project_orientation.md) for the full fixture aliases, prompt intent,
 predicates, invariants, reset strategy, route calibration, and ACMM mapping.
+
+## Frozen F2 pair summary
+
+### F2-A - Incoming Regression Triage
+
+A new CSV regression report uses different wording from an existing confirmed issue and resembles a
+second, materially different CSV defect. Repository policy defines the exact duplicate disposition. The
+agent must identify the true canonical issue, then mutate **only** the incoming report: add `duplicate`,
+remove `needs-triage`, leave one canonical-issue reference comment, and close it. Implementation and all
+other project state remain protected.
+
+### F2-B - Stale Work Item Maintenance
+
+An older work-item comment says the item is blocked on a dependency, but that dependency is now resolved,
+its fix is present on the default branch, and maintainers already updated the work item to `ready` with
+`blocked` absent. Repository policy treats old comments as audit history. The correct outcome is therefore
+a **true no-op** plus an accurate report; even a helpful confirmation comment is unnecessary mutation.
+
+See [`f2_triage_bounded_action.md`](f2_triage_bounded_action.md) for the full fixture aliases, prompts,
+predicates, invariants, reset strategies, route calibration, and ACMM mapping.
 
 ## Family progression
 
