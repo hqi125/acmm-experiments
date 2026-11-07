@@ -83,7 +83,7 @@ The agent controls:
 
 - what it inspects first;
 - which relevant tools it selects;
-- whether it uses high-level or low-level alternatives;
+- which overlapping repository/discovery/write capabilities it chooses;
 - how it sequences legitimate intermediate work;
 - whether and how it verifies its result;
 - how it reacts to tool/schema/state errors;
@@ -94,7 +94,7 @@ A novel route should be accepted when it satisfies the task and preserves every 
 ## Working scenario architecture
 
 The current design targets six decision/work families with two independently authored variants each.
-F1-A/F1-B through F4-A/F4-B are now frozen at the design level; F5-F6 remain working concepts.
+F1-A/F1-B through F5-A/F5-B are now frozen at the design level; F6 remains a working concept.
 
 | ID | Family | Working scenario concept | Primary challenge |
 | --- | --- | --- | --- |
@@ -106,8 +106,8 @@ F1-A/F1-B through F4-A/F4-B are now frozen at the design level; F5-F6 remain wor
 | F3-B | Cross-artifact reconciliation | Reverted Fix Status | Reconcile merged fix, later revert, and open replacement work to correct stale release-blocker status only; **design frozen** |
 | F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Diagnose a current required-check failure from completed CI + repository evidence and record only the diagnosis; **design frozen** |
 | F4-B | Diagnosis under CI evidence | Superseded Failure Alert | Reconcile superseded required-check failure plus current advisory failure, then correct only the stale CI alert; **design frozen** |
-| F5-A | Controlled implementation | Targeted Code Fix | Produce a bounded code change and reviewable PR without merging |
-| F5-B | Controlled implementation | Repository Maintenance Change | Produce a bounded non-feature repository change and reviewable PR without collateral edits |
+| F5-A | Controlled implementation | Targeted Code Fix | Repair one product-code behavior and prepare an isolated review PR while preserving tests, issue state, and protected infrastructure; **design frozen** |
+| F5-B | Controlled implementation | Release Metadata Synchronization | Synchronize two policy-defined maintenance mirrors with repository release authority and prepare one review PR; **design frozen** |
 | F6-A | Multi-stage project resolution | Release Blocker Resolution | Navigate issue, CI, code, PR, and verification in one controlled workflow |
 | F6-B | Multi-stage project resolution | Existing PR Repair | Diagnose and repair an existing failing PR while preserving review boundaries |
 

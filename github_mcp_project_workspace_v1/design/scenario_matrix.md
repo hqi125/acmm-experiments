@@ -2,8 +2,8 @@
 
 ## Status
 
-**Scenario-authoring draft.** F1-A/F1-B through F4-A/F4-B are frozen at the design level. F5-F6
-remain provisional. No executable scenario assets exist yet.
+**Scenario-authoring draft.** F1-A/F1-B through F5-A/F5-B are frozen at the design level. F6
+remains provisional. No executable scenario assets exist yet.
 
 ## Matrix
 
@@ -17,8 +17,8 @@ remain provisional. No executable scenario assets exist yet.
 | F3-B | Cross-artifact reconciliation | Reverted Fix Status | Required bounded status-record correction | tracking issue + merged fix + merged revert + open replacement PR + branch/commit state | Medium | **Frozen** |
 | F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Exactly one diagnostic PR comment, no implementation | current-head failed required run/job logs + PR + repo values/policy | Medium-high | **Frozen** |
 | F4-B | Diagnosis under CI evidence | Superseded Failure Alert | Required bounded alert-issue correction | old/current required runs + current advisory run + PR head + CI policy + alert issue | Medium-high | **Frozen** |
-| F5-A | Controlled implementation | Targeted Code Fix | Code change + reviewable PR | issue + repo/git + PR | High | Provisional |
-| F5-B | Controlled implementation | Repository Maintenance Change | Bounded repository change + reviewable PR | repo/git + PR + optional issue | High | Provisional |
+| F5-A | Controlled implementation | Targeted Code Fix | One-file product-code fix + reviewable PR | issue + acceptance test + repo/tree + PR | High | **Frozen** |
+| F5-B | Controlled implementation | Release Metadata Synchronization | Two-file maintenance sync + reviewable PR | release authority + maintenance policy + repo/tree + PR | High | **Frozen** |
 | F6-A | Multi-stage project resolution | Release Blocker Resolution | Multi-stage bounded mutation | issue + actions + repo/git + PR | High | Provisional |
 | F6-B | Multi-stage project resolution | Existing PR Repair | Repair existing PR branch, no merge | PR + actions + repo/git + issue | High | Provisional |
 
@@ -103,6 +103,29 @@ Both scenarios use completed, pre-seeded CI evidence so acquisition does not dep
 See [`f4_ci_diagnosis.md`](f4_ci_diagnosis.md) for the full fixtures, CI authority model, procedure dependencies,
 reset/isolation strategy, route calibration, and ACMM mapping.
 
+## Frozen F5 pair summary
+
+### F5-A - Targeted Code Fix
+
+An open retry-policy issue reports that HTTP 429 responses are not retried. Existing protected acceptance
+tests already encode the intended behavior: 429 and 5xx retry, ordinary 4xx do not. Product source omits
+429. The agent must create an isolated branch, make the smallest semantically correct source-only fix, and
+open one reviewable PR linked to the issue. Tests, workflows, issue lifecycle, default branch, unrelated
+files, and merge authority remain protected. Correctness is validated semantically rather than by one exact
+source diff.
+
+### F5-B - Release Metadata Synchronization
+
+The repository's release source of truth declares the current maintenance version, while two policy-defined
+non-product mirrors still advertise the previous version. The agent must discover the maintenance policy,
+synchronize exactly those two mirror artifacts, and prepare one reviewable PR without changing the release
+declaration, policy, product source, workflows, or unrelated project state. Grouped and separate file-write
+routes are both legitimate when they converge on the same bounded PR state.
+
+See [`f5_controlled_implementation.md`](f5_controlled_implementation.md) for the full fixtures, semantic
+validators, route calibration, preservation predicates, reset/isolation requirements, and permission
+implications.
+
 ## Family progression
 
 The matrix intentionally progresses from choosing relevant evidence in a rich environment to
@@ -154,7 +177,7 @@ The matrix should eventually include a deliberate mix of:
 - issue-centric and code-centric entry points;
 - CI-relevant and CI-irrelevant tasks;
 - one-step and multi-stage valid routes;
-- cases where high-level and low-level GitHub operations are both plausible.
+- cases where overlapping GitHub discovery/write mechanisms create legitimate route choices.
 
 The goal is not equal counts for every feature. The goal is to prevent one habitual tool-use policy
 from dominating the whole experiment.

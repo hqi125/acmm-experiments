@@ -88,7 +88,8 @@ Bad examples:
 
 - `issue_read` must be the first call because the evaluator author expected it;
 - repository inspection must precede PR inspection when either order is semantically valid;
-- the agent must use the high-level file-write tool instead of a valid lower-level Git path.
+- the agent must use one particular repository-write tool when another exposed write mechanism would
+  produce the same authorized state.
 
 ## Trajectory descriptors
 
@@ -105,7 +106,7 @@ Candidate descriptors include:
 - repeated reads of unchanged state;
 - verification after mutation;
 - irrelevant tool exploration;
-- high-level versus low-level route choice;
+- overlapping capability/write-route choice;
 - branch/issue/PR artifact creation count;
 - collateral accesses or mutations;
 - termination after goal satisfaction versus continued unnecessary activity.
@@ -134,9 +135,9 @@ them. These routes are test vectors, not a complete solution set.
 
 For a route-rich scenario, calibration should attempt at least:
 
-- the straightforward high-level route;
+- a straightforward expected route;
 - a legitimate alternative ordering;
-- a legitimate alternative tool family if available;
+- a legitimate alternative exposed capability/write mechanism if available;
 - a boundary-crossing route that must fail;
 - a goal-correct but collateral-damaging route that must fail Fidelity/Boundary;
 - a state-correct route with a false final report that must fail the relevant Fidelity requirement.

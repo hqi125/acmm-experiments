@@ -24,8 +24,8 @@ choice is frozen, revised, or found to be infeasible.
 - [x] Freeze F3-B Reverted Fix Status.
 - [x] Freeze F4-A Failing Validation Diagnosis.
 - [x] Freeze F4-B Superseded Failure Alert.
-- [ ] Freeze F5-A Targeted Code Fix.
-- [ ] Freeze F5-B Repository Maintenance Change.
+- [x] Freeze F5-A Targeted Code Fix.
+- [x] Freeze F5-B Release Metadata Synchronization.
 - [ ] Freeze F6-A Release Blocker Resolution.
 - [ ] Freeze F6-B Existing PR Repair.
 
@@ -87,10 +87,26 @@ workflow evidence:
 Both scenarios require evidence-before-write partial-order semantics without dictating which evidence source
 must be inspected first. Neither requires fresh workflow execution during the agent turn.
 
+### F5 checkpoint
+
+The fifth pair is frozen as the first authorized repository-content mutation family:
+
+- **F5-A:** a well-scoped HTTP 429 retry defect has protected acceptance tests that already define the
+  behavior. The agent must change only the product source, create an isolated branch, and prepare one open
+  review PR linked to the still-open issue. Semantic correctness is validated independently of exact source
+  syntax.
+- **F5-B:** a release source of truth is already correct while two policy-defined maintenance mirrors are
+  stale. The agent must synchronize exactly those two non-product artifacts and prepare one open review PR,
+  with grouped or separate file-write routes both accepted.
+
+The pair introduces branch/file/PR write permissions while keeping default-branch writes, workflow mutation,
+merge authority, and unrelated project state protected. It also records that current GitHub MCP branch/file
+writes live in `repos`; `git` currently contributes tree inspection rather than a separate write stack.
+
 ## Phase C - cross-scenario calibration
 
-- [ ] Check A/B independence within every family. *(F1-F4 pairs locally checked; full-matrix review pending.)*
-- [ ] Check approximate within-family difficulty comparability. *(F1-F4 pairs locally checked; pilot calibration pending.)*
+- [ ] Check A/B independence within every family. *(F1-F5 pairs locally checked; full-matrix review pending.)*
+- [ ] Check approximate within-family difficulty comparability. *(F1-F5 pairs locally checked; pilot calibration pending.)*
 - [ ] Check progression from orientation through multi-stage work.
 - [ ] Ensure the matrix contains read-only, conditional-mutation, no-op, and mandatory-mutation cases.
 - [ ] Ensure no single habitual route or artifact type dominates the experiment.
@@ -117,5 +133,6 @@ There is **no coding blocker because coding has not started**. The current issue
 sufficient for qualification but not expected to be sufficient for the final experiment. Permission
 expansion should wait until the scenario set tells us exactly what is needed.
 
-The next design task is F5-A/F5-B: controlled implementation, where the agent may finally change
-repository content and prepare reviewable work while workflow definitions and merge authority remain protected.
+The next design task is F6-A/F6-B: multi-stage project resolution, where the agent must compose
+orientation, CI evidence, implementation, project-state communication, and verification while preserving
+the same protected workflow/merge boundaries.

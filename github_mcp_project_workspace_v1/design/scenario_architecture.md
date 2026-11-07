@@ -26,7 +26,7 @@ acceptable authoritative terminal state
 The evaluator should recognize success through terminal-state predicates and invariants rather than
 through membership in a pre-enumerated list of tool sequences.
 
-This matters because GitHub exposes overlapping/high-level/low-level ways to perform related work. A
+This matters because GitHub exposes overlapping discovery and mutation capabilities for related work. A
 novel but legitimate route is scientifically valuable evidence, not an evaluator failure.
 
 ## Difficulty model

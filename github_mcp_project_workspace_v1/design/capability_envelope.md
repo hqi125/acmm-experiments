@@ -23,7 +23,10 @@ labels
 
 The current official GitHub MCP Server defaults are `context`, `repos`, `issues`, `pull_requests`, and
 `users`. This experiment adds `actions`, `git`, and `labels` to create a coherent software-project
-workspace. The design intentionally does not enable the literal `all` toolset.
+workspace. The design intentionally does not enable the literal `all` toolset. As checked on 2026-11-06,
+the official catalog places branch/file mutation such as `create_branch`, `create_or_update_file`, and
+`push_files` under `repos`; the `git` toolset currently contributes repository-tree inspection through
+`get_repository_tree`. The final pinned catalog remains authoritative if that surface changes before coding.
 
 ## Why the envelope is broad
 
