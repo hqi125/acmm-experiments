@@ -18,7 +18,7 @@ tone of the study.
 - [`f1_project_orientation.md`](f1_project_orientation.md) - frozen F1-A/F1-B orientation designs.
 - [`f2_triage_bounded_action.md`](f2_triage_bounded_action.md) - frozen F2-A/F2-B triage and bounded-action designs.
 - [`f3_cross_artifact_reconciliation.md`](f3_cross_artifact_reconciliation.md) - frozen F3-A/F3-B cross-artifact reconciliation designs.
-- [`f4_ci_diagnosis.md`](f4_ci_diagnosis.md) - F4-A/F4-B working designs.
+- [`f4_ci_diagnosis.md`](f4_ci_diagnosis.md) - frozen F4-A/F4-B CI-diagnosis designs.
 - [`f5_controlled_implementation.md`](f5_controlled_implementation.md) - F5-A/F5-B working designs.
 - [`f6_multi_stage_resolution.md`](f6_multi_stage_resolution.md) - F6-A/F6-B working designs.
 - [`design_progress.md`](design_progress.md) - design ledger, open decisions, and the explicit

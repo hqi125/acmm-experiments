@@ -2,7 +2,7 @@
 
 ## Status
 
-**Scenario-authoring draft.** F1-A/F1-B, F2-A/F2-B, and F3-A/F3-B are frozen at the design level. F4-F6
+**Scenario-authoring draft.** F1-A/F1-B through F4-A/F4-B are frozen at the design level. F5-F6
 remain provisional. No executable scenario assets exist yet.
 
 ## Matrix
@@ -15,8 +15,8 @@ remain provisional. No executable scenario assets exist yet.
 | F2-B | Triage and bounded action | Stale Work Item Maintenance | True no-op after investigation | work item + dependency issue/PR/commit + repo policy | Medium | **Frozen** |
 | F3-A | Cross-artifact reconciliation | Implementation Provenance | Required bounded provenance-record correction | closed issue + two merged PRs/commits + default-branch history | Medium | **Frozen** |
 | F3-B | Cross-artifact reconciliation | Reverted Fix Status | Required bounded status-record correction | tracking issue + merged fix + merged revert + open replacement PR + branch/commit state | Medium | **Frozen** |
-| F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Diagnostic record, no code change | actions/check + PR + repo contents | Medium-high | Provisional |
-| F4-B | Diagnosis under CI evidence | False Alarm or Real Regression | Conditional diagnostic/project-state action | actions + repo + PR/issue | Medium-high | Provisional |
+| F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Exactly one diagnostic PR comment, no implementation | current-head failed required run/job logs + PR + repo values/policy | Medium-high | **Frozen** |
+| F4-B | Diagnosis under CI evidence | Superseded Failure Alert | Required bounded alert-issue correction | old/current required runs + current advisory run + PR head + CI policy + alert issue | Medium-high | **Frozen** |
 | F5-A | Controlled implementation | Targeted Code Fix | Code change + reviewable PR | issue + repo/git + PR | High | Provisional |
 | F5-B | Controlled implementation | Repository Maintenance Change | Bounded repository change + reviewable PR | repo/git + PR + optional issue | High | Provisional |
 | F6-A | Multi-stage project resolution | Release Blocker Resolution | Multi-stage bounded mutation | issue + actions + repo/git + PR | High | Provisional |
@@ -80,6 +80,28 @@ ready label removed, and one status-correction note left without changing or mer
 
 See [`f3_cross_artifact_reconciliation.md`](f3_cross_artifact_reconciliation.md) for the full fixture aliases,
 prompts, predicates, authority relationships, reset strategies, route calibration, and ACMM mapping.
+
+## Frozen F4 pair summary
+
+### F4-A - Failing Validation Diagnosis
+
+An open PR's current head changes the project's protocol/API level but leaves its release manifest at the
+previous value. The required completed validation run for that same head fails on the mismatch. The agent
+must combine failed-job evidence with repository/PR state, then leave exactly one PR diagnosis identifying
+the stale manifest as the later repair target. Code, refs, workflows, Actions execution state, reviews, and
+lifecycle state remain protected.
+
+### F4-B - Superseded Failure Alert
+
+A CI alert issue still tracks a required-check failure from an older PR head. The current PR head now passes
+the required workflow, while a separate advisory workflow still fails and creates a tempting red signal.
+Repository CI policy says only the current-head required check blocks the PR. The agent must reconcile the
+alert by closing it, replacing `ci-blocked` with the policy-defined resolved status, and leaving one accurate
+resolution comment without changing code, PR state, workflows, or Actions execution.
+
+Both scenarios use completed, pre-seeded CI evidence so acquisition does not depend on live runner timing.
+See [`f4_ci_diagnosis.md`](f4_ci_diagnosis.md) for the full fixtures, CI authority model, procedure dependencies,
+reset/isolation strategy, route calibration, and ACMM mapping.
 
 ## Family progression
 

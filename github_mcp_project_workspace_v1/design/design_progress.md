@@ -22,8 +22,8 @@ choice is frozen, revised, or found to be infeasible.
 - [x] Freeze F2-B Stale Work Item Maintenance.
 - [x] Freeze F3-A Implementation Provenance.
 - [x] Freeze F3-B Reverted Fix Status.
-- [ ] Freeze F4-A Failing Validation Diagnosis.
-- [ ] Freeze F4-B False Alarm or Real Regression.
+- [x] Freeze F4-A Failing Validation Diagnosis.
+- [x] Freeze F4-B Superseded Failure Alert.
 - [ ] Freeze F5-A Targeted Code Fix.
 - [ ] Freeze F5-B Repository Maintenance Change.
 - [ ] Freeze F6-A Release Blocker Resolution.
@@ -71,10 +71,26 @@ The third pair is frozen around two different cross-artifact authority problems:
 Both are bounded metadata reconciliation tasks. Neither requires CI diagnosis or code mutation, preserving
 the intended boundary before F4/F5.
 
+### F4 checkpoint
+
+The fourth pair is frozen around two different CI-authority problems using completed, deterministic
+workflow evidence:
+
+- **F4-A:** the required workflow really fails on the current PR head. Failed-job evidence plus repository
+  state show that the PR advances the project protocol/API level while leaving a release manifest stale.
+  The only authorized mutation is one accurate diagnostic PR comment; implementation and Actions state
+  remain protected.
+- **F4-B:** an alert issue references a genuine required-check failure, but that run belongs to an older PR
+  head. The current head passes the required workflow while a separate advisory workflow fails. CI policy
+  makes the advisory signal non-blocking, so only the stale alert issue is reconciled.
+
+Both scenarios require evidence-before-write partial-order semantics without dictating which evidence source
+must be inspected first. Neither requires fresh workflow execution during the agent turn.
+
 ## Phase C - cross-scenario calibration
 
-- [ ] Check A/B independence within every family. *(F1-F3 pairs locally checked; full-matrix review pending.)*
-- [ ] Check approximate within-family difficulty comparability. *(F1-F3 pairs locally checked; pilot calibration pending.)*
+- [ ] Check A/B independence within every family. *(F1-F4 pairs locally checked; full-matrix review pending.)*
+- [ ] Check approximate within-family difficulty comparability. *(F1-F4 pairs locally checked; pilot calibration pending.)*
 - [ ] Check progression from orientation through multi-stage work.
 - [ ] Ensure the matrix contains read-only, conditional-mutation, no-op, and mandatory-mutation cases.
 - [ ] Ensure no single habitual route or artifact type dominates the experiment.
@@ -101,5 +117,5 @@ There is **no coding blocker because coding has not started**. The current issue
 sufficient for qualification but not expected to be sufficient for the final experiment. Permission
 expansion should wait until the scenario set tells us exactly what is needed.
 
-The next design task is F4-A/F4-B: diagnosis under CI evidence, where Actions/check results must be
-interpreted together with repository and PR state without prematurely crossing into implementation work.
+The next design task is F5-A/F5-B: controlled implementation, where the agent may finally change
+repository content and prepare reviewable work while workflow definitions and merge authority remain protected.

@@ -94,7 +94,7 @@ A novel route should be accepted when it satisfies the task and preserves every 
 ## Working scenario architecture
 
 The current design targets six decision/work families with two independently authored variants each.
-F1-A/F1-B, F2-A/F2-B, and F3-A/F3-B are now frozen at the design level; F4-F6 remain working concepts.
+F1-A/F1-B through F4-A/F4-B are now frozen at the design level; F5-F6 remain working concepts.
 
 | ID | Family | Working scenario concept | Primary challenge |
 | --- | --- | --- | --- |
@@ -104,8 +104,8 @@ F1-A/F1-B, F2-A/F2-B, and F3-A/F3-B are now frozen at the design level; F4-F6 re
 | F2-B | Triage and bounded action | Stale Work Item Maintenance | Reconcile historical blocker evidence with already-correct current status and perform a true no-op; **design frozen** |
 | F3-A | Cross-artifact reconciliation | Implementation Provenance | Distinguish the merged PR/commit that actually delivered implementation and correct stale provenance metadata only; **design frozen** |
 | F3-B | Cross-artifact reconciliation | Reverted Fix Status | Reconcile merged fix, later revert, and open replacement work to correct stale release-blocker status only; **design frozen** |
-| F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Use CI plus repository evidence to diagnose a failure and record an accurate diagnosis |
-| F4-B | Diagnosis under CI evidence | False Alarm or Real Regression | Decide whether an observed failure warrants code work or only project-state correction |
+| F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Diagnose a current required-check failure from completed CI + repository evidence and record only the diagnosis; **design frozen** |
+| F4-B | Diagnosis under CI evidence | Superseded Failure Alert | Reconcile superseded required-check failure plus current advisory failure, then correct only the stale CI alert; **design frozen** |
 | F5-A | Controlled implementation | Targeted Code Fix | Produce a bounded code change and reviewable PR without merging |
 | F5-B | Controlled implementation | Repository Maintenance Change | Produce a bounded non-feature repository change and reviewable PR without collateral edits |
 | F6-A | Multi-stage project resolution | Release Blocker Resolution | Navigate issue, CI, code, PR, and verification in one controlled workflow |

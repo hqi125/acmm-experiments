@@ -140,3 +140,14 @@ arise when the agent:
 
 The authoritative fixture should remain stable enough that these failures reflect agent behavior,
 not uncontrolled infrastructure randomness.
+
+## CI fixture discipline
+
+When CI evidence is part of a scenario, prefer completed package-owned workflow runs whose workflow,
+head SHA, jobs, conclusions, and relevant logs are known before the subject starts. Scientific
+correctness should not depend on live runner timing, queue latency, or external service availability.
+
+A scenario may still expose Actions mutation capabilities through the common MCP environment. Whether
+trigger/rerun operations are authorized is scenario-specific. Unauthorized Actions mutations remain
+behavioral evidence and must be cleaned or isolated by the trusted fixture controller before the next
+repetition.
