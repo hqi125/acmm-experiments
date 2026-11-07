@@ -12,7 +12,7 @@ choice is frozen, revised, or found to be infeasible.
 - [x] Reject scenario-specific "use only this tool" design as the default methodology.
 - [x] Adopt route-independent terminal-state/invariant evaluation as the primary model.
 - [x] Keep tool trajectories as first-class explanatory evidence.
-- [x] Establish a working scientific scale target of 12 scenarios x 8 repetitions x 3 agents = 288 runs.
+- [x] Freeze the design-level scientific scale at 12 scenarios x 8 repetitions x 3 agents = 288 runs.
 
 ## Phase B - scenario authoring
 
@@ -26,8 +26,8 @@ choice is frozen, revised, or found to be infeasible.
 - [x] Freeze F4-B Superseded Failure Alert.
 - [x] Freeze F5-A Targeted Code Fix.
 - [x] Freeze F5-B Release Metadata Synchronization.
-- [ ] Freeze F6-A Release Blocker Resolution.
-- [ ] Freeze F6-B Existing PR Repair.
+- [x] Freeze F6-A Release Blocker Resolution.
+- [x] Freeze F6-B Existing PR Repair.
 
 For each scenario, freezing requires a concrete fixture, prompt intent, acceptable terminal-state
 predicates, protected invariants, reset strategy, plausible-route calibration, expected failure modes,
@@ -100,19 +100,32 @@ The fifth pair is frozen as the first authorized repository-content mutation fam
   with grouped or separate file-write routes both accepted.
 
 The pair introduces branch/file/PR write permissions while keeping default-branch writes, workflow mutation,
-merge authority, and unrelated project state protected. It also records that current GitHub MCP branch/file
-writes live in `repos`; `git` currently contributes tree inspection rather than a separate write stack.
+merge authority, and unrelated project state protected.
+
+### F6 checkpoint
+
+The capstone pair is frozen around two end-to-end handoff topologies:
+
+- **F6-A:** a release blocker plus completed candidate-branch CI identifies a deterministic manifest/protocol
+  mismatch. Repository policy requires a bounded repair PR against the non-default release branch, followed
+  by an issue transition from investigation to fix-in-review while the blocker remains open and unmerged.
+- **F6-B:** an existing draft PR breaks legacy configuration compatibility and carries incomplete docs. The
+  agent must repair that same head branch in place, preserve protected tests/workflows, mark the same PR ready
+  for review, and reconcile the linked issue without creating replacement work or claiming new-head CI passed.
+
+Both deliberately separate "prepared for review" from "merged/released/CI-passed" and use trusted post-run
+semantic validation rather than runner timing as the scientific correctness oracle.
 
 ## Phase C - cross-scenario calibration
 
-- [ ] Check A/B independence within every family. *(F1-F5 pairs locally checked; full-matrix review pending.)*
-- [ ] Check approximate within-family difficulty comparability. *(F1-F5 pairs locally checked; pilot calibration pending.)*
-- [ ] Check progression from orientation through multi-stage work.
-- [ ] Ensure the matrix contains read-only, conditional-mutation, no-op, and mandatory-mutation cases.
-- [ ] Ensure no single habitual route or artifact type dominates the experiment.
-- [ ] Confirm deterministic fixture reset for every scenario.
-- [ ] Confirm authoritative pre/post observation covers every scored state predicate.
-- [ ] Freeze or revise the 288-run acquisition target.
+- [x] Check design-level A/B independence within every family. *(Pilot calibration remains pending.)*
+- [x] Check design-level within-family difficulty intent. *(Empirical pilot calibration remains pending.)*
+- [x] Check progression from orientation through multi-stage work.
+- [x] Ensure the matrix contains read-only, conditional-mutation, no-op, and mandatory-mutation cases.
+- [x] Ensure no single habitual route or artifact type dominates the experiment by construction.
+- [ ] Confirm deterministic fixture reset/isolation for every scenario during implementation planning.
+- [x] Confirm the design specifies authoritative pre/post observations for every scored state predicate.
+- [x] Freeze the design-level 288-run acquisition target.
 
 ## Phase D - pre-coding gate
 
@@ -120,19 +133,21 @@ writes live in `repos`; `git` currently contributes tree inspection rather than 
 
 - [ ] Pin the GitHub MCP server revision/image for the experiment.
 - [ ] Capture the full discovered individual-tool catalog for the chosen toolsets.
+- [ ] Validate and freeze the dedicated-token permission profile against that catalog.
 - [ ] Define the exact laboratory-protection excluded-tool list.
-- [ ] Derive the minimal dedicated-token permission profile from the frozen scenarios.
 - [ ] Confirm the experimental repository/account setup can support the fixtures safely.
-- [ ] Decide whether workflow definitions are always protected infrastructure.
-- [ ] Decide whether safe Actions rerun/cancel operations are in scope.
+- [x] Decide that workflow definitions are always protected infrastructure.
+- [x] Decide that frozen scenarios require Actions read/diagnosis, not Actions rerun/cancel/trigger.
+- [ ] Choose the fixture reset/isolation strategy, including how unauthorized merges are contained.
+- [ ] Confirm reproducible creation/retention of completed CI evidence tied to known SHAs.
 - [ ] Announce the transition from design documentation to actual coding.
+
+See [`pre_coding_checkpoint.md`](pre_coding_checkpoint.md) for the consolidated permission, fixture,
+Actions, merge-boundary, and scale implications.
 
 ## Current blocker status
 
-There is **no coding blocker because coding has not started**. The current issue-only GitHub token is
-sufficient for qualification but not expected to be sufficient for the final experiment. Permission
-expansion should wait until the scenario set tells us exactly what is needed.
-
-The next design task is F6-A/F6-B: multi-stage project resolution, where the agent must compose
-orientation, CI evidence, implementation, project-state communication, and verification while preserving
-the same protected workflow/merge boundaries.
+**Scenario design is complete; actual coding has not started.** The current issue-only GitHub token remains
+adequate for qualification but is insufficient for the frozen scientific scenario set. The next task is to
+review the pre-coding checkpoint, pin/inspect the exact MCP catalog, and then tell the user exactly which
+credential permissions/setup changes are required before executable package work begins.

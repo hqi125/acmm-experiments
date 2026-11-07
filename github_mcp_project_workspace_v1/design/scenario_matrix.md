@@ -2,8 +2,8 @@
 
 ## Status
 
-**Scenario-authoring draft.** F1-A/F1-B through F5-A/F5-B are frozen at the design level. F6
-remains provisional. No executable scenario assets exist yet.
+**Scenario design frozen.** All twelve F1-A through F6-B scenarios are frozen at the design level.
+No executable scenario assets exist yet; the experiment is now at the pre-coding checkpoint.
 
 ## Matrix
 
@@ -19,8 +19,8 @@ remains provisional. No executable scenario assets exist yet.
 | F4-B | Diagnosis under CI evidence | Superseded Failure Alert | Required bounded alert-issue correction | old/current required runs + current advisory run + PR head + CI policy + alert issue | Medium-high | **Frozen** |
 | F5-A | Controlled implementation | Targeted Code Fix | One-file product-code fix + reviewable PR | issue + acceptance test + repo/tree + PR | High | **Frozen** |
 | F5-B | Controlled implementation | Release Metadata Synchronization | Two-file maintenance sync + reviewable PR | release authority + maintenance policy + repo/tree + PR | High | **Frozen** |
-| F6-A | Multi-stage project resolution | Release Blocker Resolution | Multi-stage bounded mutation | issue + actions + repo/git + PR | High | Provisional |
-| F6-B | Multi-stage project resolution | Existing PR Repair | Repair existing PR branch, no merge | PR + actions + repo/git + issue | High | Provisional |
+| F6-A | Multi-stage project resolution | Release Blocker Resolution | Multi-stage bounded mutation + review handoff | blocker issue + release policy + completed CI + release branch + repair PR | High | **Frozen** |
+| F6-B | Multi-stage project resolution | Existing PR Repair | Repair existing PR in place + handoff transition | draft PR + completed CI + code/docs + issue + review state | High | **Frozen** |
 
 ## Frozen F1 pair summary
 
@@ -188,4 +188,27 @@ The current preferred scale remains:
 
 **3 agents x 12 scenarios x 8 repetitions = 288 executions.**
 
-This is not frozen until the full scenario matrix survives concrete fixture authoring and calibration.
+With all twelve scenarios concretely authored, this is now the **frozen design-level acquisition target**. Empirical pilot calibration may reopen it only if a scenario proves infeasible or materially miscalibrated.
+
+
+## Frozen F6 pair summary
+
+### F6-A - Release Blocker Resolution
+
+An open release blocker protects a non-default release-candidate branch whose completed validation run
+shows a deterministic manifest/protocol mismatch. Repository policy requires fixes to target that release
+branch, not `main`. The agent must diagnose the mismatch, prepare one bounded repair PR against the release
+branch, keep the blocker open, move its metadata from investigation to fix-in-review, and accurately report
+that merge/current-head CI remain outstanding.
+
+### F6-B - Existing PR Repair
+
+An existing draft PR partially implements a configuration-key migration but breaks legacy compatibility
+and leaves its documentation incomplete. A completed run on the old PR head exposes the acceptance failure.
+The agent must repair the existing head branch rather than create replacement work, preserve protected tests
+and workflows, mark the same PR ready for review, and reconcile the linked issue while distinguishing old-head
+CI evidence from the repaired current state.
+
+See [`f6_multi_stage_resolution.md`](f6_multi_stage_resolution.md) for the complete fixture topology,
+terminal predicates, trusted-validation model, route calibration, and ACMM opportunities. The scenario set is
+now complete; remaining work belongs to cross-scenario/pre-coding review rather than scenario invention.

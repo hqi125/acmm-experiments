@@ -94,7 +94,7 @@ A novel route should be accepted when it satisfies the task and preserves every 
 ## Working scenario architecture
 
 The current design targets six decision/work families with two independently authored variants each.
-F1-A/F1-B through F5-A/F5-B are now frozen at the design level; F6 remains a working concept.
+All F1-A/F1-B through F6-A/F6-B scenarios are now frozen at the design level.
 
 | ID | Family | Working scenario concept | Primary challenge |
 | --- | --- | --- | --- |
@@ -108,8 +108,8 @@ F1-A/F1-B through F5-A/F5-B are now frozen at the design level; F6 remains a wor
 | F4-B | Diagnosis under CI evidence | Superseded Failure Alert | Reconcile superseded required-check failure plus current advisory failure, then correct only the stale CI alert; **design frozen** |
 | F5-A | Controlled implementation | Targeted Code Fix | Repair one product-code behavior and prepare an isolated review PR while preserving tests, issue state, and protected infrastructure; **design frozen** |
 | F5-B | Controlled implementation | Release Metadata Synchronization | Synchronize two policy-defined maintenance mirrors with repository release authority and prepare one review PR; **design frozen** |
-| F6-A | Multi-stage project resolution | Release Blocker Resolution | Navigate issue, CI, code, PR, and verification in one controlled workflow |
-| F6-B | Multi-stage project resolution | Existing PR Repair | Diagnose and repair an existing failing PR while preserving review boundaries |
+| F6-A | Multi-stage project resolution | Release Blocker Resolution | Diagnose a candidate-branch blocker, prepare the bounded release-targeted repair PR, and leave an accurate review handoff; **design frozen** |
+| F6-B | Multi-stage project resolution | Existing PR Repair | Repair an existing draft PR in place, preserve its identity, and transition PR/issue state to an accurate review handoff; **design frozen** |
 
 The detailed matrix and per-family notes live under [`design/`](design/README.md).
 
@@ -130,9 +130,10 @@ The current working target is therefore:
 
 **3 agents x 6 task families x 2 scenario variants x 8 repetitions = 288 planned executions.**
 
-This remains provisional until all twelve scenarios are concretely authored and calibrated. The
-package-level scale table should be updated if scenario design shows that six families are either
-insufficiently distinct or unnecessarily redundant.
+With all twelve scenarios concretely authored, **288 executions is now the frozen design-level
+acquisition target**. Engineering smoke/pilot runs remain separate, and the scale should be reopened only
+if implementation or pilot evidence shows a scenario is infeasible, non-independent, or materially
+miscalibrated.
 
 As in the baseline, ACMM opportunities inside one run are nested diagnostic evidence, not independent
 scientific samples. Headline analysis should remain scenario/family balanced.
@@ -157,13 +158,14 @@ See [`design/evaluation_model.md`](design/evaluation_model.md).
 
 ## Credential and safety boundary
 
-The credential should eventually be dedicated to the experimental repository and broad enough to
-exercise the frozen capability envelope. The current issue-only qualification token is not expected
-to be sufficient for the final experiment.
+The credential should be dedicated to the experimental repository and broad enough to exercise the
+frozen capability envelope. Scenario design now derives a candidate fine-grained profile of Metadata
+read, Contents read/write, Issues read/write, Pull requests read/write, Actions read, and Commit statuses
+read, with no Actions/Workflows/Administration write requirement.
 
-**No token change is required during design.** Before implementation starts, this design must produce
-an explicit permission checklist and laboratory-protection denylist. Implementation must not begin
-until that checkpoint is reviewed.
+**The current issue-only qualification token is insufficient, but executable coding has still not begun.**
+The exact profile and excluded-tool list must be validated against the pinned MCP image before the user
+changes credentials. See [`design/pre_coding_checkpoint.md`](design/pre_coding_checkpoint.md).
 
 ## Pre-coding gate
 
@@ -179,4 +181,10 @@ This package remains documentation-only until all of the following are true:
 8. the 288-run scale is either frozen or formally revised;
 9. the transition to implementation is explicitly announced.
 
-Until then, changes in this directory are design work, not package implementation.
+Scenario authoring, route-independent evaluation design, the candidate permission profile, and the
+design-level scale are now complete. Reset/isolation feasibility, exact pinned-catalog validation,
+credential finalization, and laboratory-protection choices remain in
+[`design/pre_coding_checkpoint.md`](design/pre_coding_checkpoint.md).
+
+Until that checkpoint is reviewed and the transition is explicitly announced, changes in this directory
+remain design work, not package implementation.

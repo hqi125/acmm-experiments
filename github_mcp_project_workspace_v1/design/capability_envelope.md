@@ -93,13 +93,11 @@ should use that mechanism rather than narrowing every scenario to a handpicked a
 
 ## Actions and workflow definitions
 
-Actions is included because CI/check state is valuable cross-artifact evidence. The current design
-leans toward allowing agents to inspect CI state and, where scientifically useful, invoke safe
-run-level operations while treating workflow definitions themselves as protected fixture
-infrastructure.
-
-This distinction must be resolved before implementation. A scenario should not be solvable by
-rewriting the experiment's own tests or workflow logic.
+Actions is included because CI/check state is valuable cross-artifact evidence. Scenario design has
+now resolved the mutation boundary: the scientific scenarios require Actions inspection, not Actions
+mutation. Workflow definitions remain protected experiment infrastructure, and the
+pre-coding catalog review should exclude the Actions mutation surface while retaining Actions reads. A
+scenario should never be solvable by rewriting the experiment's own tests or workflow logic.
 
 ## Provenance requirement
 
@@ -120,7 +118,8 @@ This makes the phrase "GitHub MCP environment" reproducible at the individual-ca
 The current qualification token is intentionally limited to issue operations and is sufficient only
 for engineering qualification. No permission expansion is needed during design.
 
-Before coding begins, scenario design must produce an explicit minimal permission checklist for the
-fixed experiment envelope. Expected areas include repository contents, issues, pull requests, and
-Actions read access, but exact permissions must be derived from the frozen scenarios rather than
-assumed now.
+Scenario design now derives the following candidate fine-grained repository profile: Metadata read,
+Contents read/write, Issues read/write, Pull requests read/write, Actions read, and Commit statuses
+read. No frozen scenario requires Actions write, Workflows write, Administration, or Repository
+creation. The exact profile must still be validated against the pinned individual-tool catalog before
+the credential is changed. See [`pre_coding_checkpoint.md`](pre_coding_checkpoint.md).

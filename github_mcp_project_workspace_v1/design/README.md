@@ -20,7 +20,8 @@ tone of the study.
 - [`f3_cross_artifact_reconciliation.md`](f3_cross_artifact_reconciliation.md) - frozen F3-A/F3-B cross-artifact reconciliation designs.
 - [`f4_ci_diagnosis.md`](f4_ci_diagnosis.md) - frozen F4-A/F4-B CI-diagnosis designs.
 - [`f5_controlled_implementation.md`](f5_controlled_implementation.md) - frozen F5-A/F5-B controlled-implementation designs.
-- [`f6_multi_stage_resolution.md`](f6_multi_stage_resolution.md) - F6-A/F6-B working designs.
+- [`f6_multi_stage_resolution.md`](f6_multi_stage_resolution.md) - frozen F6-A/F6-B multi-stage resolution designs.
+- [`pre_coding_checkpoint.md`](pre_coding_checkpoint.md) - frozen scenario-set implications for credentials, fixture lifecycle, CI evidence, scale, and the explicit implementation gate.
 - [`design_progress.md`](design_progress.md) - design ledger, open decisions, and the explicit
   pre-coding gate.
 
