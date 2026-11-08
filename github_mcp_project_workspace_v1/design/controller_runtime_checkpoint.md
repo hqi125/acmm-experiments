@@ -89,16 +89,50 @@ The initial seed is deliberately minimal:
 Scenario anchors, workflows, labels, branches, issues, and PRs are **not** created by this action. They belong to
 later fixture-materialization slices.
 
+## Live fixture-base checkpoint result
+
+The pinned repository was initialized successfully on 2026-11-08. Two package-owned seed commits created
+`README.md` and `.acmm/fixture-base.json`; a second `initialize` call returned `changed: no`, and environment
+doctor subsequently reported the entire controller, integration, and subject stack READY.
+
+## F1-A world materializer
+
+The runtime now also exposes apparatus action `prepare_f1_a`. This action remains outside scientific execution and
+is intended for live apparatus qualification before F1-A becomes runnable. It:
+
+1. re-verifies the pinned repository identity, default branch, and trusted fixture-base files;
+2. uses bounded marker-discovery retries so short GitHub REST list-view propagation delays do not look like
+   persistent partial fixture state;
+3. seeds a simple synchronization-timeout configuration at the regressed 15-second value;
+4. creates the canonical regression issue;
+5. creates a dedicated historical-fix branch, changes the value to 30 seconds, opens the original-fix PR, and
+   merges it into `main`;
+6. closes the regression issue while preserving an explicit link to the historical fix PR;
+7. creates a later direct default-branch commit that reintroduces the 15-second value;
+8. creates one unrelated issue and one unrelated open PR as nearby project noise; and
+9. verifies newly created issue/PR objects directly through the identifiers returned by GitHub and validates the
+   expected direct parent relationship between the reintroduction commit and the original-fix merge commit.
+
+The materializer is idempotent only when all four marked fixture objects and the authoritative repository state
+match package-owned expectations exactly. On later calls, marker-based list discovery is retried for a bounded
+period before a partial-world error is declared; this specifically avoids false partial-state failures caused by
+short GitHub list-endpoint visibility lag. Persistent partial/conflicting state is still refused. Test-only fake
+repositories cover first materialization, idempotent re-verification, eventual-consistency retry, and persistent
+partial-world refusal. The action publishes structured progress events for each major GitHub materialization
+phase.
+
+Scientific `github_workspace_f1_a.prepare()` is still deliberately blocked in this revision. No agent can execute
+F1-A until the next slice adds authoritative pre/post snapshots, protected-state comparison, reset/finalization,
+and evaluator semantics.
+
 ## Next live checkpoint
 
 Upgrade the staged package, then run:
 
 ```text
-acmm package apparatus github_mcp_project_workspace_v1 initialize
-acmm env doctor --start-if-needed
+acmm package apparatus github_mcp_project_workspace_v1 prepare_f1_a
+acmm package apparatus github_mcp_project_workspace_v1 prepare_f1_a
 ```
 
-The first command is the first controlled mutation performed by the trusted controller. Expected outcome: two
-package-owned seed files initialize `main`. A second identical initialize command should be idempotent (`changed:
-no`). Doctor should then report `repository_initialized`, `default_branch_read`, `repository_contents_read`, and
-`fixture_base_integrity` as READY. Scientific fixtures remain hard-blocked until F1-A materialization is implemented.
+The first call should report `changed: yes` and concrete GitHub issue/PR/commit identities. The second should
+report `changed: no` with the same observations. Inspect the repository before enabling scientific execution.

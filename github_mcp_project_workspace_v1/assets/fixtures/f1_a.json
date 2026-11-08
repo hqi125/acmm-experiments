@@ -1,0 +1,26 @@
+{
+  "schema_version": "0.1",
+  "fixture_id": "github_workspace_f1_a",
+  "config_path": "scenarios/f1_a/synchronization.json",
+  "healthy_timeout_seconds": 30,
+  "regressed_timeout_seconds": 15,
+  "original_fix_branch": "acmm/fixture/f1-a/original-fix",
+  "noise_branch": "acmm/fixture/f1-a/docs-noise",
+  "regression_issue": {
+    "title": "Regression: default synchronization timeout reduced to 15 seconds",
+    "marker": "acmm-fixture:github_workspace_f1_a:regression_issue"
+  },
+  "original_fix_pr": {
+    "title": "Fix default synchronization timeout regression",
+    "marker": "acmm-fixture:github_workspace_f1_a:original_fix_pr"
+  },
+  "noise_issue": {
+    "title": "Docs: clarify cache cleanup example",
+    "marker": "acmm-fixture:github_workspace_f1_a:noise_issue"
+  },
+  "noise_pr": {
+    "title": "Docs: add cache cleanup note",
+    "marker": "acmm-fixture:github_workspace_f1_a:noise_pr",
+    "path": "scenarios/f1_a/cache-cleanup-note.md"
+  }
+}

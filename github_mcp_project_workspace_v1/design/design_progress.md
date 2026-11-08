@@ -158,8 +158,8 @@ semantic validation rather than runner timing as the scientific correctness orac
 - [x] Implement trusted controller runtime/doctor foundation and REST primitives.
 - [x] Pin resolved repository full name `Dufferin125/acmm-mcp-arena-experiment-2` + numeric repository ID `1447536932` from live controller doctor.
 - [x] Implement explicit trusted fixture-base initialization on the pinned repository identity.
-- [ ] Live-initialize and verify the trusted fixture base repository.
-- [ ] Implement scenario fixture materialization/reset on the pinned repository identity.
+- [x] Live-initialize and verify the trusted fixture base repository.
+- [~] Implement scenario fixture materialization/reset on the pinned repository identity (F1-A world materializer implemented with direct post-create verification, bounded discovery retry, and apparatus progress; scientific prepare/observe/reset still pending).
 - [ ] Implement route-independent scenario evaluators.
 - [ ] Pilot/smoke the fixture lifecycle before scientific acquisition.
 

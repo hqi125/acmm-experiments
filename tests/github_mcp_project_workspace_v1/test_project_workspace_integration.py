@@ -493,7 +493,7 @@ def test_runtime_declares_controller_diagnostic_and_all_frozen_fixture_ids(
     loaded = load_staged_experiment_runtime(package)
 
     assert set(loaded.runtime.diagnostics) == {"github_fixture_controller"}
-    assert set(loaded.runtime.apparatus_actions) == {"initialize"}
+    assert set(loaded.runtime.apparatus_actions) == {"initialize", "prepare_f1_a"}
     assert set(loaded.runtime.evaluators) == {"github_workspace"}
     assert set(loaded.runtime.fixtures) == {
         "github_workspace_f1_a",
@@ -646,8 +646,27 @@ def test_controller_client_mutation_primitives_are_namespaced_and_explicit(
         body="[acmm-fixture]",
     )
     assert pull["number"] == 23
+    assert client.issue(
+        "fixture-owner", "acmm-mcp-arena-experiment-2", 17
+    )["number"] == 17
+    assert client.pull_request(
+        "fixture-owner", "acmm-mcp-arena-experiment-2", 23
+    )["number"] == 23
+    assert client.commit(
+        "fixture-owner", "acmm-mcp-arena-experiment-2", "def456"
+    )["sha"] == "def456"
+    merged = client.merge_pull_request(
+        "fixture-owner",
+        "acmm-mcp-arena-experiment-2",
+        23,
+        commit_title="merge fixture",
+    )
+    assert merged["merged"] is True
 
-    assert recorder.methods == ["POST", "PATCH", "DELETE", "POST", "POST"]
+    assert recorder.methods == [
+        "POST", "PATCH", "DELETE", "POST", "POST",
+        "GET", "GET", "GET", "PUT",
+    ]
 
 
 class _empty_repository_transport:
@@ -850,6 +869,14 @@ class _fake_controller_transport:
         elif method == "POST" and path.endswith("/pulls"):
             status = 201
             body = {"number": 23}
+        elif method == "GET" and path.endswith("/issues/17"):
+            body = {"number": 17}
+        elif method == "GET" and path.endswith("/pulls/23"):
+            body = {"number": 23}
+        elif method == "GET" and path.endswith("/commits/def456"):
+            body = {"sha": "def456", "parents": [{"sha": "abc123"}]}
+        elif method == "PUT" and path.endswith("/pulls/23/merge"):
+            body = {"sha": "merge123", "merged": True, "message": "merged"}
         else:
             raise AssertionError(f"unexpected request: {method} {url}")
 
@@ -932,3 +959,338 @@ def test_fixture_namespace_is_execution_scoped_and_stable(
         "[acmm-fixture:execution=Execution 123;"
         "scenario=f1_a_regression_disposition]"
     )
+
+
+class _fake_f1_a_client:
+    def __init__(self, *, partial: bool = False) -> None:
+        from types import SimpleNamespace
+
+        self._identity = SimpleNamespace(
+            repository_id=1447536932,
+            owner="Dufferin125",
+            name="acmm-mcp-arena-experiment-2",
+            full_name="Dufferin125/acmm-mcp-arena-experiment-2",
+            private=True,
+            default_branch="main",
+            issues_enabled=True,
+            push_allowed=True,
+        )
+        self._counter = 0
+        self.branches = {"main": "fixture-head-2"}
+        self.commit_parents = {"fixture-head-2": ["fixture-head-1"]}
+        self.files = {
+            "main": {
+                "README.md": (
+                    (ROOT / "assets" / "fixture_base" / "README.md").read_text(encoding="utf-8"),
+                    "blob-readme",
+                ),
+                ".acmm/fixture-base.json": (
+                    (ROOT / "assets" / "fixture_base" / "fixture-base.json").read_text(encoding="utf-8"),
+                    "blob-base",
+                ),
+            }
+        }
+        self.commit_files = {"fixture-head-2": dict(self.files["main"])}
+        self.issues: dict[int, dict[str, object]] = {}
+        self.pulls: dict[int, dict[str, object]] = {}
+        self.next_issue = 1
+        self.next_pull = 10
+        self.hide_noise_issue_list_calls = 0
+        if partial:
+            self.issues[1] = {
+                "number": 1,
+                "title": "partial",
+                "body": "<!-- acmm-fixture:github_workspace_f1_a:regression_issue -->\n",
+                "state": "open",
+            }
+            self.next_issue = 2
+
+    def resolve_repository(self, repository_name: str):
+        assert repository_name == self._identity.name
+        return self._identity
+
+    def ref(self, owner: str, name: str, ref: str):
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        branch = ref.removeprefix("heads/")
+        return {"ref": f"refs/heads/{branch}", "object": {"sha": self.branches[branch]}}
+
+    def list_issues(self, owner: str, name: str, **kwargs):
+        del kwargs
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        values = tuple(dict(value) for value in self.issues.values())
+        if self.hide_noise_issue_list_calls > 0:
+            self.hide_noise_issue_list_calls -= 1
+            marker = "acmm-fixture:github_workspace_f1_a:noise_issue"
+            values = tuple(
+                value for value in values
+                if marker not in str(value.get("body", ""))
+            )
+        return values
+
+    def list_pull_requests(self, owner: str, name: str, **kwargs):
+        del kwargs
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        return tuple(self._pull_view(value) for value in self.pulls.values())
+
+    def contents_optional(self, owner: str, name: str, path: str, *, ref: str | None = None):
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        branch = ref or "main"
+        item = self.files.get(branch, {}).get(path)
+        if item is None:
+            return None
+        return {"type": "file", "sha": item[1]}
+
+    def contents(self, owner: str, name: str, path: str = "", *, ref: str | None = None):
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        branch = ref or "main"
+        item = self.files.get(branch, {}).get(path)
+        if item is None:
+            raise AssertionError(f"missing fake content: {branch}:{path}")
+        return {"type": "file", "sha": item[1]}
+
+    def read_text_file(self, owner: str, name: str, path: str, *, ref: str):
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        source = self.files.get(ref) or self.commit_files.get(ref)
+        assert source is not None
+        return source[path][0]
+
+    def create_or_update_file(
+        self,
+        owner: str,
+        name: str,
+        path: str,
+        *,
+        message: str,
+        content: str,
+        branch: str | None = None,
+        sha: str | None = None,
+    ):
+        del message
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        branch = branch or "main"
+        current = self.files.setdefault(branch, {}).get(path)
+        if sha is not None:
+            assert current is not None and current[1] == sha
+        parent = self.branches[branch]
+        commit = self._new_sha("commit")
+        blob = self._new_sha("blob")
+        self.files[branch][path] = (content, blob)
+        self.branches[branch] = commit
+        self.commit_parents[commit] = [parent]
+        self.commit_files[commit] = dict(self.files[branch])
+        return {"content": {"path": path, "sha": blob}, "commit": {"sha": commit}}
+
+    def create_issue(self, owner: str, name: str, *, title: str, body: str, labels=()):
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        number = self.next_issue
+        self.next_issue += 1
+        value = {
+            "number": number,
+            "title": title,
+            "body": body,
+            "labels": list(labels),
+            "state": "open",
+        }
+        self.issues[number] = value
+        return dict(value)
+
+    def update_issue(self, owner: str, name: str, number: int, payload):
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        self.issues[number].update(dict(payload))
+        return dict(self.issues[number])
+
+    def issue(self, owner: str, name: str, number: int):
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        return dict(self.issues[number])
+
+    def create_ref(self, owner: str, name: str, branch: str, sha: str):
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        source = next(key for key, value in self.branches.items() if value == sha)
+        self.branches[branch] = sha
+        self.files[branch] = dict(self.files[source])
+        return {"ref": f"refs/heads/{branch}", "object": {"sha": sha}}
+
+    def create_pull_request(
+        self,
+        owner: str,
+        name: str,
+        *,
+        title: str,
+        head: str,
+        base: str,
+        body: str,
+        draft: bool = False,
+    ):
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        number = self.next_pull
+        self.next_pull += 1
+        value = {
+            "number": number,
+            "title": title,
+            "body": body,
+            "state": "open",
+            "draft": draft,
+            "head_ref": head,
+            "base_ref": base,
+            "merged": False,
+            "merged_at": None,
+            "merge_commit_sha": None,
+        }
+        self.pulls[number] = value
+        return self._pull_view(value)
+
+    def merge_pull_request(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+        *,
+        commit_title: str | None = None,
+        commit_message: str | None = None,
+        merge_method: str = "merge",
+    ):
+        del commit_title, commit_message
+        assert merge_method == "merge"
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        pull = self.pulls[number]
+        head = str(pull["head_ref"])
+        base = str(pull["base_ref"])
+        old_base = self.branches[base]
+        head_sha = self.branches[head]
+        merge_sha = self._new_sha("merge")
+        self.branches[base] = merge_sha
+        self.files[base] = dict(self.files[head])
+        self.commit_parents[merge_sha] = [old_base, head_sha]
+        self.commit_files[merge_sha] = dict(self.files[base])
+        pull.update(
+            {
+                "state": "closed",
+                "merged": True,
+                "merged_at": "2026-11-08T00:00:00Z",
+                "merge_commit_sha": merge_sha,
+            }
+        )
+        return {"sha": merge_sha, "merged": True, "message": "merged"}
+
+    def pull_request(self, owner: str, name: str, number: int):
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        return self._pull_view(self.pulls[number])
+
+    def commit(self, owner: str, name: str, ref: str):
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        return {
+            "sha": ref,
+            "parents": [{"sha": value} for value in self.commit_parents[ref]],
+        }
+
+    def _pull_view(self, value: dict[str, object]) -> dict[str, object]:
+        head = str(value["head_ref"])
+        base = str(value["base_ref"])
+        return {
+            "number": value["number"],
+            "title": value["title"],
+            "body": value["body"],
+            "state": value["state"],
+            "draft": value["draft"],
+            "merged": value["merged"],
+            "merged_at": value["merged_at"],
+            "merge_commit_sha": value["merge_commit_sha"],
+            "head": {"ref": head, "sha": self.branches[head]},
+            "base": {"ref": base, "sha": self.branches[base]},
+        }
+
+    def _new_sha(self, prefix: str) -> str:
+        self._counter += 1
+        return f"{prefix}-{self._counter}"
+
+
+def test_f1_a_apparatus_materializes_world_once_and_reverifies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    action = loaded.runtime.apparatus_actions["prepare_f1_a"]
+    client = _fake_f1_a_client()
+    action._client = client
+
+    first = action.run()
+    assert first.changed is True
+    assert first.observations["fixture_id"] == "github_workspace_f1_a"
+    assert first.observations["regressed_timeout_seconds"] == 15
+    assert first.observations["healthy_timeout_seconds"] == 30
+    assert first.observations["regression_issue_number"] == 1
+    assert first.observations["original_fix_pr_number"] == 10
+    assert first.observations["noise_issue_number"] == 2
+    assert first.observations["noise_pr_number"] == 11
+    assert first.observations["reintroduction_commit"] == client.branches["main"]
+
+    progress = []
+    second = action.run_with_progress(progress.append)
+    assert second.changed is False
+    assert second.observations == first.observations
+    assert [event.step for event in progress] == list(range(1, 11))
+    assert all(event.total == 10 for event in progress)
+    skipped = [event for event in progress if 3 <= event.step <= 8]
+    assert len(skipped) == 6
+    assert all("skipped (already intact)" in event.message for event in skipped)
+
+
+def test_f1_a_apparatus_retries_eventually_consistent_marker_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    action = loaded.runtime.apparatus_actions["prepare_f1_a"]
+    client = _fake_f1_a_client()
+    action._client = client
+
+    first = action.run()
+    assert first.changed is True
+
+    client.hide_noise_issue_list_calls = 2
+    action._discovery_retry_delays = (0.0, 0.0, 0.0, 0.0)
+    progress = []
+    second = action.run_with_progress(progress.append)
+
+    assert second.changed is False
+    assert second.observations == first.observations
+    assert any(
+        "temporarily incomplete" in event.message
+        for event in progress
+    )
+
+
+def test_f1_a_apparatus_refuses_persistent_partial_existing_world(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    action = loaded.runtime.apparatus_actions["prepare_f1_a"]
+    action._client = _fake_f1_a_client(partial=True)
+    action._discovery_retry_delays = (0.0,)
+
+    with pytest.raises(RuntimeError, match="partially materialized"):
+        action.run()
+
+
+def test_f1_a_scientific_fixture_remains_blocked_after_materializer_slice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    fixture = loaded.runtime.fixtures["github_workspace_f1_a"]
+    scenario = next(
+        item for item in package.contract["scenarios"]
+        if item["id"] == "f1_a_regression_disposition"
+    )
+
+    with pytest.raises(RuntimeError, match="materialization is not implemented"):
+        fixture.prepare(scenario, package.contract["run_protocol"]["reset"])

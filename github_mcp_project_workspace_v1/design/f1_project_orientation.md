@@ -2,8 +2,9 @@
 
 ## Status
 
-**F1-A and F1-B are frozen at the design level.** They are concrete enough for later fixture and
-evaluator implementation, but no executable scenario assets exist yet.
+**F1-A and F1-B are frozen at the design level.** F1-A now also has a package-owned executable world
+specification plus trusted apparatus materializer, but scientific prepare/observe/reset/evaluation remains
+blocked until live materialization is inspected. F1-B remains design-only.
 
 ## Construct
 

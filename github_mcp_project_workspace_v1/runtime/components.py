@@ -16,6 +16,7 @@ from .controller import (
     github_fixture_base_file,
 )
 from .evaluator import github_workspace_evaluator
+from .f1_a import github_f1_a_materializer, load_f1_a_spec
 from .fixture import github_workspace_fixture
 
 
@@ -68,6 +69,17 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         fixture_base_files=configuration["fixture_base_files"],
     )
 
+    f1_a_spec = _load_f1_a_configuration(context)
+    f1_a_materializer = github_f1_a_materializer(
+        controller,
+        repository_name=configuration["repository_name"],
+        expected_repository_full_name=configuration["repository_full_name"],
+        expected_repository_id=configuration["repository_id"],
+        expected_default_branch=configuration["expected_default_branch"],
+        fixture_base_files=configuration["fixture_base_files"],
+        spec=f1_a_spec,
+    )
+
     fixtures = {
         fixture_id: github_workspace_fixture(fixture_id)
         for fixture_id in _FIXTURE_IDS
@@ -90,7 +102,10 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         fixtures=fixtures,
         evaluators={"github_workspace": github_workspace_evaluator()},
         diagnostics={"github_fixture_controller": diagnostic},
-        apparatus_actions={"initialize": initializer},
+        apparatus_actions={
+            "initialize": initializer,
+            "prepare_f1_a": f1_a_materializer,
+        },
     )
 
 
@@ -168,6 +183,16 @@ def _load_controller_configuration(
     value["fixture_base_version"] = version
     value["fixture_base_files"] = tuple(resolved_files)
     return value
+
+
+def _load_f1_a_configuration(
+    context: experiment_runtime_context,
+):
+    path = context.resolve_resource("assets/fixtures/f1_a.json")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("F1-A fixture configuration must contain a JSON object.")
+    return load_f1_a_spec(value)
 
 
 def _fingerprint(value: str) -> str:

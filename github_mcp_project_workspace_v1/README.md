@@ -191,11 +191,18 @@ announced after the dedicated repository and both PAT roles were confirmed. Appa
 - an Experiment-2-specific local MCP service on host port 8083 so qualification can remain installed.
 
 The subject-side live preflight is complete: all three agents independently discover the same 43-tool
-server-defined catalog after adapter-side allowlists were removed. Apparatus slice 2 now adds the trusted
-controller runtime foundation and a package-owned read-only `github_fixture_controller` diagnostic.
+server-defined catalog after adapter-side allowlists were removed. The trusted controller runtime, repository
+identity pin, fixture-base initialization, and live fixture-base verification are also complete.
 
-The runtime intentionally blocks scientific fixture preparation/evaluation until scenario materialization is
-implemented. The next live checkpoint is to upgrade this package and run `acmm env doctor
---start-if-needed`; the controller diagnostic must resolve the dedicated repository and report its full name and
-numeric GitHub repository ID. Those identifiers will be pinned before any trusted cleanup/mutation is enabled.
-See [`design/controller_runtime_checkpoint.md`](design/controller_runtime_checkpoint.md).
+Apparatus slice 3 adds the first scenario-world materializer: `prepare_f1_a`. It can construct and then
+idempotently re-verify the F1-A Regression Disposition topology on the pinned repository, including the closed
+regression issue, merged historical fix PR, later default-branch reintroduction, and unrelated nearby issue/PR
+noise. Newly created objects are verified directly by the identifiers returned from GitHub, while later
+marker-based discovery uses bounded retries to tolerate short REST list-view propagation delays. Persistent
+partial or conflicting state remains fail-closed. The action also emits structured apparatus progress with a stable numbered phase ledger; idempotent phases are reported as `skipped (already intact)` so live
+GitHub work is visible while it runs.
+
+Scientific fixture preparation/evaluation remains intentionally blocked in this revision. The next live
+checkpoint is to run `prepare_f1_a`, inspect the resulting GitHub world and idempotent second call, and only then
+wire F1-A into `acmm run` with authoritative pre/post observation and reset semantics. See
+[`design/controller_runtime_checkpoint.md`](design/controller_runtime_checkpoint.md).

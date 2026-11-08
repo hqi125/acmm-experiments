@@ -155,6 +155,21 @@ class github_controller_client:
             suffix += "?" + urlencode({"ref": ref})
         return self._json("GET", f"/repos/{quote(owner)}/{quote(name)}{suffix}")
 
+    def contents_optional(
+        self,
+        owner: str,
+        name: str,
+        path: str,
+        *,
+        ref: str | None = None,
+    ) -> Any | None:
+        try:
+            return self.contents(owner, name, path, ref=ref)
+        except github_api_error as exc:
+            if exc.status == 404:
+                return None
+            raise
+
     def read_text_file(
         self,
         owner: str,
@@ -235,6 +250,39 @@ class github_controller_client:
         return self._array(
             "GET",
             f"/repos/{quote(owner)}/{quote(name)}/pulls?{query}",
+        )
+
+    def issue(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+    ) -> Mapping[str, Any]:
+        return self._object(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/issues/{number}",
+        )
+
+    def pull_request(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+    ) -> Mapping[str, Any]:
+        return self._object(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/pulls/{number}",
+        )
+
+    def commit(
+        self,
+        owner: str,
+        name: str,
+        ref: str,
+    ) -> Mapping[str, Any]:
+        return self._object(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/commits/{quote(ref, safe='')}",
         )
 
     def list_workflows(
@@ -359,6 +407,27 @@ class github_controller_client:
             "PATCH",
             f"/repos/{quote(owner)}/{quote(name)}/pulls/{number}",
             dict(payload),
+        )
+
+    def merge_pull_request(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+        *,
+        commit_title: str | None = None,
+        commit_message: str | None = None,
+        merge_method: str = "merge",
+    ) -> Mapping[str, Any]:
+        payload: dict[str, Any] = {"merge_method": merge_method}
+        if commit_title is not None:
+            payload["commit_title"] = commit_title
+        if commit_message is not None:
+            payload["commit_message"] = commit_message
+        return self._object(
+            "PUT",
+            f"/repos/{quote(owner)}/{quote(name)}/pulls/{number}/merge",
+            payload,
         )
 
     def _object(
