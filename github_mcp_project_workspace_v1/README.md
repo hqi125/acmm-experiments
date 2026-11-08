@@ -1,8 +1,9 @@
 # GitHub MCP Project Workspace Baseline
 
-> **Status:** DESIGN ONLY - NOT INSTALLABLE.
-> No `experiment-package.yaml`, `experiment.yaml`, runtime code, evaluator code, or scenario assets exist yet.
-> This directory records the Experiment 2 design before implementation begins.
+> **Status:** IMPLEMENTATION STARTED - APPARATUS SLICE 1.
+> The package manifest, scientific contract, and pinned GitHub MCP integration now exist and are covered by
+> package-local tests. Fixture runtime/evaluators are not implemented yet, so this revision is suitable for
+> install/apply/doctor preflight but **not yet for scientific `acmm run` acquisition**.
 
 `github_mcp_project_workspace_v1` is the working identity for the second experiment in the reworked
 ACMM research roadmap. It follows the frozen `minimal_agent_baseline_v1` and introduces one real,
@@ -158,33 +159,37 @@ See [`design/evaluation_model.md`](design/evaluation_model.md).
 
 ## Credential and safety boundary
 
-The credential should be dedicated to the experimental repository and broad enough to exercise the
-frozen capability envelope. Scenario design now derives a candidate fine-grained profile of Metadata
-read, Contents read/write, Issues read/write, Pull requests read/write, Actions read, and Commit statuses
-read, with no Actions/Workflows/Administration write requirement.
+The experiment uses two repository-scoped credentials: a subject MCP PAT with Metadata read, Contents
+read/write, Issues read/write, Pull requests read/write, Actions read, and Commit statuses read; and a separate
+trusted controller PAT that additionally has Actions write and Workflows read/write for fixture bootstrap/reset.
+GitHub fine-grained PATs do not expose a separate Checks permission, so it is intentionally absent from both
+profiles. Neither credential requires repository Administration or Repository creation.
 
-**The current issue-only qualification token is insufficient, but executable coding has still not begun.**
-The exact profile and excluded-tool list must be validated against the pinned MCP image before the user
-changes credentials. See [`design/pre_coding_checkpoint.md`](design/pre_coding_checkpoint.md).
-
-## Pre-coding gate
-
-This package remains documentation-only until all of the following are true:
-
-1. the capability envelope is frozen;
-2. all twelve scenarios have concrete fixture, prompt, and terminal-state designs;
-3. A/B variants are checked for meaningful independence and comparable difficulty;
-4. reset/cleanup feasibility is established for every mutation type;
-5. route-independent evaluation predicates are documented;
-6. required GitHub token permissions are enumerated;
-7. laboratory-protection exclusions are enumerated against the pinned tool catalog;
-8. the 288-run scale is either frozen or formally revised;
-9. the transition to implementation is explicitly announced.
-
-Scenario authoring, route-independent evaluation design, the candidate permission profile, and the
-design-level scale are now complete. Reset/isolation feasibility, exact pinned-catalog validation,
-credential finalization, and laboratory-protection choices remain in
+The dedicated subject/controller PATs have now been created by the user. Their values remain outside the
+repository and are consumed only through ACMM secret bindings. The recommended local source files are
+`~/.config/acmm/secrets/acmm-experiment-2-mcp-subject-pat` and
+`~/.config/acmm/secrets/acmm-experiment-2-mcp-controller-pat`; these paths are operator convention,
+not package identity.
+The v2.0.3 catalog/exclusions and fixture strategy are frozen in
+[`design/pinned_mcp_catalog.md`](design/pinned_mcp_catalog.md),
+[`design/fixture_lifecycle.md`](design/fixture_lifecycle.md), and
 [`design/pre_coding_checkpoint.md`](design/pre_coding_checkpoint.md).
 
-Until that checkpoint is reviewed and the transition is explicitly announced, changes in this directory
-remain design work, not package implementation.
+## Implementation checkpoint
+
+The design/pre-coding gate is closed. On 2026-11-07 the transition to executable implementation was explicitly
+announced after the dedicated repository and both PAT roles were confirmed. Apparatus slice 1 now provides:
+
+- package schema v0.3 with an Experiment-scoped `controller_access_token` secret slot;
+- an Integration-scoped `github_mcp/access_token` subject secret slot;
+- the frozen 12-scenario/8-repetition Contract;
+- pinned GitHub MCP Server v2.0.3 configuration on the eight frozen toolsets;
+- the nine laboratory exclusions;
+- exact 43-tool discovery enforcement and catalog digest expectation;
+- pinned container-image digest enforcement;
+- native profile composition for Hermes, Open WebUI, and Agent Zero;
+- an Experiment-2-specific local MCP service on host port 8083 so qualification can remain installed.
+
+The next implementation slice is the trusted fixture controller/runtime and route-independent evaluators. Before
+that work is used for scientific runs, a live local preflight should bind both PATs, apply the package, and confirm
+the pinned image/catalog through `acmm env doctor --start-if-needed`.

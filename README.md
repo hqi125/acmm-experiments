@@ -28,9 +28,10 @@ Experiment directories currently include:
   through each pinned agent's native MCP client, verifies exact native tool discovery, and performs
   a small real GitHub read-comment-read workflow with trusted REST pre/post-state observation. Its
   results are qualification evidence, not part of the final Experiment 2 research dataset.
-- `github_mcp_project_workspace_v1/` - **design-only, not yet installable** working area for the
-  second research experiment. It records the fixed rich GitHub MCP workspace, route-independent
-  evaluation model, candidate 12-scenario architecture, and pre-coding permission/safety gates.
+- `github_mcp_project_workspace_v1/` - Experiment 2 implementation in progress. Apparatus slice 1
+  contains the schema-v0.3 manifest, frozen 12-scenario Contract, and pinned 43-tool GitHub MCP
+  integration with separate subject/controller secret slots. Fixture runtime/evaluators are still
+  pending, so the package is install/apply/doctor capable but not ready for scientific `acmm run`.
 
 A normal workflow from the ACMM development environment is:
 
@@ -50,6 +51,10 @@ pytest ~/acmm_experiments
 ## Local secrets
 
 Do not place provider API keys or other live credentials in Experiment Packages. Local `.env`,
-`secrets/`, and common Ollama API-key filenames are ignored as a last-resort safeguard, but secrets
-should normally live outside this repository (for example under `~/.config/acmm/`). If this repo is
-hosted on GitHub, enable Secret Protection / Push Protection in repository settings when available.
+`secrets/`, and common API-key filenames are ignored as a last-resort safeguard, but secret values
+should live outside this repository and be exposed to ACMM only through the global secret-binding
+registry. Initialize the local store with `acmm secret init`; the default source directory is
+`~/.config/acmm/secrets/` and the versioned registry remains
+`~/.config/acmm/secret-bindings.yaml`. Older registry formats are never upgraded implicitly: run
+`acmm secret upgrade` explicitly before using normal binding/runtime operations. If this repo is
+hosted on GitHub, enable Secret Protection / Push Protection when available.

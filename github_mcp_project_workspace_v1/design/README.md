@@ -9,6 +9,10 @@ tone of the study.
 
 - [`capability_envelope.md`](capability_envelope.md) - fixed GitHub MCP toolset envelope, the
   capability/credential/scenario boundary distinction, laboratory protection, and provenance rules.
+- [`pinned_mcp_catalog.md`](pinned_mcp_catalog.md) - frozen v2.0.3 image/digest, exact selected-toolset
+  catalog expectation, laboratory exclusions, and effective-catalog digest.
+- [`fixture_lifecycle.md`](fixture_lifecycle.md) - frozen single-repository fixture model, subject/controller
+  credential separation, merge containment, CI seeding, and run isolation.
 - [`scenario_architecture.md`](scenario_architecture.md) - common authoring philosophy, difficulty
   model, A/B independence requirements, and route-choice principles.
 - [`scenario_matrix.md`](scenario_matrix.md) - current twelve-scenario working matrix and the

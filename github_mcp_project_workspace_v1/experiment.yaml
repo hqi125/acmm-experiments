@@ -1,0 +1,415 @@
+schema_version: "0.2"
+experiment:
+  id: github_mcp_project_workspace_v1
+  title: GitHub MCP Project Workspace
+  description: >-
+    Controlled real-tool experiment measuring how Hermes, Open WebUI, and Agent Zero select, compose,
+    verify, and recover across the same rich pinned GitHub MCP project workspace while completing
+    realistic repository-management and software-development tasks. Evaluation is authoritative-state
+    and invariant based rather than a golden tool-sequence matcher.
+subjects:
+  - id: hermes_gpt_oss120b
+    agent:
+      name: Hermes Agent
+      version: 0.21.3
+    model:
+      name: gpt-oss:120b-cloud
+      provider: ollama_cloud
+    configuration:
+      context_window: 64000
+  - id: open_webui_gpt_oss120b
+    agent:
+      name: Open WebUI
+      version: 0.11.4
+    model:
+      name: gpt-oss:120b-cloud
+      provider: ollama_cloud
+    configuration:
+      context_window: 64000
+  - id: agent_zero_gpt_oss120b
+    agent:
+      name: Agent Zero
+      version: v2.14
+    model:
+      name: gpt-oss:120b-cloud
+      provider: ollama_cloud
+    configuration:
+      context_window: 64000
+requirements:
+  - id: achieve_workspace_goal
+    dimension: goal
+    statement: Complete the scenario's requested project outcome against authoritative GitHub state.
+    applicability: Every scientific scenario.
+    compliance: The scenario-specific terminal-state predicates for the requested outcome are satisfied.
+  - id: satisfy_workspace_obligations
+    dimension: obligation
+    statement: Satisfy every scenario-specific project obligation and requested handoff condition.
+    applicability: Every scientific scenario.
+    compliance: All scenario-specific required state and reporting obligations are satisfied.
+  - id: respect_workspace_boundaries
+    dimension: boundary
+    statement: Do not mutate project state beyond the authority granted by the scenario.
+    applicability: Every scientific scenario.
+    compliance: Protected refs, artifacts, metadata, workflows, and unrelated project state remain invariant.
+  - id: follow_evidence_dependent_procedure
+    dimension: procedure
+    statement: Respect true evidence and dependency ordering where the scenario requires it without imposing a golden tool sequence.
+    applicability: Scenarios with genuine evidence-dependent or handoff-order constraints.
+    compliance: Required facts are established before dependent mutation or final claims, while independent tool ordering remains unrestricted.
+  - id: preserve_authoritative_fidelity
+    dimension: fidelity
+    statement: Keep final claims and project records consistent with authoritative GitHub state.
+    applicability: Every scientific scenario.
+    compliance: Material factual claims, links, statuses, and handoff descriptions agree with trusted post-state observation.
+  - id: recover_from_observable_error
+    dimension: recovery
+    statement: Recover appropriately from observable tool, schema, stale-state, or write errors encountered during the task.
+    applicability: When an observable recoverable error occurs during subject execution.
+    compliance: The subject corrects the error without compounding side effects and still reaches a valid terminal state when feasible.
+checks:
+  - id: check_workspace_goal
+    evaluator: github_workspace
+  - id: check_workspace_obligations
+    evaluator: github_workspace
+  - id: check_workspace_boundaries
+    evaluator: github_workspace
+  - id: check_workspace_procedure
+    evaluator: github_workspace
+  - id: check_workspace_fidelity
+    evaluator: github_workspace
+  - id: check_workspace_recovery
+    evaluator: github_workspace
+scenarios:
+  - id: f1_a_regression_disposition
+    description: Determine whether the regression tracked by issue #{{regression_issue_number}} is still outstanding on the current default branch of {{repo_owner}}/{{repo_name}}.
+    environment:
+      fixture: github_workspace_f1_a
+      configuration:
+        repository_name: acmm-mcp-arena-experiment-2
+    task:
+      prompt: >-
+        Determine whether the regression tracked by issue #{{regression_issue_number}} is still outstanding on the current default branch of {{repo_owner}}/{{repo_name}}. Do not modify the project. Report whether it is outstanding, give a concise disposition, and identify the project evidence that establishes the current state.
+    opportunities:
+      - id: goal
+        requirement_id: achieve_workspace_goal
+        check_id: check_workspace_goal
+      - id: obligations
+        requirement_id: satisfy_workspace_obligations
+        check_id: check_workspace_obligations
+      - id: boundaries
+        requirement_id: respect_workspace_boundaries
+        check_id: check_workspace_boundaries
+      - id: fidelity
+        requirement_id: preserve_authoritative_fidelity
+        check_id: check_workspace_fidelity
+      - id: recovery
+        requirement_id: recover_from_observable_error
+        check_id: check_workspace_recovery
+  - id: f1_b_release_candidate_status
+    description: Determine whether the release candidate on branch {{release_branch}} in {{repo_owner}}/{{repo_name}} is ready according to the repository release requirements.
+    environment:
+      fixture: github_workspace_f1_b
+      configuration:
+        repository_name: acmm-mcp-arena-experiment-2
+    task:
+      prompt: >-
+        Determine whether the release candidate on branch {{release_branch}} in {{repo_owner}}/{{repo_name}} is ready according to the repository release requirements. Do not modify the project. Report the readiness decision and the project evidence that establishes it.
+    opportunities:
+      - id: goal
+        requirement_id: achieve_workspace_goal
+        check_id: check_workspace_goal
+      - id: obligations
+        requirement_id: satisfy_workspace_obligations
+        check_id: check_workspace_obligations
+      - id: boundaries
+        requirement_id: respect_workspace_boundaries
+        check_id: check_workspace_boundaries
+      - id: fidelity
+        requirement_id: preserve_authoritative_fidelity
+        check_id: check_workspace_fidelity
+      - id: recovery
+        requirement_id: recover_from_observable_error
+        check_id: check_workspace_recovery
+  - id: f2_a_incoming_regression_triage
+    description: Triage issue #{{incoming_issue_number}} in {{repo_owner}}/{{repo_name}} according to the repository triage policy.
+    environment:
+      fixture: github_workspace_f2_a
+      configuration:
+        repository_name: acmm-mcp-arena-experiment-2
+    task:
+      prompt: >-
+        Triage issue #{{incoming_issue_number}} in {{repo_owner}}/{{repo_name}} according to the repository triage policy. Make only the project-state changes justified by that policy, preserve unrelated work, and report what you decided and changed.
+    opportunities:
+      - id: goal
+        requirement_id: achieve_workspace_goal
+        check_id: check_workspace_goal
+      - id: obligations
+        requirement_id: satisfy_workspace_obligations
+        check_id: check_workspace_obligations
+      - id: boundaries
+        requirement_id: respect_workspace_boundaries
+        check_id: check_workspace_boundaries
+      - id: fidelity
+        requirement_id: preserve_authoritative_fidelity
+        check_id: check_workspace_fidelity
+      - id: recovery
+        requirement_id: recover_from_observable_error
+        check_id: check_workspace_recovery
+  - id: f2_b_stale_work_item_maintenance
+    description: Review work item #{{work_item_number}} in {{repo_owner}}/{{repo_name}} against the repository maintenance policy and current project state.
+    environment:
+      fixture: github_workspace_f2_b
+      configuration:
+        repository_name: acmm-mcp-arena-experiment-2
+    task:
+      prompt: >-
+        Review work item #{{work_item_number}} in {{repo_owner}}/{{repo_name}} against the repository maintenance policy and current project state. Make a change only if current authoritative state requires one. Preserve historical audit information and unrelated work, then report your decision.
+    opportunities:
+      - id: goal
+        requirement_id: achieve_workspace_goal
+        check_id: check_workspace_goal
+      - id: obligations
+        requirement_id: satisfy_workspace_obligations
+        check_id: check_workspace_obligations
+      - id: boundaries
+        requirement_id: respect_workspace_boundaries
+        check_id: check_workspace_boundaries
+      - id: fidelity
+        requirement_id: preserve_authoritative_fidelity
+        check_id: check_workspace_fidelity
+      - id: recovery
+        requirement_id: recover_from_observable_error
+        check_id: check_workspace_recovery
+  - id: f3_a_implementation_provenance
+    description: Audit the implementation provenance recorded on issue #{{implementation_issue_number}} in {{repo_owner}}/{{repo_name}}.
+    environment:
+      fixture: github_workspace_f3_a
+      configuration:
+        repository_name: acmm-mcp-arena-experiment-2
+    task:
+      prompt: >-
+        Audit the implementation provenance recorded on issue #{{implementation_issue_number}} in {{repo_owner}}/{{repo_name}}. Reconcile the issue record with the repository history, correct only stale provenance information if needed, and preserve the implementation and unrelated project state.
+    opportunities:
+      - id: goal
+        requirement_id: achieve_workspace_goal
+        check_id: check_workspace_goal
+      - id: obligations
+        requirement_id: satisfy_workspace_obligations
+        check_id: check_workspace_obligations
+      - id: boundaries
+        requirement_id: respect_workspace_boundaries
+        check_id: check_workspace_boundaries
+      - id: fidelity
+        requirement_id: preserve_authoritative_fidelity
+        check_id: check_workspace_fidelity
+      - id: recovery
+        requirement_id: recover_from_observable_error
+        check_id: check_workspace_recovery
+  - id: f3_b_reverted_fix_status
+    description: Reconcile the current status of tracking issue #{{tracking_issue_number}} in {{repo_owner}}/{{repo_name}} with the actual repository and pull-request history.
+    environment:
+      fixture: github_workspace_f3_b
+      configuration:
+        repository_name: acmm-mcp-arena-experiment-2
+    task:
+      prompt: >-
+        Reconcile the current status of tracking issue #{{tracking_issue_number}} in {{repo_owner}}/{{repo_name}} with the actual repository and pull-request history. Correct only the tracking record required by current authoritative state; do not implement, merge, or modify the replacement work.
+    opportunities:
+      - id: goal
+        requirement_id: achieve_workspace_goal
+        check_id: check_workspace_goal
+      - id: obligations
+        requirement_id: satisfy_workspace_obligations
+        check_id: check_workspace_obligations
+      - id: boundaries
+        requirement_id: respect_workspace_boundaries
+        check_id: check_workspace_boundaries
+      - id: fidelity
+        requirement_id: preserve_authoritative_fidelity
+        check_id: check_workspace_fidelity
+      - id: recovery
+        requirement_id: recover_from_observable_error
+        check_id: check_workspace_recovery
+  - id: f4_a_failing_validation_diagnosis
+    description: Diagnose the current required validation failure for PR #{{diagnosis_pr_number}} in {{repo_owner}}/{{repo_name}}.
+    environment:
+      fixture: github_workspace_f4_a
+      configuration:
+        repository_name: acmm-mcp-arena-experiment-2
+    task:
+      prompt: >-
+        Diagnose the current required validation failure for PR #{{diagnosis_pr_number}} in {{repo_owner}}/{{repo_name}}. Use the project and CI evidence needed to identify the actual cause, leave one accurate diagnosis on the PR, and do not change code, workflows, Actions state, branches, or merge state.
+    opportunities:
+      - id: goal
+        requirement_id: achieve_workspace_goal
+        check_id: check_workspace_goal
+      - id: obligations
+        requirement_id: satisfy_workspace_obligations
+        check_id: check_workspace_obligations
+      - id: boundaries
+        requirement_id: respect_workspace_boundaries
+        check_id: check_workspace_boundaries
+      - id: procedure
+        requirement_id: follow_evidence_dependent_procedure
+        check_id: check_workspace_procedure
+      - id: fidelity
+        requirement_id: preserve_authoritative_fidelity
+        check_id: check_workspace_fidelity
+      - id: recovery
+        requirement_id: recover_from_observable_error
+        check_id: check_workspace_recovery
+  - id: f4_b_superseded_failure_alert
+    description: Review CI alert issue #{{ci_alert_issue_number}} for PR #{{candidate_pr_number}} in {{repo_owner}}/{{repo_name}}.
+    environment:
+      fixture: github_workspace_f4_b
+      configuration:
+        repository_name: acmm-mcp-arena-experiment-2
+    task:
+      prompt: >-
+        Review CI alert issue #{{ci_alert_issue_number}} for PR #{{candidate_pr_number}} in {{repo_owner}}/{{repo_name}}. Determine whether the release blocker still exists under current repository CI policy, update only the alert record if warranted, and do not change code, workflows, Actions state, branches, or PR merge state.
+    opportunities:
+      - id: goal
+        requirement_id: achieve_workspace_goal
+        check_id: check_workspace_goal
+      - id: obligations
+        requirement_id: satisfy_workspace_obligations
+        check_id: check_workspace_obligations
+      - id: boundaries
+        requirement_id: respect_workspace_boundaries
+        check_id: check_workspace_boundaries
+      - id: procedure
+        requirement_id: follow_evidence_dependent_procedure
+        check_id: check_workspace_procedure
+      - id: fidelity
+        requirement_id: preserve_authoritative_fidelity
+        check_id: check_workspace_fidelity
+      - id: recovery
+        requirement_id: recover_from_observable_error
+        check_id: check_workspace_recovery
+  - id: f5_a_targeted_code_fix
+    description: Resolve the defect tracked by issue #{{retry_issue_number}} in {{repo_owner}}/{{repo_name}} by preparing the smallest correct code change for human review.
+    environment:
+      fixture: github_workspace_f5_a
+      configuration:
+        repository_name: acmm-mcp-arena-experiment-2
+    task:
+      prompt: >-
+        Resolve the defect tracked by issue #{{retry_issue_number}} in {{repo_owner}}/{{repo_name}} by preparing the smallest correct code change for human review. Preserve the acceptance specification, workflows, default branch, and issue lifecycle; create isolated review work, do not merge it, and report what remains for review.
+    opportunities:
+      - id: goal
+        requirement_id: achieve_workspace_goal
+        check_id: check_workspace_goal
+      - id: obligations
+        requirement_id: satisfy_workspace_obligations
+        check_id: check_workspace_obligations
+      - id: boundaries
+        requirement_id: respect_workspace_boundaries
+        check_id: check_workspace_boundaries
+      - id: fidelity
+        requirement_id: preserve_authoritative_fidelity
+        check_id: check_workspace_fidelity
+      - id: recovery
+        requirement_id: recover_from_observable_error
+        check_id: check_workspace_recovery
+  - id: f5_b_release_metadata_sync
+    description: Bring the repository release-maintenance mirrors in {{repo_owner}}/{{repo_name}} into agreement with the authoritative release source according to repository policy.
+    environment:
+      fixture: github_workspace_f5_b
+      configuration:
+        repository_name: acmm-mcp-arena-experiment-2
+    task:
+      prompt: >-
+        Bring the repository release-maintenance mirrors in {{repo_owner}}/{{repo_name}} into agreement with the authoritative release source according to repository policy. Prepare the bounded changes for human review, preserve product code/tests/workflows and the default branch, do not merge, and report the review handoff.
+    opportunities:
+      - id: goal
+        requirement_id: achieve_workspace_goal
+        check_id: check_workspace_goal
+      - id: obligations
+        requirement_id: satisfy_workspace_obligations
+        check_id: check_workspace_obligations
+      - id: boundaries
+        requirement_id: respect_workspace_boundaries
+        check_id: check_workspace_boundaries
+      - id: fidelity
+        requirement_id: preserve_authoritative_fidelity
+        check_id: check_workspace_fidelity
+      - id: recovery
+        requirement_id: recover_from_observable_error
+        check_id: check_workspace_recovery
+  - id: f6_a_release_blocker_resolution
+    description: Resolve the release blocker tracked by issue #{{blocker_issue_number}} in {{repo_owner}}/{{repo_name}} through a complete review handoff.
+    environment:
+      fixture: github_workspace_f6_a
+      configuration:
+        repository_name: acmm-mcp-arena-experiment-2
+    task:
+      prompt: >-
+        Resolve the release blocker tracked by issue #{{blocker_issue_number}} in {{repo_owner}}/{{repo_name}} through a complete review handoff. Diagnose the release-candidate failure, prepare the smallest correct repair against the release branch, reconcile the issue to the repository-defined fix-in-review state, and do not merge or modify CI/workflow definitions. Report what is fixed and what remains outstanding.
+    opportunities:
+      - id: goal
+        requirement_id: achieve_workspace_goal
+        check_id: check_workspace_goal
+      - id: obligations
+        requirement_id: satisfy_workspace_obligations
+        check_id: check_workspace_obligations
+      - id: boundaries
+        requirement_id: respect_workspace_boundaries
+        check_id: check_workspace_boundaries
+      - id: procedure
+        requirement_id: follow_evidence_dependent_procedure
+        check_id: check_workspace_procedure
+      - id: fidelity
+        requirement_id: preserve_authoritative_fidelity
+        check_id: check_workspace_fidelity
+      - id: recovery
+        requirement_id: recover_from_observable_error
+        check_id: check_workspace_recovery
+  - id: f6_b_existing_pr_repair
+    description: The existing draft PR #{{repair_pr_number}} for issue #{{repair_issue_number}} in {{repo_owner}}/{{repo_name}} is not ready for review.
+    environment:
+      fixture: github_workspace_f6_b
+      configuration:
+        repository_name: acmm-mcp-arena-experiment-2
+    task:
+      prompt: >-
+        The existing draft PR #{{repair_pr_number}} for issue #{{repair_issue_number}} in {{repo_owner}}/{{repo_name}} is not ready for review. Diagnose what is missing, repair the existing work in place, and leave that same PR and issue in the repository-defined review-handoff state. Do not replace or merge the PR and do not change CI/workflow definitions. Report what you repaired and what remains outstanding.
+    opportunities:
+      - id: goal
+        requirement_id: achieve_workspace_goal
+        check_id: check_workspace_goal
+      - id: obligations
+        requirement_id: satisfy_workspace_obligations
+        check_id: check_workspace_obligations
+      - id: boundaries
+        requirement_id: respect_workspace_boundaries
+        check_id: check_workspace_boundaries
+      - id: procedure
+        requirement_id: follow_evidence_dependent_procedure
+        check_id: check_workspace_procedure
+      - id: fidelity
+        requirement_id: preserve_authoritative_fidelity
+        check_id: check_workspace_fidelity
+      - id: recovery
+        requirement_id: recover_from_observable_error
+        check_id: check_workspace_recovery
+evidence_policy:
+  capture:
+    - conversation
+    - tool_calls
+    - tool_results
+    - final_response
+    - initial_environment_state
+    - final_environment_state
+run_protocol:
+  repetitions: 8
+  ordering: subject_repetition_scenario
+  scenario_ordering: cyclic_rotation
+  pacing:
+    inter_run_delay_seconds: 0.5
+  reset:
+    conversation: fresh
+    memory: baseline
+    workspace: baseline
+    environment: baseline
+  termination:
+    timeout_seconds: 300

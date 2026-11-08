@@ -129,25 +129,34 @@ semantic validation rather than runner timing as the scientific correctness orac
 
 ## Phase D - pre-coding gate
 
-**Do not begin executable package work until this phase is explicitly reviewed.**
+**Closed on 2026-11-07.**
 
-- [ ] Pin the GitHub MCP server revision/image for the experiment.
-- [ ] Capture the full discovered individual-tool catalog for the chosen toolsets.
-- [ ] Validate and freeze the dedicated-token permission profile against that catalog.
-- [ ] Define the exact laboratory-protection excluded-tool list.
-- [ ] Confirm the experimental repository/account setup can support the fixtures safely.
-- [x] Decide that workflow definitions are always protected infrastructure.
-- [x] Decide that frozen scenarios require Actions read/diagnosis, not Actions rerun/cancel/trigger.
-- [ ] Choose the fixture reset/isolation strategy, including how unauthorized merges are contained.
-- [ ] Confirm reproducible creation/retention of completed CI evidence tied to known SHAs.
-- [ ] Announce the transition from design documentation to actual coding.
+- [x] Pin GitHub MCP Server v2.0.3 and qualified image digest.
+- [x] Capture/freeze the 43-tool effective catalog and normalized digest.
+- [x] Freeze the nine laboratory-protection exclusions.
+- [x] Freeze subject/controller credential profiles; omit unavailable fine-grained-PAT Checks permission.
+- [x] Confirm dedicated repository `acmm-mcp-arena-experiment-2`.
+- [x] Create dedicated subject/controller PATs.
+- [x] Freeze fixture reset/isolation and merge-containment strategy.
+- [x] Freeze reusable completed-CI evidence strategy.
+- [x] Explicitly announce transition to executable implementation.
 
-See [`pre_coding_checkpoint.md`](pre_coding_checkpoint.md) for the consolidated permission, fixture,
-Actions, merge-boundary, and scale implications.
+## Phase E - executable apparatus implementation
 
-## Current blocker status
+- [x] Generalize Core secret bindings to Core / Experiment / Integration scopes.
+- [x] Retire `--ollama-api-key-file`; provider telemetry now resolves only `core:ollama_api_key`.
+- [x] Add Experiment Package schema v0.3 package-secret declarations/runtime resolution.
+- [x] Create Experiment 2 package manifest and frozen 12-scenario Contract.
+- [x] Implement pinned v2.0.3 GitHub MCP integration with toolsets + exclusions.
+- [x] Enforce exact 43-tool discovery and qualified image digest.
+- [x] Keep qualification and Experiment 2 local MCP resources isolated (Experiment 2 uses port 8083).
+- [x] Add package-local integration/secret/catalog regressions.
+- [ ] Explicitly initialize/upgrade the versioned local secret registry, preserving the frozen qualification binding.
+- [ ] Bind real subject/controller PAT files through the new registry on the user's machine.
+- [ ] Run live `package apply` / `env doctor --start-if-needed` preflight.
+- [ ] Implement trusted fixture controller/runtime.
+- [ ] Implement route-independent scenario evaluators.
+- [ ] Pilot/smoke the fixture lifecycle before scientific acquisition.
 
-**Scenario design is complete; actual coding has not started.** The current issue-only GitHub token remains
-adequate for qualification but is insufficient for the frozen scientific scenario set. The next task is to
-review the pre-coding checkpoint, pin/inspect the exact MCP catalog, and then tell the user exactly which
-credential permissions/setup changes are required before executable package work begins.
+See [`pre_coding_checkpoint.md`](pre_coding_checkpoint.md), [`pinned_mcp_catalog.md`](pinned_mcp_catalog.md),
+and [`fixture_lifecycle.md`](fixture_lifecycle.md).

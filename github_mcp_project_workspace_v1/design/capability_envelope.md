@@ -2,9 +2,9 @@
 
 ## Status
 
-**Working freeze candidate.** The toolset-level envelope is agreed in principle. Exact discovered
-individual tools and the laboratory-protection denylist remain to be frozen against the pinned server
-catalog before implementation.
+**Frozen at the pre-coding design level.** The toolset envelope, pinned-server expectation, and
+laboratory-protection denylist are now fixed for v2.0.3. Live implementation preflight must still verify
+that the pinned local service and all three subject integrations discover the expected effective catalog.
 
 ## Fixed visible toolsets
 
@@ -79,8 +79,8 @@ before the agent ever sees them.
 > Do not remove a tool because the scenario should not use it. Remove a tool only because it falls
 > outside the controlled experimental world or can destroy the laboratory itself.
 
-The exact denylist is intentionally **not frozen yet**. It must be derived from the individual tool
-catalog discovered from the pinned GitHub MCP image. Candidate categories to review before coding:
+The denylist is now frozen against the v2.0.3 release catalog. See
+[`pinned_mcp_catalog.md`](pinned_mcp_catalog.md). The governing categories are:
 
 - repository/account creation or deletion outside the fixture lifecycle;
 - destructive administration that invalidates the laboratory repository;
@@ -115,11 +115,11 @@ This makes the phrase "GitHub MCP environment" reproducible at the individual-ca
 
 ## Token checkpoint
 
-The current qualification token is intentionally limited to issue operations and is sufficient only
-for engineering qualification. No permission expansion is needed during design.
+The engineering qualification token remains intentionally limited to issue operations and is not reused for
+the scientific package. The dedicated Experiment 2 subject/controller PATs were created after design freeze.
 
-Scenario design now derives the following candidate fine-grained repository profile: Metadata read,
-Contents read/write, Issues read/write, Pull requests read/write, Actions read, and Commit statuses
-read. No frozen scenario requires Actions write, Workflows write, Administration, or Repository
-creation. The exact profile must still be validated against the pinned individual-tool catalog before
-the credential is changed. See [`pre_coding_checkpoint.md`](pre_coding_checkpoint.md).
+The frozen subject profile is Metadata read, Contents read/write, Issues read/write, Pull requests read/write,
+Actions read, and Commit statuses read. GitHub fine-grained PATs do not expose a separate Checks permission.
+The subject receives no Actions write, Workflows write, Administration, or Repository creation.
+A separate trusted controller credential owns fixture seeding/reset powers. See
+[`fixture_lifecycle.md`](fixture_lifecycle.md) and [`pre_coding_checkpoint.md`](pre_coding_checkpoint.md).

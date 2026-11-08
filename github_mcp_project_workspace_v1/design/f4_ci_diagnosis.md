@@ -506,5 +506,5 @@ Correctness must not depend on waiting for a live runner, race-prone status poll
 availability during the agent turn. The agent may inspect completed runs/jobs/logs through MCP, while
 the trusted fixture controller owns run preparation and post-run cleanup/isolation.
 
-The exact Actions tool catalog and credential/write boundary remain pre-coding-gate decisions because
+The exact Actions tool catalog and credential/write boundary were frozen at the pre-coding gate because
 the pinned server version and the later F5/F6 designs may affect what should be globally writable.

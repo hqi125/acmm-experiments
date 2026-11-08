@@ -2,13 +2,12 @@
 
 ## Status
 
-**Scenario design complete; implementation not started.**
+**Pre-coding gate closed on 2026-11-07; executable implementation has started.**
 
-All twelve scenarios are frozen at the design level. This document consolidates the setup decisions
-that must be reviewed before any `experiment-package.yaml`, `experiment.yaml`, runtime, fixture,
-evaluator, or executable scenario code is created.
-
-The transition to coding must be explicitly announced after this checkpoint is resolved.
+All twelve scenarios and the apparatus architecture remain frozen. The user confirmed the dedicated repository
+`acmm-mcp-arena-experiment-2`, removed the obsolete qualification smoke issue, created both dedicated PATs,
+and the transition to coding was explicitly announced. Apparatus slice 1 now contains the package manifest,
+contract, and pinned MCP integration; fixture runtime/evaluator implementation follows after live binding/preflight.
 
 ## Frozen scientific shape
 
@@ -21,134 +20,126 @@ The transition to coding must be explicitly announced after this checkpoint is r
 - primary evaluation: authoritative state + invariants + final claims;
 - trajectory evidence: explanatory/diagnostic, not a golden-sequence matcher.
 
-## Credential profile derived from the frozen scenarios
+## Frozen MCP build and catalog
 
-The current issue-only qualification credential is insufficient for scientific acquisition.
+Reuse the already-qualified server:
 
-For a **fine-grained PAT scoped only to the dedicated experimental repository**, the frozen scenarios
-currently imply the following repository permissions:
+- `ghcr.io/github/github-mcp-server:v2.0.3`;
+- qualified observed digest `sha256:250bc6ce70788207608ef74cef4397230ff2e8481218da74d6093e4bd9101132`;
+- upstream immutable release commit `b98d115`.
 
-| Permission | Intended level | Why the experiment needs it |
-| --- | --- | --- |
-| Metadata | Read | repository/context discovery; normally implicit for fine-grained repository access |
-| Contents | Read and write | inspect files/commits/refs, create branches, write scenario-owned branch content |
-| Issues | Read and write | read/update issue state, labels, and comments |
-| Pull requests | Read and write | inspect/create/update PRs and preserve/transition review handoffs |
-| Actions | Read | inspect workflows, runs, jobs, and diagnostic logs |
-| Commit statuses | Read | inspect status evidence where the pinned MCP catalog routes through commit-status APIs |
+The eight toolsets contain an expected 52 unique v2.0.3 tools before laboratory exclusions. The frozen
+excluded tools are:
 
-The scenario set does **not** require:
+```text
+actions_run_trigger
+create_repository
+delete_repository
+fork_repository
+get_team_members
+get_teams
+list_issue_fields
+list_issue_types
+ui_get
+```
 
-- Actions write;
-- Workflows write;
-- Administration;
-- Repository creation;
-- security/governance/organization permissions.
+The resulting expected scientific surface contains 43 unique tools with normalized catalog digest:
 
-Workflow definitions remain protected experiment infrastructure. Contents write is intended for normal
-repository files and refs; it does not authorize scenario-level mutation of `.github/workflows/**`.
+```text
+sha256:d1474fb4709fc2d4d18821711f098582e30a712a08f718ee89487309ba6a818d
+```
 
-This profile must still be validated against the exact pinned MCP image and its discovered individual
-catalog before the user changes credentials.
+`merge_pull_request` intentionally remains visible. Full membership/rationale is in
+[`pinned_mcp_catalog.md`](pinned_mcp_catalog.md).
 
-## Actions surface conclusion
+## Frozen credential model
 
-The frozen scenarios require Actions **inspection**, not Actions mutation. Completed pre-change runs are
-fixture evidence; subject correctness never depends on triggering/rerunning/cancelling a workflow.
+Use **two selected-repository fine-grained PATs** against the dedicated laboratory repository.
 
-At the pinned-catalog checkpoint, prefer excluding the Actions mutation entry point(s) from the visible
-catalog rather than granting Actions write merely to create forbidden temptations. The current upstream
-server exposes Actions inspection separately from `actions_run_trigger`, which makes this boundary
-practical, but exact names must be taken from the pinned image rather than copied blindly from upstream.
+### Subject MCP credential
 
-## Merge boundary
+| Permission | Level |
+| --- | --- |
+| Metadata | Read |
+| Contents | Read/write |
+| Issues | Read/write |
+| Pull requests | Read/write |
+| Actions | Read |
+| Commit statuses | Read |
 
-`merge_pull_request` is scientifically interesting because every implementation/handoff scenario
-explicitly withholds merge authority while PR write permission may technically permit it. However, an
-unauthorized merge creates harder-to-reverse GitHub history.
+GitHub fine-grained PATs do not expose a separate Checks permission. No Actions write, Workflows write, Administration, or Repository creation.
 
-Before coding, choose one of two defensible fixture strategies:
+### Trusted controller credential
 
-1. **Visible merge capability + isolation strong enough to absorb violations.** This preserves a real
-   Boundary opportunity and records unauthorized merges as agent behavior.
-2. **Exclude merge as laboratory protection.** Use this only if fixture/reset design cannot isolate an
-   accidental merge without contaminating later repetitions.
+| Permission | Level |
+| --- | --- |
+| Metadata | Read |
+| Contents | Read/write |
+| Issues | Read/write |
+| Pull requests | Read/write |
+| Actions | Read/write |
+| Commit statuses | Read |
+| Workflows | Read/write |
 
-Do not decide this solely from convenience; decide it together with the fixture lifecycle.
+No repository Administration or Repository creation is planned. The controller token remains harness-private
+and is never exposed to subjects. See [`fixture_lifecycle.md`](fixture_lifecycle.md).
 
-## Fixture lifecycle requirements derived from the scenarios
+## Frozen fixture/isolation strategy
 
-The trusted controller must be able to materialize and independently observe at least:
+Use one dedicated **private** repository with a repository-level fixture lease and semantic scenario anchors.
+Runs are serialized against that repository. Mutable artifacts are execution-scoped when their lifecycle can
+be irreversible; shared refs/metadata are snapshotted and restored by the trusted controller.
 
-- repository files and deterministic commit history;
-- default, release, and scenario-owned branches;
-- issues, comments, labels, and lifecycle state;
-- pull requests, draft/open/merged state, base/head topology, comments/reviews where used;
-- completed Actions runs/jobs/log evidence tied to known SHAs;
-- semantic source/test fixtures used by trusted validators.
+Each run performs trusted prepare -> preflight -> subject execution -> authoritative post-observation ->
+evaluation -> restoration/retirement. GitHub-generated issue/PR numbers and SHAs may vary where aliases are
+used; semantic fixture state is the reproducibility target.
 
-For every run the controller must:
+### Merge boundary
 
-1. prepare or allocate a clean scenario instance;
-2. verify the authoritative pre-state before releasing it to the subject;
-3. resolve symbolic fixture aliases to actual GitHub identifiers;
-4. execute the subject only after the fixture passes preflight;
-5. capture authoritative post-state independently of the agent;
-6. evaluate terminal predicates and protected invariants;
-7. retain enough evidence to explain tool/state transitions;
-8. clean, retire, or isolate the instance so later runs cannot inherit subject mutations.
+Keep `merge_pull_request` visible. Implementation/handoff PRs that could be merged are execution-scoped.
+After post-state capture the controller restores affected shared base refs; a merged per-run PR is retired and
+never reused. This preserves a meaningful Boundary opportunity without contaminating later repetitions.
 
-GitHub-generated issue/PR numbers and SHAs do not need to repeat across runs. Reproducibility is defined
-by the semantic fixture and alias mapping, not by identical global identifiers.
+## Frozen CI strategy
 
-## CI fixture requirements
+Actions is read-only for subjects. Deterministic workflow definitions are trusted fixture infrastructure.
+Prefer completed runs on canonical scenario SHAs that can be reused across repetitions. The controller may
+seed/dispatch CI outside subject timing using its Actions-write credential. Scientific run validity never
+depends on a new workflow finishing after the subject acts.
 
-CI-heavy scenarios use completed, package-owned pre-change runs as evidence. The fixture must record at
-least workflow identity, run ID, head SHA, job IDs, conclusions, and deterministic log facts.
+Post-mutation correctness is primarily checked by trusted package validators against captured repository
+state. Naturally occurring post-change workflow evidence may be retained but is not required for validity.
 
-Post-mutation correctness should be validated by trusted package logic against the resulting repository
-snapshot. A naturally triggered GitHub run may be recorded when present, but acquisition validity must
-not depend on runner timing.
+## Repository setup assumptions
 
-## Laboratory-protection denylist checkpoint
-
-The exact excluded-tool list is **not frozen from upstream names yet**. It must be generated after the
-experiment pins its GitHub MCP image and captures the discovered catalog.
-
-Rules for that review:
-
-- exclude operations outside the dedicated project-workspace world;
-- exclude operations requiring credentials deliberately absent from the experiment when leaving them
-  visible would create permanently dead/misleading capabilities;
-- exclude Actions mutation because no frozen scenario requires it;
-- protect workflow-definition mutation;
-- review repository/account creation, deletion, administration, and other non-restorable operations;
-- decide `merge_pull_request` together with the fixture-isolation strategy rather than automatically
-  excluding it.
-
-Scenario-specific forbidden actions should otherwise remain visible when safe enough to observe.
+The dedicated repository should be private, isolated from unrelated automation/collaborators during
+acquisition, have Issues and Actions enabled, and permit trusted controller ref restoration. Workflow files
+must be experiment-owned and deterministic. Cleanup must be constrained to ACMM-owned aliases/markers/refs
+and must verify repository identity before mutation.
 
 ## Scale checkpoint
 
-The design-level acquisition target is now **frozen at 288 planned executions**:
+The design-level acquisition target remains frozen at **288 planned executions**:
 
 **3 agents x 12 scenarios x 8 repetitions = 288.**
 
-Engineering smoke/pilot runs are additional and should not be counted as scientific acquisition.
-The scale may be reopened only if implementation/pilot evidence shows a scenario is infeasible,
-non-independent, or materially miscalibrated.
+Engineering smoke/pilot runs are additional and excluded from scientific acquisition.
 
-## Remaining pre-coding decisions
+## Remaining gate before coding
 
-Before coding begins:
+- [x] pin the exact GitHub MCP image/tag/digest used for the scientific package;
+- [x] derive/archive the expected individual catalog for the eight toolsets;
+- [x] freeze excluded tools, including the Actions mutation surface;
+- [x] choose the fixture-isolation/reset strategy;
+- [x] resolve the merge-capability decision;
+- [x] freeze the completed-CI evidence strategy;
+- [x] derive separate subject/controller credential profiles;
+- [x] user created dedicated-repository subject credential `acmm-experiment-2-mcp-subject-pat`;
+- [x] user created dedicated-repository controller credential `acmm-experiment-2-mcp-controller-pat`;
+- [x] user confirmed repository `acmm-mcp-arena-experiment-2` and restored the clean initialized state;
+- [x] explicitly announced the transition to executable package coding;
+- [ ] initialize/validate the current ACMM secret store and explicitly upgrade any retained v0.1 registry;
+- [ ] bind both credentials through the ACMM secret-binding registry on the user's machine;
+- [ ] live preflight confirms v2.0.3 digest, effective catalog, and required permissions.
 
-- [ ] pin the exact GitHub MCP image/tag/digest used for the scientific package;
-- [ ] discover and archive the exact individual tool catalog for the eight toolsets;
-- [ ] validate the fine-grained permission profile against those exact tools;
-- [ ] freeze excluded tools, including the Actions mutation surface;
-- [ ] choose the fixture-isolation/reset strategy and resolve the merge-capability decision;
-- [ ] confirm how completed CI evidence is seeded reproducibly;
-- [ ] confirm the dedicated GitHub repository/account setup;
-- [ ] only then announce the transition to executable package coding.
-
-Until those boxes are resolved, repository changes remain documentation/design work only.
+The remaining unchecked items are implementation/preflight tasks, not a reason to reopen scientific design.
