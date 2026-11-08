@@ -155,7 +155,9 @@ semantic validation rather than runner timing as the scientific correctness orac
 - [x] Bind real subject/controller PAT files through the new registry on the user's machine.
 - [x] Run live `package apply` / `env doctor --start-if-needed` preflight with exact 43-tool parity.
 - [x] Keep `expected_tools` as a discovery invariant only; subject adapters consume the server-exposed catalog.
-- [ ] Implement trusted fixture controller/runtime.
+- [x] Implement trusted controller runtime/doctor foundation and REST primitives.
+- [x] Pin resolved repository full name `Dufferin125/acmm-mcp-arena-experiment-2` + numeric repository ID `1447536932` from live controller doctor.
+- [ ] Initialize the trusted fixture base repository, then implement scenario fixture materialization/reset on the pinned repository identity.
 - [ ] Implement route-independent scenario evaluators.
 - [ ] Pilot/smoke the fixture lifecycle before scientific acquisition.
 

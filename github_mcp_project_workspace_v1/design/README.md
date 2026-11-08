@@ -11,6 +11,8 @@ tone of the study.
   capability/credential/scenario boundary distinction, laboratory protection, and provenance rules.
 - [`pinned_mcp_catalog.md`](pinned_mcp_catalog.md) - frozen v2.0.3 image/digest, exact selected-toolset
   catalog expectation, laboratory exclusions, and effective-catalog digest.
+- [`controller_runtime_checkpoint.md`](controller_runtime_checkpoint.md) - implemented trusted-controller
+  runtime/doctor foundation and the repository-identity pinning gate before mutation;
 - [`fixture_lifecycle.md`](fixture_lifecycle.md) - frozen single-repository fixture model, subject/controller
   credential separation, merge containment, CI seeding, and run isolation.
 - [`scenario_architecture.md`](scenario_architecture.md) - common authoring philosophy, difficulty

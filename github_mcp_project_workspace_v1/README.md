@@ -190,6 +190,12 @@ announced after the dedicated repository and both PAT roles were confirmed. Appa
 - native profile composition for Hermes, Open WebUI, and Agent Zero;
 - an Experiment-2-specific local MCP service on host port 8083 so qualification can remain installed.
 
-The next implementation slice is the trusted fixture controller/runtime and route-independent evaluators. Before
-that work is used for scientific runs, a live local preflight should bind both PATs, apply the package, and confirm
-the pinned image/catalog through `acmm env doctor --start-if-needed`.
+The subject-side live preflight is complete: all three agents independently discover the same 43-tool
+server-defined catalog after adapter-side allowlists were removed. Apparatus slice 2 now adds the trusted
+controller runtime foundation and a package-owned read-only `github_fixture_controller` diagnostic.
+
+The runtime intentionally blocks scientific fixture preparation/evaluation until scenario materialization is
+implemented. The next live checkpoint is to upgrade this package and run `acmm env doctor
+--start-if-needed`; the controller diagnostic must resolve the dedicated repository and report its full name and
+numeric GitHub repository ID. Those identifiers will be pinned before any trusted cleanup/mutation is enabled.
+See [`design/controller_runtime_checkpoint.md`](design/controller_runtime_checkpoint.md).

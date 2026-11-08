@@ -136,10 +136,12 @@ Engineering smoke/pilot runs are additional and excluded from scientific acquisi
 - [x] derive separate subject/controller credential profiles;
 - [x] user created dedicated-repository subject credential `acmm-experiment-2-mcp-subject-pat`;
 - [x] user created dedicated-repository controller credential `acmm-experiment-2-mcp-controller-pat`;
-- [x] user confirmed repository `acmm-mcp-arena-experiment-2` and restored the clean initialized state;
+- [x] user confirmed repository `acmm-mcp-arena-experiment-2`; live controller doctor later confirmed it is intentionally empty before fixture initialization;
 - [x] explicitly announced the transition to executable package coding;
-- [ ] initialize/validate the current ACMM secret store and explicitly upgrade any retained v0.1 registry;
-- [ ] bind both credentials through the ACMM secret-binding registry on the user's machine;
-- [ ] live preflight confirms v2.0.3 digest, effective catalog, and required permissions.
+- [x] initialize/validate the current ACMM secret store and explicitly upgrade any retained v0.1 registry;
+- [x] bind both credentials through the ACMM secret-binding registry on the user's machine;
+- [x] live subject-side preflight confirms v2.0.3 digest and exact 43-tool parity across all three agents;
+- [x] live trusted-controller doctor confirms controller identity, pinned repository identity, privacy, push capability, and Issues/PR/Actions read surfaces;
+- [ ] initialize the trusted fixture base so default-branch and repository-content readiness checks become available.
 
-The remaining unchecked items are implementation/preflight tasks, not a reason to reopen scientific design.
+The remaining initialization item is an implementation safety gate, not a reason to reopen scientific design.

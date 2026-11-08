@@ -12,6 +12,7 @@ from acmm.experiment_package import (
     compose_staged_experiment_profile_integrations,
     install_experiment_package,
     load_staged_experiment_integrations,
+    load_staged_experiment_runtime,
     validate_staged_package_secrets,
 )
 from acmm.integration_api import shared_integration_context
@@ -173,7 +174,8 @@ def test_package_declares_frozen_scientific_shape(tmp_path: Path) -> None:
     assert package.schema_version == "0.3"
     assert len(package.contract["scenarios"]) == 12
     assert package.contract["run_protocol"]["repetitions"] == 8
-    assert package.runtime is None
+    assert package.runtime is not None
+    assert package.runtime.api_version == "0.1"
     assert [(item.secret_id, item.required) for item in package.secrets] == [
         ("controller_access_token", True),
     ]
@@ -478,3 +480,308 @@ class _fake_agent_zero_api:
                 "tools": [{"name": tool} for tool in self._tools],
             },
         }
+
+
+def test_runtime_declares_controller_diagnostic_and_all_frozen_fixture_ids(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+
+    loaded = load_staged_experiment_runtime(package)
+
+    assert set(loaded.runtime.diagnostics) == {"github_fixture_controller"}
+    assert set(loaded.runtime.evaluators) == {"github_workspace"}
+    assert set(loaded.runtime.fixtures) == {
+        "github_workspace_f1_a",
+        "github_workspace_f1_b",
+        "github_workspace_f2_a",
+        "github_workspace_f2_b",
+        "github_workspace_f3_a",
+        "github_workspace_f3_b",
+        "github_workspace_f4_a",
+        "github_workspace_f4_b",
+        "github_workspace_f5_a",
+        "github_workspace_f5_b",
+        "github_workspace_f6_a",
+        "github_workspace_f6_b",
+    }
+
+
+def test_controller_diagnostic_checks_repository_identity_and_read_surfaces(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
+    diagnostic._client._transport = _fake_controller_transport()
+
+    report = diagnostic.doctor()
+
+    assert report.is_ready
+    checks = {item.name: item for item in report.checks}
+    assert checks["credential_separation"].ok
+    assert checks["controller_identity"].detail == "authenticated as fixture-owner"
+    assert checks["repository_identity"].detail == (
+        "resolved pinned repository Dufferin125/acmm-mcp-arena-experiment-2 "
+        "(repository id=1447536932)"
+    )
+    assert checks["repository_private"].ok
+    assert checks["issues_enabled"].ok
+    assert checks["controller_push_access"].ok
+    assert checks["repository_initialized"].ok
+    assert checks["default_branch_read"].ok
+    assert checks["repository_contents_read"].ok
+    assert checks["issues_read"].ok
+    assert checks["pull_requests_read"].ok
+    assert checks["actions_workflows_read"].ok
+    assert checks["actions_runs_read"].ok
+
+
+def test_controller_diagnostic_rejects_same_named_repository_with_wrong_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
+    diagnostic._client._transport = _fake_controller_transport(
+        repository_id=999999,
+    )
+
+    report = diagnostic.doctor()
+
+    assert report.is_ready is False
+    checks = {item.name: item for item in report.checks}
+    assert checks["repository_identity"].ok is False
+    assert "expected Dufferin125/acmm-mcp-arena-experiment-2" in (
+        checks["repository_identity"].detail
+    )
+    assert "repository_initialized" not in checks
+
+
+
+def test_controller_diagnostic_reports_empty_repository_as_initialization_blocker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
+    diagnostic._client._transport = _empty_repository_transport()
+
+    report = diagnostic.doctor()
+
+    assert report.is_ready is False
+    checks = {item.name: item for item in report.checks}
+    assert checks["repository_identity"].ok
+    assert checks["repository_initialized"].ok is False
+    assert checks["repository_initialized"].detail == (
+        "repository is empty; initialize the trusted fixture base "
+        "before scientific execution"
+    )
+    assert "default_branch_read" not in checks
+    assert "repository_contents_read" not in checks
+    assert checks["issues_read"].ok
+    assert checks["pull_requests_read"].ok
+    assert checks["actions_workflows_read"].ok
+    assert checks["actions_runs_read"].ok
+
+
+
+def test_controller_client_mutation_primitives_are_namespaced_and_explicit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
+    recorder = _fake_controller_transport()
+    diagnostic._client._transport = recorder
+    client = diagnostic._client
+
+    created = client.create_ref(
+        "fixture-owner",
+        "acmm-mcp-arena-experiment-2",
+        "acmm/execution/f1-a/repair",
+        "abc123",
+    )
+    assert created["ref"] == "refs/heads/acmm/execution/f1-a/repair"
+    client.update_ref(
+        "fixture-owner",
+        "acmm-mcp-arena-experiment-2",
+        "acmm/execution/f1-a/repair",
+        "def456",
+    )
+    client.delete_ref(
+        "fixture-owner",
+        "acmm-mcp-arena-experiment-2",
+        "acmm/execution/f1-a/repair",
+    )
+    issue = client.create_issue(
+        "fixture-owner",
+        "acmm-mcp-arena-experiment-2",
+        title="fixture issue",
+        body="[acmm-fixture]",
+        labels=("fixture",),
+    )
+    assert issue["number"] == 17
+    pull = client.create_pull_request(
+        "fixture-owner",
+        "acmm-mcp-arena-experiment-2",
+        title="fixture PR",
+        head="acmm/execution/f1-a/repair",
+        base="main",
+        body="[acmm-fixture]",
+    )
+    assert pull["number"] == 23
+
+    assert recorder.methods == ["POST", "PATCH", "DELETE", "POST", "POST"]
+
+
+class _empty_repository_transport:
+    repository_id = 1447536932
+    repository_full_name = "Dufferin125/acmm-mcp-arena-experiment-2"
+
+    def __call__(self, method, url, headers, payload):
+        from urllib.parse import urlparse
+
+        del headers, payload
+        parsed = urlparse(url)
+        path = parsed.path
+
+        if method == "GET" and path == "/user":
+            body = {"login": "fixture-owner"}
+            return 200, {}, json.dumps(body).encode("utf-8")
+        if method == "GET" and path == "/user/repos":
+            body = [
+                {
+                    "id": self.repository_id,
+                    "name": "acmm-mcp-arena-experiment-2",
+                    "full_name": self.repository_full_name,
+                    "private": True,
+                    "default_branch": "main",
+                    "has_issues": True,
+                    "owner": {"login": "Dufferin125"},
+                    "permissions": {"push": True},
+                }
+            ]
+            return 200, {}, json.dumps(body).encode("utf-8")
+        if method == "GET" and "/git/ref/heads/main" in path:
+            return (
+                409,
+                {},
+                json.dumps({"message": "Git Repository is empty."}).encode("utf-8"),
+            )
+        if method == "GET" and path.endswith("/issues"):
+            body = []
+        elif method == "GET" and path.endswith("/pulls"):
+            body = []
+        elif method == "GET" and path.endswith("/actions/workflows"):
+            body = {"total_count": 0, "workflows": []}
+        elif method == "GET" and path.endswith("/actions/runs"):
+            body = {"total_count": 0, "workflow_runs": []}
+        else:
+            raise AssertionError(f"unexpected request: {method} {url}")
+        return 200, {}, json.dumps(body).encode("utf-8")
+
+
+
+class _fake_controller_transport:
+    def __init__(
+        self,
+        *,
+        repository_id: int = 1447536932,
+        repository_full_name: str = "Dufferin125/acmm-mcp-arena-experiment-2",
+    ) -> None:
+        self.methods: list[str] = []
+        self.repository_id = repository_id
+        self.repository_full_name = repository_full_name
+
+    def __call__(self, method, url, headers, payload):
+        from urllib.parse import urlparse
+
+        del headers
+        self.methods.append(method)
+        parsed = urlparse(url)
+        path = parsed.path
+        body = {}
+        status = 200
+
+        if method == "GET" and path == "/user":
+            body = {"login": "fixture-owner"}
+        elif method == "GET" and path == "/user/repos":
+            body = [
+                {
+                    "id": self.repository_id,
+                    "name": "acmm-mcp-arena-experiment-2",
+                    "full_name": self.repository_full_name,
+                    "private": True,
+                    "default_branch": "main",
+                    "has_issues": True,
+                    "owner": {"login": "Dufferin125"},
+                    "permissions": {"push": True},
+                }
+            ]
+        elif method == "GET" and "/git/ref/heads/main" in path:
+            body = {"ref": "refs/heads/main", "object": {"sha": "abc123"}}
+        elif method == "GET" and path.endswith("/contents"):
+            body = [{"name": "README.md", "type": "file"}]
+        elif method == "GET" and path.endswith("/issues"):
+            body = []
+        elif method == "GET" and path.endswith("/pulls"):
+            body = []
+        elif method == "GET" and path.endswith("/actions/workflows"):
+            body = {"total_count": 0, "workflows": []}
+        elif method == "GET" and path.endswith("/actions/runs"):
+            body = {"total_count": 0, "workflow_runs": []}
+        elif method == "POST" and path.endswith("/git/refs"):
+            status = 201
+            value = json.loads(payload.decode("utf-8"))
+            body = {"ref": value["ref"], "object": {"sha": value["sha"]}}
+        elif method == "PATCH" and "/git/refs/heads/" in path:
+            body = {"ref": "refs/heads/acmm/execution/f1-a/repair"}
+        elif method == "DELETE" and "/git/refs/heads/" in path:
+            return 204, {}, b""
+        elif method == "POST" and path.endswith("/issues"):
+            status = 201
+            body = {"number": 17}
+        elif method == "POST" and path.endswith("/pulls"):
+            status = 201
+            body = {"number": 23}
+        else:
+            raise AssertionError(f"unexpected request: {method} {url}")
+
+        return status, {}, json.dumps(body).encode("utf-8")
+
+
+def test_fixture_namespace_is_execution_scoped_and_stable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
+    controller_module = sys.modules[type(diagnostic._client).__module__]
+
+    namespace = controller_module.github_fixture_namespace(
+        execution_id="Execution 123",
+        scenario_id="f1_a_regression_disposition",
+    )
+
+    assert namespace.branch("Repair Head") == (
+        "acmm/execution-123/f1-a-regression-disposition/repair-head"
+    )
+    assert namespace.marker("acmm-fixture") == (
+        "[acmm-fixture:execution=Execution 123;"
+        "scenario=f1_a_regression_disposition]"
+    )

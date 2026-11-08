@@ -28,10 +28,10 @@ Experiment directories currently include:
   through each pinned agent's native MCP client, verifies exact native tool discovery, and performs
   a small real GitHub read-comment-read workflow with trusted REST pre/post-state observation. Its
   results are qualification evidence, not part of the final Experiment 2 research dataset.
-- `github_mcp_project_workspace_v1/` - Experiment 2 implementation in progress. Apparatus slice 1
-  contains the schema-v0.3 manifest, frozen 12-scenario Contract, and pinned 43-tool GitHub MCP
-  integration with separate subject/controller secret slots. Fixture runtime/evaluators are still
-  pending, so the package is install/apply/doctor capable but not ready for scientific `acmm run`.
+- `github_mcp_project_workspace_v1/` - Experiment 2 implementation in progress. The package now
+  contains the frozen 12-scenario Contract, pinned 43-tool GitHub MCP integration, separate
+  subject/controller secret slots, and the trusted controller runtime/doctor foundation. Scenario
+  fixture materialization and evaluators remain guarded, so scientific `acmm run` is not ready yet.
 
 A normal workflow from the ACMM development environment is:
 

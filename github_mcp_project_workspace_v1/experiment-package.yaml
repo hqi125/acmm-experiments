@@ -2,6 +2,11 @@ schema_version: "0.3"
 experiment_id: github_mcp_project_workspace_v1
 contract: experiment.yaml
 
+runtime:
+  api_version: "0.1"
+  root: runtime
+  entrypoint: build_runtime
+
 secrets:
   - id: controller_access_token
     required: true

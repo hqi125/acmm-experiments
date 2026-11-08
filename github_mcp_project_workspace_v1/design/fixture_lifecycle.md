@@ -159,3 +159,11 @@ Before live fixture-controller/pilot work:
 
 The controller must never treat "same repository name" alone as sufficient authorization to clean up state;
 repository owner/login and expected repository identity must also match the configured fixture target.
+
+Live controller qualification on 2026-11-08 pinned the fixture target to:
+
+- full name: `Dufferin125/acmm-mcp-arena-experiment-2`;
+- GitHub repository ID: `1447536932`.
+
+The repository is intentionally empty at this checkpoint. `env doctor` therefore treats trusted fixture-base
+initialization as a readiness blocker while continuing to report independent Issues/PR/Actions read surfaces.
