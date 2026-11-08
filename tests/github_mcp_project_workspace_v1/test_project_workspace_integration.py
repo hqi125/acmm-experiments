@@ -28,7 +28,7 @@ from acmm_infra.subjects.hermes.profile import load_hermes_profile
 from acmm_infra.subjects.open_webui.profile import load_open_webui_profile
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2] / "github_mcp_project_workspace_v1"
 EXPERIMENT_ID = "github_mcp_project_workspace_v1"
 SUBJECT_TOKEN = "subject-secret-value"
 CONTROLLER_TOKEN = "controller-secret-value"
@@ -215,7 +215,9 @@ def test_staged_integration_composes_same_43_tool_surface_for_all_subjects(
     server = json.loads(value)
     assert server["url"] == "http://host.docker.internal:8083"
     assert server["headers"]["Authorization"] == f"Bearer {SUBJECT_TOKEN}"
-    assert tuple(server["tools"]["include"]) == EXPECTED_TOOLS
+    assert "include" not in server["tools"]
+    assert server["tools"]["resources"] is False
+    assert server["tools"]["prompts"] is False
 
     open_webui = _compose_profile(package, "open-webui")
     connections = json.loads(
@@ -228,9 +230,8 @@ def test_staged_integration_composes_same_43_tool_surface_for_all_subjects(
     assert connections[0]["key"] == SUBJECT_TOKEN
 
     agent_zero = _compose_profile(package, "agent-zero")
-    assert agent_zero.experiment_isolation.mcp_tool_default == "block"
-    for tool in EXPECTED_TOOLS:
-        assert f"mcp:github:{tool}" in agent_zero.experiment_isolation.allowed_tools
+    assert agent_zero.experiment_isolation.mcp_tool_default == "allow"
+    assert agent_zero.experiment_isolation.allowed_tools == ()
 
 
 def test_local_resource_uses_toolsets_and_exclusions_not_tool_allowlist(

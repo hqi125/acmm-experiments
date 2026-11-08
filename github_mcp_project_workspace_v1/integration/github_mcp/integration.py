@@ -79,7 +79,6 @@ class _github_mcp_profile_integration:
                 "connect_timeout": 30,
                 "supports_parallel_tool_calls": False,
                 "tools": {
-                    "include": list(self._settings.expected_tools),
                     "resources": False,
                     "prompts": False,
                 },
@@ -117,14 +116,9 @@ class _github_mcp_profile_integration:
 
     def _agent_zero(self, profile: object, token: str) -> object:
         isolation = getattr(profile, "experiment_isolation")
-        allowed = tuple(isolation.allowed_tools)
-        expected = tuple(
-            f"mcp:{self._settings.server_id}:{tool}" for tool in self._settings.expected_tools
-        )
         isolation = replace(
             isolation,
-            mcp_tool_default="block",
-            allowed_tools=_append_unique_values(allowed, expected),
+            mcp_tool_default="allow",
         )
         mcp_servers = json.dumps(
             {
@@ -807,16 +801,6 @@ def _append_unique_pair(
         raise ValueError(f"Integration managed configuration key already exists: '{key}'.")
     return values + ((key, value),)
 
-
-def _append_unique_values(
-    existing: tuple[str, ...],
-    additions: tuple[str, ...],
-) -> tuple[str, ...]:
-    values = list(existing)
-    for value in additions:
-        if value not in values:
-            values.append(value)
-    return tuple(values)
 
 
 def _required_text(value: Mapping[str, Any], key: str, context: str) -> str:

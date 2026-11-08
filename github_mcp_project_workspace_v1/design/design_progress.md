@@ -150,10 +150,11 @@ semantic validation rather than runner timing as the scientific correctness orac
 - [x] Implement pinned v2.0.3 GitHub MCP integration with toolsets + exclusions.
 - [x] Enforce exact 43-tool discovery and qualified image digest.
 - [x] Keep qualification and Experiment 2 local MCP resources isolated (Experiment 2 uses port 8083).
-- [x] Add package-local integration/secret/catalog regressions.
-- [ ] Explicitly initialize/upgrade the versioned local secret registry, preserving the frozen qualification binding.
-- [ ] Bind real subject/controller PAT files through the new registry on the user's machine.
-- [ ] Run live `package apply` / `env doctor --start-if-needed` preflight.
+- [x] Add package-scoped integration/secret/catalog regressions under repository `tests/`.
+- [x] Explicitly initialize/upgrade the versioned local secret registry, preserving the qualification binding.
+- [x] Bind real subject/controller PAT files through the new registry on the user's machine.
+- [x] Run live `package apply` / `env doctor --start-if-needed` preflight with exact 43-tool parity.
+- [x] Keep `expected_tools` as a discovery invariant only; subject adapters consume the server-exposed catalog.
 - [ ] Implement trusted fixture controller/runtime.
 - [ ] Implement route-independent scenario evaluators.
 - [ ] Pilot/smoke the fixture lifecycle before scientific acquisition.

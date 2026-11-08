@@ -42,7 +42,9 @@ acmm package apply minimal_agent_baseline_v1
 acmm run minimal_agent_baseline_v1 --preview
 ```
 
-Experiment-specific tests stay with each package. From the ACMM virtual environment, run:
+Development tests stay outside deployable package directories under `tests/<package-id>/`. This keeps
+package artifacts focused on material required by the Core-managed store while retaining package-specific
+regression ownership. From the ACMM virtual environment, run:
 
 ```text
 pytest ~/acmm_experiments

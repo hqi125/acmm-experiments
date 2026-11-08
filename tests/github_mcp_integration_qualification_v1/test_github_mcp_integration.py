@@ -24,7 +24,9 @@ from acmm_infra.subjects.hermes.profile import load_hermes_profile
 from acmm_infra.subjects.open_webui.profile import load_open_webui_profile
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = (
+    Path(__file__).resolve().parents[2] / "github_mcp_integration_qualification_v1"
+)
 EXPERIMENT_ID = "github_mcp_integration_qualification_v1"
 TOKEN = "qualification-" + "secret-" + "value"
 EXPECTED_TOOLS = ("issue_read", "issue_write", "add_issue_comment")

@@ -141,6 +141,11 @@ expected v2.0.3 catalog digest is:
 sha256:d1474fb4709fc2d4d18821711f098582e30a712a08f718ee89487309ba6a818d
 ```
 
+The expected names and digest are **discovery assertions only**. They must not be fed back into
+Hermes, Open WebUI, Agent Zero, or the MCP server as an allow-list. The server-visible surface is defined
+by the pinned toolsets plus exclusions; each subject consumes that exposed surface, and doctor compares its
+independent discovery result against this frozen expectation.
+
 Expected normalized names:
 
 ```text
