@@ -5,5 +5,19 @@
   "repository_id": 1447536932,
   "require_private": true,
   "fixture_branch_prefix": "acmm/",
-  "fixture_marker": "acmm-fixture"
+  "fixture_marker": "acmm-fixture",
+  "expected_default_branch": "main",
+  "fixture_base": {
+    "version": "0.1",
+    "files": [
+      {
+        "path": "README.md",
+        "resource": "assets/fixture_base/README.md"
+      },
+      {
+        "path": ".acmm/fixture-base.json",
+        "resource": "assets/fixture_base/fixture-base.json"
+      }
+    ]
+  }
 }

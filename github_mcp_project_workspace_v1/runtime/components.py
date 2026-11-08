@@ -9,7 +9,12 @@ from acmm.experiment_api import (
     harness_capabilities,
 )
 
-from .controller import github_controller_client, github_controller_diagnostic
+from .apparatus import github_fixture_base_initializer
+from .controller import (
+    github_controller_client,
+    github_controller_diagnostic,
+    github_fixture_base_file,
+)
 from .evaluator import github_workspace_evaluator
 from .fixture import github_workspace_fixture
 
@@ -44,10 +49,23 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         repository_name=configuration["repository_name"],
         expected_repository_full_name=configuration["repository_full_name"],
         expected_repository_id=configuration["repository_id"],
+        expected_default_branch=configuration["expected_default_branch"],
         require_private=configuration["require_private"],
         credentials_distinct=(
             _fingerprint(controller_token) != _fingerprint(subject_token)
         ),
+        fixture_base_version=configuration["fixture_base_version"],
+        fixture_base_files=configuration["fixture_base_files"],
+    )
+    initializer = github_fixture_base_initializer(
+        controller,
+        repository_name=configuration["repository_name"],
+        expected_repository_full_name=configuration["repository_full_name"],
+        expected_repository_id=configuration["repository_id"],
+        expected_default_branch=configuration["expected_default_branch"],
+        require_private=configuration["require_private"],
+        fixture_base_version=configuration["fixture_base_version"],
+        fixture_base_files=configuration["fixture_base_files"],
     )
 
     fixtures = {
@@ -72,6 +90,7 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         fixtures=fixtures,
         evaluators={"github_workspace": github_workspace_evaluator()},
         diagnostics={"github_fixture_controller": diagnostic},
+        apparatus_actions={"initialize": initializer},
     )
 
 
@@ -91,6 +110,7 @@ def _load_controller_configuration(
         "require_private": bool,
         "fixture_branch_prefix": str,
         "fixture_marker": str,
+        "expected_default_branch": str,
     }
     for key, expected_type in required.items():
         item = value.get(key)
@@ -102,6 +122,51 @@ def _load_controller_configuration(
             raise ValueError(
                 f"Controller configuration field '{key}' is invalid."
             )
+
+    fixture_base = value.get("fixture_base")
+    if not isinstance(fixture_base, dict):
+        raise ValueError("Controller configuration fixture_base is invalid.")
+    version = fixture_base.get("version")
+    files = fixture_base.get("files")
+    if not isinstance(version, str) or not version.strip():
+        raise ValueError("Controller fixture_base.version is invalid.")
+    if not isinstance(files, list) or not files:
+        raise ValueError("Controller fixture_base.files must be a non-empty list.")
+
+    resolved_files: list[github_fixture_base_file] = []
+    seen_paths: set[str] = set()
+    for index, item in enumerate(files):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"Controller fixture_base.files[{index}] must be an object."
+            )
+        repository_path = item.get("path")
+        resource = item.get("resource")
+        if (
+            not isinstance(repository_path, str)
+            or not repository_path.strip()
+            or repository_path.startswith("/")
+            or ".." in repository_path.split("/")
+        ):
+            raise ValueError(
+                f"Controller fixture_base.files[{index}].path is invalid."
+            )
+        if repository_path in seen_paths:
+            raise ValueError(
+                f"Controller fixture base path '{repository_path}' is duplicated."
+            )
+        if not isinstance(resource, str) or not resource.strip():
+            raise ValueError(
+                f"Controller fixture_base.files[{index}].resource is invalid."
+            )
+        content = context.resolve_resource(resource).read_text(encoding="utf-8")
+        resolved_files.append(
+            github_fixture_base_file(path=repository_path, content=content)
+        )
+        seen_paths.add(repository_path)
+
+    value["fixture_base_version"] = version
+    value["fixture_base_files"] = tuple(resolved_files)
     return value
 
 

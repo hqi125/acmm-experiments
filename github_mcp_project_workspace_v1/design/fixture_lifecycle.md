@@ -19,7 +19,10 @@ replaces this strategy.
 
 ### Stable laboratory scaffold
 
-The repository contains experiment-owned infrastructure that is prepared once and restored when needed:
+The repository begins from a package-owned trusted fixture base initialized explicitly through the runtime
+apparatus action. The base currently consists only of `README.md` plus `.acmm/fixture-base.json`; doctor validates
+both files exactly before scientific execution can become ready. The scaffold then grows in later implementation
+slices with experiment-owned infrastructure that is prepared once and restored when needed:
 
 - protected-by-policy workflow definitions under `.github/workflows/**`;
 - common README/policy documents used by scenarios;
@@ -165,5 +168,7 @@ Live controller qualification on 2026-11-08 pinned the fixture target to:
 - full name: `Dufferin125/acmm-mcp-arena-experiment-2`;
 - GitHub repository ID: `1447536932`.
 
-The repository is intentionally empty at this checkpoint. `env doctor` therefore treats trusted fixture-base
-initialization as a readiness blocker while continuing to report independent Issues/PR/Actions read surfaces.
+At the fixture-base implementation checkpoint, an empty repository remains a deliberate readiness blocker. The
+only approved transition out of that state is the explicit package-owned `initialize` apparatus action; manual
+repository seeding is not part of the reproducible workflow. Initialization refuses a non-empty repository unless
+its trusted base files already match exactly, making the operation safe and idempotent.

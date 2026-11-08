@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import base64
 import json
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
@@ -51,6 +52,12 @@ class github_repository_identity:
     default_branch: str
     issues_enabled: bool
     push_allowed: bool
+
+
+@dataclass(frozen=True)
+class github_fixture_base_file:
+    path: str
+    content: str
 
 
 @dataclass(frozen=True)
@@ -147,6 +154,60 @@ class github_controller_client:
         if ref is not None:
             suffix += "?" + urlencode({"ref": ref})
         return self._json("GET", f"/repos/{quote(owner)}/{quote(name)}{suffix}")
+
+    def read_text_file(
+        self,
+        owner: str,
+        name: str,
+        path: str,
+        *,
+        ref: str,
+    ) -> str:
+        value = self.contents(owner, name, path, ref=ref)
+        if not isinstance(value, Mapping):
+            raise github_controller_error(
+                f"Repository content '{path}' is not a file object."
+            )
+        encoding = value.get("encoding")
+        content = value.get("content")
+        if encoding != "base64" or not isinstance(content, str):
+            raise github_controller_error(
+                f"Repository content '{path}' is not base64 file content."
+            )
+        try:
+            raw = base64.b64decode(content.encode("ascii"), validate=False)
+            return raw.decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise github_controller_error(
+                f"Repository content '{path}' is not valid UTF-8 text."
+            ) from exc
+
+    def create_or_update_file(
+        self,
+        owner: str,
+        name: str,
+        path: str,
+        *,
+        message: str,
+        content: str,
+        branch: str | None = None,
+        sha: str | None = None,
+    ) -> Mapping[str, Any]:
+        encoded_path = quote(path, safe="/")
+        payload: dict[str, Any] = {
+            "message": message,
+            "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+        }
+        if branch is not None:
+            payload["branch"] = branch
+        if sha is not None:
+            payload["sha"] = sha
+        return self._object(
+            "PUT",
+            f"/repos/{quote(owner)}/{quote(name)}/contents/{encoded_path}",
+            payload,
+            expected=(200, 201),
+        )
 
     def list_issues(
         self,
@@ -380,15 +441,21 @@ class github_controller_diagnostic:
         repository_name: str,
         expected_repository_full_name: str,
         expected_repository_id: int,
+        expected_default_branch: str,
         require_private: bool,
         credentials_distinct: bool,
+        fixture_base_version: str,
+        fixture_base_files: tuple[github_fixture_base_file, ...],
     ) -> None:
         self._client = client
         self._repository_name = repository_name
         self._expected_repository_full_name = expected_repository_full_name
         self._expected_repository_id = expected_repository_id
+        self._expected_default_branch = expected_default_branch
         self._require_private = require_private
         self._credentials_distinct = credentials_distinct
+        self._fixture_base_version = fixture_base_version
+        self._fixture_base_files = tuple(fixture_base_files)
 
     def doctor(self) -> runtime_diagnostic_report:
         checks: list[runtime_diagnostic_check] = [
@@ -486,6 +553,21 @@ class github_controller_diagnostic:
                 ),
             )
         )
+        default_branch_ok = identity.default_branch == self._expected_default_branch
+        checks.append(
+            runtime_diagnostic_check(
+                name="repository_default_branch",
+                ok=default_branch_ok,
+                detail=(
+                    f"default branch is '{identity.default_branch}'"
+                    if default_branch_ok
+                    else (
+                        f"default branch is '{identity.default_branch}'; expected "
+                        f"'{self._expected_default_branch}'"
+                    )
+                ),
+            )
+        )
 
         checks.extend(
             self._read_surface_checks(identity)
@@ -511,7 +593,7 @@ class github_controller_diagnostic:
                     name="repository_initialized",
                     ok=True,
                     detail=(
-                        "repository has a readable default branch and is initialized"
+                        "repository has a readable default branch"
                     ),
                 )
             )
@@ -535,6 +617,20 @@ class github_controller_diagnostic:
                         detail="default-branch repository contents are readable",
                     )
                 )
+                try:
+                    self._verify_fixture_base(identity)
+                    checks.append(
+                        runtime_diagnostic_check(
+                            name="fixture_base_integrity",
+                            ok=True,
+                            detail=(
+                                f"trusted fixture base v{self._fixture_base_version} "
+                                "matches package-owned seed content"
+                            ),
+                        )
+                    )
+                except Exception as exc:
+                    checks.append(_failed("fixture_base_integrity", exc))
             except Exception as exc:
                 checks.append(_failed("repository_contents_read", exc))
         except github_api_error as exc:
@@ -589,6 +685,23 @@ class github_controller_diagnostic:
             except Exception as exc:
                 checks.append(_failed(check_name, exc))
         return tuple(checks)
+
+    def _verify_fixture_base(
+        self,
+        identity: github_repository_identity,
+    ) -> None:
+        for item in self._fixture_base_files:
+            actual = self._client.read_text_file(
+                identity.owner,
+                identity.name,
+                item.path,
+                ref=identity.default_branch,
+            )
+            if actual != item.content:
+                raise github_controller_error(
+                    f"Trusted fixture base file '{item.path}' does not match "
+                    "package-owned seed content."
+                )
 
 
 def _repository_identity(data: Mapping[str, Any]) -> github_repository_identity:

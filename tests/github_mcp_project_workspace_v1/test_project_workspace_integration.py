@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import base64
 import json
 from pathlib import Path
 import shutil
@@ -492,6 +493,7 @@ def test_runtime_declares_controller_diagnostic_and_all_frozen_fixture_ids(
     loaded = load_staged_experiment_runtime(package)
 
     assert set(loaded.runtime.diagnostics) == {"github_fixture_controller"}
+    assert set(loaded.runtime.apparatus_actions) == {"initialize"}
     assert set(loaded.runtime.evaluators) == {"github_workspace"}
     assert set(loaded.runtime.fixtures) == {
         "github_workspace_f1_a",
@@ -532,9 +534,11 @@ def test_controller_diagnostic_checks_repository_identity_and_read_surfaces(
     assert checks["repository_private"].ok
     assert checks["issues_enabled"].ok
     assert checks["controller_push_access"].ok
+    assert checks["repository_default_branch"].ok
     assert checks["repository_initialized"].ok
     assert checks["default_branch_read"].ok
     assert checks["repository_contents_read"].ok
+    assert checks["fixture_base_integrity"].ok
     assert checks["issues_read"].ok
     assert checks["pull_requests_read"].ok
     assert checks["actions_workflows_read"].ok
@@ -580,6 +584,7 @@ def test_controller_diagnostic_reports_empty_repository_as_initialization_blocke
     assert report.is_ready is False
     checks = {item.name: item for item in report.checks}
     assert checks["repository_identity"].ok
+    assert checks["repository_default_branch"].ok
     assert checks["repository_initialized"].ok is False
     assert checks["repository_initialized"].detail == (
         "repository is empty; initialize the trusted fixture base "
@@ -693,16 +698,93 @@ class _empty_repository_transport:
 
 
 
+class _initializable_empty_repository_transport:
+    repository_id = 1447536932
+    repository_full_name = "Dufferin125/acmm-mcp-arena-experiment-2"
+
+    def __init__(self) -> None:
+        self.initialized = False
+        self.files: dict[str, str] = {}
+        self.head_sha = "fixture-head-0"
+        self.put_paths: list[str] = []
+
+    def __call__(self, method, url, headers, payload):
+        from urllib.parse import urlparse
+
+        del headers
+        parsed = urlparse(url)
+        path = parsed.path
+
+        if method == "GET" and path == "/user":
+            return 200, {}, json.dumps({"login": "fixture-owner"}).encode("utf-8")
+        if method == "GET" and path == "/user/repos":
+            body = [{
+                "id": self.repository_id,
+                "name": "acmm-mcp-arena-experiment-2",
+                "full_name": self.repository_full_name,
+                "private": True,
+                "default_branch": "main",
+                "has_issues": True,
+                "owner": {"login": "Dufferin125"},
+                "permissions": {"push": True},
+            }]
+            return 200, {}, json.dumps(body).encode("utf-8")
+        if method == "GET" and "/git/ref/heads/main" in path:
+            if not self.initialized:
+                return 409, {}, json.dumps({"message": "Git Repository is empty."}).encode("utf-8")
+            body = {"ref": "refs/heads/main", "object": {"sha": self.head_sha}}
+            return 200, {}, json.dumps(body).encode("utf-8")
+        if method == "GET" and path.endswith("/issues"):
+            return 200, {}, b"[]"
+        if method == "GET" and path.endswith("/pulls"):
+            return 200, {}, b"[]"
+        if method == "GET" and path.endswith("/actions/workflows"):
+            return 200, {}, json.dumps({"total_count": 0, "workflows": []}).encode("utf-8")
+        if method == "GET" and path.endswith("/actions/runs"):
+            return 200, {}, json.dumps({"total_count": 0, "workflow_runs": []}).encode("utf-8")
+        if method == "GET" and path.endswith("/contents"):
+            if not self.initialized:
+                return 404, {}, json.dumps({"message": "This repository is empty."}).encode("utf-8")
+            body = [{"name": key.rsplit("/", 1)[-1], "path": key, "type": "file"} for key in sorted(self.files)]
+            return 200, {}, json.dumps(body).encode("utf-8")
+        if method == "GET" and "/contents/" in path:
+            relative = path.split("/contents/", 1)[1]
+            if relative not in self.files:
+                return 404, {}, json.dumps({"message": "Not Found"}).encode("utf-8")
+            content = self.files[relative]
+            body = {
+                "type": "file",
+                "encoding": "base64",
+                "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+            }
+            return 200, {}, json.dumps(body).encode("utf-8")
+        if method == "PUT" and "/contents/" in path:
+            value = json.loads(payload.decode("utf-8"))
+            relative = path.split("/contents/", 1)[1]
+            self.files[relative] = base64.b64decode(value["content"]).decode("utf-8")
+            self.initialized = True
+            self.head_sha = f"fixture-head-{len(self.files)}"
+            self.put_paths.append(path)
+            body = {
+                "content": {"path": relative, "sha": f"blob-{len(self.files)}"},
+                "commit": {"sha": self.head_sha},
+            }
+            return 201, {}, json.dumps(body).encode("utf-8")
+        raise AssertionError(f"unexpected request: {method} {url}")
+
+
 class _fake_controller_transport:
     def __init__(
         self,
         *,
         repository_id: int = 1447536932,
         repository_full_name: str = "Dufferin125/acmm-mcp-arena-experiment-2",
+        fixture_base_valid: bool = True,
     ) -> None:
         self.methods: list[str] = []
         self.repository_id = repository_id
         self.repository_full_name = repository_full_name
+        self.fixture_base_valid = fixture_base_valid
 
     def __call__(self, method, url, headers, payload):
         from urllib.parse import urlparse
@@ -733,6 +815,19 @@ class _fake_controller_transport:
             body = {"ref": "refs/heads/main", "object": {"sha": "abc123"}}
         elif method == "GET" and path.endswith("/contents"):
             body = [{"name": "README.md", "type": "file"}]
+        elif method == "GET" and "/contents/" in path:
+            relative = path.split("/contents/", 1)[1]
+            fixture_path = ROOT / "assets" / "fixture_base" / (
+                "fixture-base.json" if relative == ".acmm/fixture-base.json" else "README.md"
+            )
+            content = fixture_path.read_text(encoding="utf-8")
+            if not self.fixture_base_valid and relative == ".acmm/fixture-base.json":
+                content = content.replace('"fixture_base_version": "0.1"', '"fixture_base_version": "broken"')
+            body = {
+                "type": "file",
+                "encoding": "base64",
+                "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+            }
         elif method == "GET" and path.endswith("/issues"):
             body = []
         elif method == "GET" and path.endswith("/pulls"):
@@ -759,6 +854,58 @@ class _fake_controller_transport:
             raise AssertionError(f"unexpected request: {method} {url}")
 
         return status, {}, json.dumps(body).encode("utf-8")
+
+
+
+def test_fixture_base_initializer_materializes_empty_repository_and_is_idempotent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
+    action = loaded.runtime.apparatus_actions["initialize"]
+    transport = _initializable_empty_repository_transport()
+    diagnostic._client._transport = transport
+
+    first = action.run()
+    assert first.changed is True
+    assert first.observations["repository_id"] == 1447536932
+    assert first.observations["default_branch"] == "main"
+    assert first.observations["fixture_base_version"] == "0.1"
+    assert first.observations["head_sha"] == "fixture-head-2"
+    assert transport.put_paths == [
+        "/repos/Dufferin125/acmm-mcp-arena-experiment-2/contents/README.md",
+        "/repos/Dufferin125/acmm-mcp-arena-experiment-2/contents/.acmm/fixture-base.json",
+    ]
+
+    second = action.run()
+    assert second.changed is False
+    assert second.observations["head_sha"] == "fixture-head-2"
+    assert len(transport.put_paths) == 2
+
+    report = diagnostic.doctor()
+    assert report.is_ready
+    checks = {item.name: item for item in report.checks}
+    assert checks["fixture_base_integrity"].ok
+
+
+def test_fixture_base_initializer_refuses_untrusted_nonempty_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
+    action = loaded.runtime.apparatus_actions["initialize"]
+    transport = _fake_controller_transport(fixture_base_valid=False)
+    diagnostic._client._transport = transport
+
+    with pytest.raises(RuntimeError, match="Trusted fixture base file"):
+        action.run()
+    assert "PUT" not in transport.methods
 
 
 def test_fixture_namespace_is_execution_scoped_and_stable(

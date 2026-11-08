@@ -157,7 +157,9 @@ semantic validation rather than runner timing as the scientific correctness orac
 - [x] Keep `expected_tools` as a discovery invariant only; subject adapters consume the server-exposed catalog.
 - [x] Implement trusted controller runtime/doctor foundation and REST primitives.
 - [x] Pin resolved repository full name `Dufferin125/acmm-mcp-arena-experiment-2` + numeric repository ID `1447536932` from live controller doctor.
-- [ ] Initialize the trusted fixture base repository, then implement scenario fixture materialization/reset on the pinned repository identity.
+- [x] Implement explicit trusted fixture-base initialization on the pinned repository identity.
+- [ ] Live-initialize and verify the trusted fixture base repository.
+- [ ] Implement scenario fixture materialization/reset on the pinned repository identity.
 - [ ] Implement route-independent scenario evaluators.
 - [ ] Pilot/smoke the fixture lifecycle before scientific acquisition.
 
