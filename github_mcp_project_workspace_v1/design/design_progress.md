@@ -44,6 +44,11 @@ The first pair is frozen with intentionally different authoritative-state topolo
 
 Both are read-only and expose the full experiment-wide MCP capability envelope.
 
+F1-A calibration additionally froze the reporting-boundary rule that machine-scored categorical
+fields use prompt-declared controlled vocabularies and exact evaluation. The evaluator does not
+normalize semantic paraphrases of `disposition`; this avoids hidden or post-hoc equivalence classes
+while leaving evidence discovery and tool trajectories unconstrained.
+
 ### F2 checkpoint
 
 The second pair is frozen with opposite action decisions under the same rich tool environment:
@@ -159,7 +164,7 @@ semantic validation rather than runner timing as the scientific correctness orac
 - [x] Pin resolved repository full name `Dufferin125/acmm-mcp-arena-experiment-2` + numeric repository ID `1447536932` from live controller doctor.
 - [x] Implement explicit trusted fixture-base initialization on the pinned repository identity.
 - [x] Live-initialize and verify the trusted fixture base repository.
-- [~] Implement scenario fixture materialization/reset on the pinned repository identity (F1-A world materializer implemented with direct post-create verification, bounded discovery retry, and apparatus progress; scientific prepare/observe/reset still pending).
+- [~] Implement scenario fixture materialization/reset on the pinned repository identity (F1-A world materialization plus scientific prepare/observe/reset is implemented; F1-B through F6 remain pending).
 - [ ] Implement route-independent scenario evaluators.
 - [ ] Pilot/smoke the fixture lifecycle before scientific acquisition.
 

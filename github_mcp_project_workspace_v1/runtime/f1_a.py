@@ -57,6 +57,13 @@ class github_f1_a_materializer:
     def run(self) -> apparatus_action_result:
         return self._run(None)
 
+    def inspect(self):
+        identity = self._resolve_identity()
+        discovered = self._discover_with_retry(identity, report=None, total=10)
+        if not discovered.get("complete"):
+            raise github_controller_error("F1-A fixture is not fully materialized.")
+        return identity, self._verify(identity, discovered)
+
     def run_with_progress(
         self,
         report: Callable[[apparatus_action_progress], None],

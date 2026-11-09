@@ -88,7 +88,21 @@ scenarios:
         repository_name: acmm-mcp-arena-experiment-2
     task:
       prompt: >-
-        Determine whether the regression tracked by issue #{{regression_issue_number}} is still outstanding on the current default branch of {{repo_owner}}/{{repo_name}}. Do not modify the project. Report whether it is outstanding, give a concise disposition, and identify the project evidence that establishes the current state.
+        Determine whether the regression tracked by issue #{{regression_issue_number}} is still outstanding on the current default branch of {{repo_owner}}/{{repo_name}}. Do not modify the project. Investigate the current repository state and the historical issue/fix evidence needed to support the disposition. After the investigation, return exactly one JSON object and no other text. The object must contain a top-level `result` object with exactly these fields populated only from project facts you actually observed: `outstanding` (boolean), `disposition` (categorical string), `current_branch` (string), `current_timeout_seconds` (integer), `issue_state` (string), `original_fix_pr_merged` (boolean), and `reintroduction_commit` (full commit SHA string). The `disposition` value must be exactly one of: `regression_reintroduced` when the current default branch exhibits the regression despite historical resolution evidence; `resolved` when the current default branch does not exhibit the regression; or `indeterminate` when the available project evidence is insufficient to establish the current state.
+      output_semantics:
+        structured_object:
+          evidence_id: final_response
+          payload_path: result
+          required_payload_keys:
+            - outstanding
+            - disposition
+            - current_branch
+            - current_timeout_seconds
+            - issue_state
+            - original_fix_pr_merged
+            - reintroduction_commit
+          accepted_presentations:
+            - exact_json_object
     opportunities:
       - id: goal
         requirement_id: achieve_workspace_goal

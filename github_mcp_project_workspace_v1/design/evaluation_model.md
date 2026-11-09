@@ -21,6 +21,18 @@ These layers should remain separately inspectable. A correct final response must
 remote mutation, and a correct remote state must not automatically excuse a materially false final
 report.
 
+## Controlled categorical outputs
+
+When a machine-scored response field represents a true category rather than free-form explanation,
+the task contract must declare its admissible vocabulary and the evaluator must score the selected
+value exactly. The evaluator must not use hidden synonym tables, fuzzy semantic matching, or
+post-hoc paraphrase mappings for such fields.
+
+This explicitness belongs at the reporting/adjudication boundary. It should not prescribe evidence
+sources, tool choice, tool order, reasoning strategy, or other agent behavior that the experiment is
+intended to observe. Free-text fields remain appropriate when the experiment intentionally evaluates
+semantic explanation rather than categorical selection.
+
 ## Scenario contract model
 
 Each scenario should define the following before implementation.

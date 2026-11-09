@@ -17,6 +17,7 @@ from .controller import (
 )
 from .evaluator import github_workspace_evaluator
 from .f1_a import github_f1_a_materializer, load_f1_a_spec
+from .f1_a_runtime import github_f1_a_fixture
 from .fixture import github_workspace_fixture
 
 
@@ -84,6 +85,11 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         fixture_id: github_workspace_fixture(fixture_id)
         for fixture_id in _FIXTURE_IDS
     }
+    fixtures["github_workspace_f1_a"] = github_f1_a_fixture(
+        controller,
+        f1_a_materializer,
+        f1_a_spec,
+    )
     return experiment_runtime(
         capabilities=harness_capabilities(
             evaluators=frozenset({"github_workspace"}),

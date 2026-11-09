@@ -136,3 +136,19 @@ acmm package apparatus github_mcp_project_workspace_v1 prepare_f1_a
 
 The first call should report `changed: yes` and concrete GitHub issue/PR/commit identities. The second should
 report `changed: no` with the same observations. Inspect the repository before enabling scientific execution.
+
+## F1-A scientific runtime checkpoint
+
+F1-A is now the first runnable scientific fixture. Its runtime captures a normalized authoritative
+pre-state and post-state, binds the live repository/issue identifiers into the task prompt, compares a
+protected-state digest for the read-only Boundary opportunity, and performs trusted best-effort reset
+of reversible mutations before the next repetition.
+
+The F1-A final report is intentionally standardized as exact JSON so Goal/Obligation/Fidelity scoring
+is deterministic without constraining tool selection or inspection order. Recovery remains conditional:
+when no tool error occurs, the Recovery opportunity is `not_applicable`.
+
+The current reset implementation is deliberately fail-closed for GitHub side effects that cannot be
+perfectly erased (for example a submitted pull-request review or a newly created issue/PR that remains
+in repository history). Such contamination is observable in authoritative post-state and prevents a
+later pristine prepare from silently treating the altered world as baseline.

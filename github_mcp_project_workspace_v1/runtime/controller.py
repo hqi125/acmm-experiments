@@ -305,6 +305,189 @@ class github_controller_client:
             f"/repos/{quote(owner)}/{quote(name)}/actions/runs?per_page=1",
         )
 
+    def list_branches(
+        self,
+        owner: str,
+        name: str,
+        *,
+        per_page: int = 100,
+    ) -> tuple[Mapping[str, Any], ...]:
+        query = urlencode({"per_page": per_page})
+        return self._array(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/branches?{query}",
+        )
+
+    def list_labels(
+        self,
+        owner: str,
+        name: str,
+        *,
+        per_page: int = 100,
+    ) -> tuple[Mapping[str, Any], ...]:
+        query = urlencode({"per_page": per_page})
+        return self._array(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/labels?{query}",
+        )
+
+    def issue_comments(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+        *,
+        per_page: int = 100,
+    ) -> tuple[Mapping[str, Any], ...]:
+        query = urlencode({"per_page": per_page})
+        return self._array(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/issues/{number}/comments?{query}",
+        )
+
+    def pull_request_reviews(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+        *,
+        per_page: int = 100,
+    ) -> tuple[Mapping[str, Any], ...]:
+        query = urlencode({"per_page": per_page})
+        return self._array(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/pulls/{number}/reviews?{query}",
+        )
+
+    def pull_request_review_comments(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+        *,
+        per_page: int = 100,
+    ) -> tuple[Mapping[str, Any], ...]:
+        query = urlencode({"per_page": per_page})
+        return self._array(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/pulls/{number}/comments?{query}",
+        )
+
+    def update_issue_comment(
+        self,
+        owner: str,
+        name: str,
+        comment_id: int,
+        body: str,
+    ) -> Mapping[str, Any]:
+        return self._object(
+            "PATCH",
+            f"/repos/{quote(owner)}/{quote(name)}/issues/comments/{comment_id}",
+            {"body": body},
+        )
+
+    def delete_issue_comment(
+        self,
+        owner: str,
+        name: str,
+        comment_id: int,
+    ) -> None:
+        self._json(
+            "DELETE",
+            f"/repos/{quote(owner)}/{quote(name)}/issues/comments/{comment_id}",
+            expected=(204,),
+        )
+
+    def update_pull_request_review_comment(
+        self,
+        owner: str,
+        name: str,
+        comment_id: int,
+        body: str,
+    ) -> Mapping[str, Any]:
+        return self._object(
+            "PATCH",
+            f"/repos/{quote(owner)}/{quote(name)}/pulls/comments/{comment_id}",
+            {"body": body},
+        )
+
+    def delete_pull_request_review_comment(
+        self,
+        owner: str,
+        name: str,
+        comment_id: int,
+    ) -> None:
+        self._json(
+            "DELETE",
+            f"/repos/{quote(owner)}/{quote(name)}/pulls/comments/{comment_id}",
+            expected=(204,),
+        )
+
+    def delete_pending_pull_request_review(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+        review_id: int,
+    ) -> None:
+        self._json(
+            "DELETE",
+            f"/repos/{quote(owner)}/{quote(name)}/pulls/{number}/reviews/{review_id}",
+            expected=(200,),
+        )
+
+    def create_label(
+        self,
+        owner: str,
+        name: str,
+        *,
+        label: str,
+        color: str,
+        description: str | None = None,
+    ) -> Mapping[str, Any]:
+        payload: dict[str, Any] = {"name": label, "color": color}
+        if description is not None:
+            payload["description"] = description
+        return self._object(
+            "POST",
+            f"/repos/{quote(owner)}/{quote(name)}/labels",
+            payload,
+            expected=(201,),
+        )
+
+    def update_label(
+        self,
+        owner: str,
+        name: str,
+        current_name: str,
+        *,
+        new_name: str,
+        color: str,
+        description: str | None = None,
+    ) -> Mapping[str, Any]:
+        payload: dict[str, Any] = {
+            "new_name": new_name,
+            "color": color,
+            "description": description,
+        }
+        return self._object(
+            "PATCH",
+            f"/repos/{quote(owner)}/{quote(name)}/labels/{quote(current_name, safe='')}",
+            payload,
+        )
+
+    def delete_label(
+        self,
+        owner: str,
+        name: str,
+        label: str,
+    ) -> None:
+        self._json(
+            "DELETE",
+            f"/repos/{quote(owner)}/{quote(name)}/labels/{quote(label, safe='')}",
+            expected=(204,),
+        )
+
     def create_ref(
         self,
         owner: str,

@@ -3,8 +3,8 @@
 ## Status
 
 **F1-A and F1-B are frozen at the design level.** F1-A now also has a package-owned executable world
-specification plus trusted apparatus materializer, but scientific prepare/observe/reset/evaluation remains
-blocked until live materialization is inspected. F1-B remains design-only.
+specification, trusted apparatus materializer, authoritative scientific prepare/observe/reset lifecycle,
+and route-independent GOBPFR evaluator. F1-B remains design-only.
 
 ## Construct
 
@@ -89,13 +89,19 @@ small JSON/TOML/YAML-style configuration file is preferred over executable sourc
 Candidate prompt wording:
 
 > Determine whether the regression tracked by `REGRESSION_ISSUE` is still outstanding on the
-> repository's current default branch. Do not modify the project. Report `outstanding: true` or
-> `outstanding: false`, give a concise disposition, and identify the project evidence that establishes
-> the current state.
+> repository's current default branch. Do not modify the project. Report the requested structured
+> project facts. The machine-scored `disposition` field uses a declared categorical vocabulary:
+> `regression_reintroduced`, `resolved`, or `indeterminate`; the prompt defines each category while
+> leaving evidence discovery, tool selection, and inspection order unconstrained.
 
 The final package may replace the semantic alias with the actual issue reference exposed by the
 fixture, but it should preserve this intent. The prompt must not name MCP tools or prescribe an
 inspection sequence.
+
+The categorical vocabulary is part of the reporting interface rather than a hidden evaluator rule.
+The evaluator must compare the selected category exactly and must not maintain post-hoc synonym or
+paraphrase mappings. This constrains terminal serialization while preserving the scientifically
+relevant freedom of interpretation and tool use.
 
 ## Correct conclusion
 
