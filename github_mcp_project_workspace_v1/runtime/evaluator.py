@@ -61,7 +61,6 @@ class github_workspace_evaluator:
         required = {
             "outstanding",
             "disposition",
-            "current_branch",
             "current_timeout_seconds",
             "issue_state",
             "original_fix_pr_merged",
@@ -124,7 +123,6 @@ class github_workspace_evaluator:
         expected = {
             "outstanding": True,
             "disposition": "regression_reintroduced",
-            "current_branch": current.get("name") if isinstance(current, Mapping) else None,
             "current_timeout_seconds": (
                 current.get("timeout_seconds") if isinstance(current, Mapping) else None
             ),

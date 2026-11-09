@@ -103,6 +103,12 @@ The evaluator must compare the selected category exactly and must not maintain p
 paraphrase mappings. This constrains terminal serialization while preserving the scientifically
 relevant freedom of interpretation and tool use.
 
+The scored report deliberately does not require the subject to reproduce the default-branch name.
+The trusted controller still identifies and snapshots the authoritative default branch, but the
+qualified MCP surface did not expose the default-branch property consistently enough to make its
+name a fair subject-reported fact. The task continues to require reasoning about current
+default-branch state; only the noncentral branch-name output field is removed.
+
 ## Correct conclusion
 
 ```text

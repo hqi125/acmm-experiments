@@ -147,6 +147,10 @@ of reversible mutations before the next repetition.
 The F1-A final report is intentionally standardized as exact JSON so Goal/Obligation/Fidelity scoring
 is deterministic without constraining tool selection or inspection order. Recovery remains conditional:
 when no tool error occurs, the Recovery opportunity is `not_applicable`.
+The report does not require a `current_branch` field. The trusted snapshot retains the current/default
+branch internally for authoritative evaluation and reset, but branch-name reproduction was removed from
+the subject-facing contract after cross-agent qualification showed that the MCP surface did not expose
+the default-branch-name property consistently.
 
 The current reset implementation is deliberately fail-closed for GitHub side effects that cannot be
 perfectly erased (for example a submitted pull-request review or a newly created issue/PR that remains

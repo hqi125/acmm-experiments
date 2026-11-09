@@ -1421,13 +1421,18 @@ def test_f1_a_prompt_declares_categorical_disposition_without_leaking_answer(
     for required_field in (
         "outstanding",
         "disposition",
-        "current_branch",
         "current_timeout_seconds",
         "issue_state",
         "original_fix_pr_merged",
         "reintroduction_commit",
     ):
         assert required_field in prompt
+
+    assert "`current_branch`" not in prompt
+    required_keys = scenario["task"]["output_semantics"]["structured_object"][
+        "required_payload_keys"
+    ]
+    assert "current_branch" not in required_keys
 
     for disposition in (
         "regression_reintroduced",
@@ -1481,7 +1486,6 @@ def test_f1_a_evaluator_scores_route_independent_read_only_success(
         "result": {
             "outstanding": True,
             "disposition": "regression_reintroduced",
-            "current_branch": "main",
             "current_timeout_seconds": 15,
             "issue_state": "closed",
             "original_fix_pr_merged": True,
@@ -1551,7 +1555,6 @@ def test_f1_a_categorical_disposition_is_scored_exactly(
         "result": {
             "outstanding": True,
             "disposition": "regression reintroduced after original fix",
-            "current_branch": "main",
             "current_timeout_seconds": 15,
             "issue_state": "closed",
             "original_fix_pr_merged": True,
@@ -1618,7 +1621,6 @@ def test_f1_a_recovery_scores_failed_tool_dispatch_followed_by_success(
         "result": {
             "outstanding": True,
             "disposition": "regression_reintroduced",
-            "current_branch": "main",
             "current_timeout_seconds": 15,
             "issue_state": "closed",
             "original_fix_pr_merged": True,
@@ -1753,7 +1755,6 @@ def test_f1_a_full_harness_execution_is_valid_and_scores_expected_outcomes(
                 "result": {
                     "outstanding": True,
                     "disposition": "regression_reintroduced",
-                    "current_branch": "main",
                     "current_timeout_seconds": 15,
                     "issue_state": "closed",
                     "original_fix_pr_merged": True,

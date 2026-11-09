@@ -48,6 +48,10 @@ F1-A calibration additionally froze the reporting-boundary rule that machine-sco
 fields use prompt-declared controlled vocabularies and exact evaluation. The evaluator does not
 normalize semantic paraphrases of `disposition`; this avoids hidden or post-hoc equivalence classes
 while leaving evidence discovery and tool trajectories unconstrained.
+F1-A cross-agent qualification also removed the noncentral `current_branch` field from the scored
+terminal report: the controller can authoritatively identify the default branch, but the subject MCP
+surface does not consistently expose the default-branch-name property. Default-branch state remains
+part of the task and trusted evidence; reproducing its name is not scored.
 
 ### F2 checkpoint
 
