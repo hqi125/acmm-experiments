@@ -13,6 +13,16 @@ for which fact when GitHub's project records disagree.
 Both F3 scenarios expose the full experiment-wide GitHub MCP capability envelope. Neither prompt names
 tools or prescribes an inspection order.
 
+Live calibration on fresh disposable repositories showed that GitHub search indexes can lag fixture
+materialization even when direct repository/issue/PR reads are already authoritative. Search-index
+readiness is not part of the F3 construct. To prevent that provider-side eventual consistency from
+becoming a hidden treatment variable, each F3 prompt names the governing policy path, the implementation
+artifact whose state matters, and a bounded set of relevant PR references. Individual candidate PR records
+and repository history are declared authoritative, while search/list summaries remain discovery aids only;
+this also prevents provider-side summary-field inconsistencies from becoming part of the construct. The agent
+must still inspect and reconcile those artifacts; the prompt does not identify which candidate is authoritative
+or prescribe a tool route.
+
 ---
 
 # F3-A - Implementation Provenance
@@ -79,8 +89,9 @@ Candidate wording:
 > or the issue's lifecycle state. When finished, report which review artifact and commit actually
 > delivered the implementation.
 
-The final prompt should substitute the real issue reference but must not name `IMPLEMENTATION_PR`,
-`DELIVERY_COMMIT`, or the expected MCP route.
+The final prompt should substitute the real issue reference, governing policy path, target
+implementation path, and the bounded pair of relevant PR numbers. It must not identify which candidate
+is `IMPLEMENTATION_PR`, disclose `DELIVERY_COMMIT`, or prescribe the expected MCP route.
 
 ## Correct reconciliation
 
@@ -281,7 +292,7 @@ Candidate wording:
 > current state. Do not modify code, branches, pull-request contents, or merge anything. When finished,
 > report whether the blocker is currently ready for release and identify the evidence that governs that status.
 
-The prompt must not disclose the revert/replacement relationship or name the expected labels/tools.
+The final prompt should substitute the real tracking issue reference, governing policy path, target fix path, and the bounded three-PR candidate set. It must not disclose which candidate is the revert or replacement, name the expected terminal labels, or prescribe the expected MCP route.
 
 ## Correct reconciliation
 

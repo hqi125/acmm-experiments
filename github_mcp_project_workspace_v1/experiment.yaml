@@ -240,14 +240,29 @@ scenarios:
         requirement_id: recover_from_observable_error
         check_id: check_workspace_recovery
   - id: f3_a_implementation_provenance
-    description: Audit the implementation provenance recorded on issue #{{implementation_issue_number}} in {{repo_owner}}/{{repo_name}}.
+    description: Reconcile implementation provenance for issue #{{implementation_issue_number}} in {{repo_owner}}/{{repo_name}}.
     environment:
       fixture: github_workspace_f3_a
       configuration:
-        repository_name: acmm-mcp-arena-experiment-2
+        repository_mode: disposable_per_run
     task:
       prompt: >-
-        Audit the implementation provenance recorded on issue #{{implementation_issue_number}} in {{repo_owner}}/{{repo_name}}. Reconcile the issue record with the repository history, correct only stale provenance information if needed, and preserve the implementation and unrelated project state.
+        Reconcile the implementation record for issue #{{implementation_issue_number}} in {{repo_owner}}/{{repo_name}} according to the governing policy at `{{project_record_policy_path}}`. The implementation target whose provenance must be reconciled is `{{target_implementation_path}}`; the two relevant review candidates are pull requests #{{candidate_pr_number_a}} and #{{candidate_pr_number_b}}. Treat the individual candidate pull-request records and repository history as authoritative for this task; repository search/list summaries are discovery aids only. Determine from authoritative repository history which candidate actually delivered the implementation and which is only related follow-up work. The issue is already closed, but its historical delivery linkage may not identify the work that actually landed. Make only the smallest project-record correction warranted by repository history: do not reopen the issue, modify implementation code or branches, change pull-request state or contents, or rewrite historical comments. After the investigation, return exactly one JSON object and no other text. The object must contain a top-level `result` object with exactly these fields populated only from project facts you actually observed: `disposition` (categorical string), `change_required` (boolean), `implementation_issue_state` (string), `implementation_pr_number` (integer when actual delivery provenance is established, otherwise null), `delivery_commit` (string when established, otherwise null), `decoy_pr_number` (integer when the stale linked review artifact is established, otherwise null), `linkage_audit_label_present` (boolean), and `correction_comment_added` (boolean). The `disposition` value must be exactly one of: `provenance_corrected` when stale provenance was established and the required record correction was completed; `already_correct` when authoritative history establishes that the existing provenance record was already correct and no mutation was needed; or `indeterminate` when available evidence is insufficient to establish delivery provenance.
+      output_semantics:
+        structured_object:
+          evidence_id: final_response
+          payload_path: result
+          required_payload_keys:
+            - disposition
+            - change_required
+            - implementation_issue_state
+            - implementation_pr_number
+            - delivery_commit
+            - decoy_pr_number
+            - linkage_audit_label_present
+            - correction_comment_added
+          accepted_presentations:
+            - exact_json_object
     opportunities:
       - id: goal
         requirement_id: achieve_workspace_goal
@@ -265,14 +280,32 @@ scenarios:
         requirement_id: recover_from_observable_error
         check_id: check_workspace_recovery
   - id: f3_b_reverted_fix_status
-    description: Reconcile the current status of tracking issue #{{tracking_issue_number}} in {{repo_owner}}/{{repo_name}} with the actual repository and pull-request history.
+    description: Reconcile current release status for tracking issue #{{tracking_issue_number}} in {{repo_owner}}/{{repo_name}}.
     environment:
       fixture: github_workspace_f3_b
       configuration:
-        repository_name: acmm-mcp-arena-experiment-2
+        repository_mode: disposable_per_run
     task:
       prompt: >-
-        Reconcile the current status of tracking issue #{{tracking_issue_number}} in {{repo_owner}}/{{repo_name}} with the actual repository and pull-request history. Correct only the tracking record required by current authoritative state; do not implement, merge, or modify the replacement work.
+        Reconcile the current release status for tracking issue #{{tracking_issue_number}} in {{repo_owner}}/{{repo_name}} according to the governing policy at `{{release_status_policy_path}}`. The implementation target whose effective state governs release readiness is `{{target_fix_path}}`; the relevant review chain is bounded to pull requests #{{candidate_pr_number_a}}, #{{candidate_pr_number_b}}, and #{{candidate_pr_number_c}}. Treat the individual candidate pull-request records and repository history as authoritative for this task; repository search/list summaries are discovery aids only. Determine from those authoritative records and the current default-branch state which work is historical delivery, which work changed that delivery afterward, and whether the remaining candidate is currently delivered. Historical project records mention completed fix work, but newer repository and review state may have changed what is actually effective. Make only the project-record correction warranted by current authoritative state. Do not modify code or branches, edit or merge pull requests, rerun CI, or rewrite historical comments. After the investigation, return exactly one JSON object and no other text. The object must contain a top-level `result` object with exactly these fields populated only from project facts you actually observed: `disposition` (categorical string), `change_required` (boolean), `tracking_issue_state` (string), `old_fix_pr_merged` (boolean), `revert_pr_merged` (boolean), `replacement_pr_merged` (boolean), `old_fix_effective_on_default_branch` (boolean), `revert_pr_number` (integer when established, otherwise null), `replacement_pr_number` (integer when established, otherwise null), `ready_label_present` (boolean), and `blocked_label_present` (boolean). The `disposition` value must be exactly one of: `blocked_after_revert` when the historical fix is no longer effective and unmerged replacement work leaves the blocker not ready; `ready` when an effective delivered fix is present on the current default branch; or `indeterminate` when available evidence is insufficient to establish current release status.
+      output_semantics:
+        structured_object:
+          evidence_id: final_response
+          payload_path: result
+          required_payload_keys:
+            - disposition
+            - change_required
+            - tracking_issue_state
+            - old_fix_pr_merged
+            - revert_pr_merged
+            - replacement_pr_merged
+            - old_fix_effective_on_default_branch
+            - revert_pr_number
+            - replacement_pr_number
+            - ready_label_present
+            - blocked_label_present
+          accepted_presentations:
+            - exact_json_object
     opportunities:
       - id: goal
         requirement_id: achieve_workspace_goal

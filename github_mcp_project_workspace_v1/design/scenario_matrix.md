@@ -3,7 +3,7 @@
 ## Status
 
 **Scenario design frozen.** All twelve F1-A through F6-B scenarios are frozen at the design level.
-Executable disposable scientific assets now exist for F1 and F2; F3 through F6 remain implementation-pending.
+Executable disposable scientific assets now exist for F1, F2, and F3; F4 through F6 remain implementation-pending.
 
 ## Matrix
 

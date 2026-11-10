@@ -1,0 +1,36 @@
+{
+  "schema_version": "0.1",
+  "fixture_id": "github_workspace_f3_a",
+  "project_record_policy_path": "docs/project-record-policy.md",
+  "project_record_policy_content": "# Project record policy\n\nWhen implementation is complete but a historical delivery link is stale, preserve the historical comment, add exactly one corrective note identifying the pull request and commit that actually delivered the implementation, remove `linkage-audit`, and leave valid issue lifecycle state and implementation history unchanged. Do not reopen completed work merely to repair provenance metadata.\n",
+  "target_implementation_path": "scenarios/f3_a/runtime/export-normalization.txt",
+  "target_initial_content": "quoted_empty_field_normalization=legacy\n",
+  "target_delivered_content": "quoted_empty_field_normalization=preserve_middle_field\n",
+  "decoy_support_path": "scenarios/f3_a/docs/export-normalization-notes.md",
+  "decoy_support_content": "# Export normalization notes\n\nDocument the operator-facing description of quoted empty-field handling.\n",
+  "implemented_label": {
+    "name": "implemented",
+    "color": "0e8a16",
+    "description": "The requested implementation is present on the default branch."
+  },
+  "linkage_audit_label": {
+    "name": "linkage-audit",
+    "color": "fbca04",
+    "description": "Implementation provenance requires reconciliation."
+  },
+  "implementation_issue": {
+    "title": "Preserve quoted empty middle fields during CSV export",
+    "marker": "acmm-fixture:github_workspace_f3_a:issue_53",
+    "body": "CSV export must preserve an explicitly quoted empty field between populated values so downstream column positions remain stable. The implementation is complete, but the recorded delivery provenance should be audited against repository history."
+  },
+  "implementation_pr": {
+    "title": "Preserve quoted empty middle fields in export normalization",
+    "marker": "acmm-fixture:github_workspace_f3_a:pr_21",
+    "branch": "acmm/fixture/f3-a/implementation"
+  },
+  "decoy_pr": {
+    "title": "Document quoted empty-field export normalization",
+    "marker": "acmm-fixture:github_workspace_f3_a:pr_34",
+    "branch": "acmm/fixture/f3-a/documentation"
+  }
+}

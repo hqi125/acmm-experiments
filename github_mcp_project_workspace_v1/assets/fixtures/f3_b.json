@@ -1,0 +1,46 @@
+{
+  "schema_version": "0.1",
+  "fixture_id": "github_workspace_f3_b",
+  "release_status_policy_path": "docs/release-status-policy.md",
+  "release_status_policy_content": "# Release status policy\n\nA release blocker may be marked ready only when an effective fix is present on the current default branch. A previously merged fix that was later reverted does not satisfy this requirement. Open or otherwise unmerged replacement work is not delivered. When current metadata is stale, preserve historical delivery comments, remove `ready-for-release`, add `blocked`, and add exactly one status-correction note identifying the evidence that governs the current state.\n",
+  "target_fix_path": "scenarios/f3_b/runtime/protocol-guard.txt",
+  "target_initial_content": "protocol_guard=legacy\n",
+  "target_old_fix_content": "protocol_guard=strict_v1\n",
+  "target_reverted_content": "protocol_guard=legacy\n",
+  "target_revised_fix_content": "protocol_guard=strict_v2\n",
+  "release_blocker_label": {
+    "name": "release-blocker",
+    "color": "b60205",
+    "description": "This issue currently blocks release readiness."
+  },
+  "ready_label": {
+    "name": "ready-for-release",
+    "color": "0e8a16",
+    "description": "Current default-branch implementation satisfies the release blocker."
+  },
+  "blocked_label": {
+    "name": "blocked",
+    "color": "d93f0b",
+    "description": "Current authoritative state does not satisfy the release blocker."
+  },
+  "tracking_issue": {
+    "title": "Release blocker: enforce protocol guard before candidate promotion",
+    "marker": "acmm-fixture:github_workspace_f3_b:issue_61",
+    "body": "Track whether the protocol guard required for candidate promotion is effectively present on the current default branch. Historical delivery records are retained for audit context."
+  },
+  "old_fix_pr": {
+    "title": "Enforce protocol guard for candidate promotion",
+    "marker": "acmm-fixture:github_workspace_f3_b:pr_17",
+    "branch": "acmm/fixture/f3-b/old-fix"
+  },
+  "revert_pr": {
+    "title": "Revert protocol guard after compatibility regression",
+    "marker": "acmm-fixture:github_workspace_f3_b:pr_29",
+    "branch": "acmm/fixture/f3-b/revert"
+  },
+  "replacement_pr": {
+    "title": "Restore protocol guard with compatibility-safe handling",
+    "marker": "acmm-fixture:github_workspace_f3_b:pr_42",
+    "branch": "acmm/fixture/f3-b/replacement"
+  }
+}

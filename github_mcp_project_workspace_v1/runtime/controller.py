@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import base64
 import json
+import time
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
@@ -87,12 +88,14 @@ class github_controller_client:
         *,
         api_base: str = "https://api.github.com",
         transport: Transport | None = None,
+        sleep: Callable[[float], None] | None = None,
     ) -> None:
         if not token.strip():
             raise ValueError("GitHub controller token must not be empty.")
         self._token = token.strip()
         self._api_base = api_base.rstrip("/")
         self._transport = transport or _urllib_transport
+        self._sleep = sleep or time.sleep
 
     def current_user(self) -> Mapping[str, Any]:
         return self._object("GET", "/user")
@@ -212,6 +215,41 @@ class github_controller_client:
             f"/repos/{quote(owner)}/{quote(name)}",
             expected=(204,),
         )
+
+    def repository_archive(
+        self,
+        owner: str,
+        name: str,
+        *,
+        ref: str,
+    ) -> bytes:
+        encoded_ref = quote(ref, safe="")
+        path = f"/repos/{quote(owner)}/{quote(name)}/zipball/{encoded_ref}"
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {self._token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "acmm-github-fixture-controller",
+        }
+        status, _response_headers, body = self._transport(
+            "GET",
+            self._api_base + path,
+            headers,
+            None,
+        )
+        if status != 200:
+            detail = _safe_error_detail(body)
+            raise github_api_error(
+                method="GET",
+                path=path,
+                status=status,
+                detail=detail,
+            )
+        if not body:
+            raise github_controller_error(
+                f"GitHub repository archive for {owner}/{name}@{ref} is empty."
+            )
+        return body
 
     def ref(self, owner: str, name: str, ref: str) -> Mapping[str, Any]:
         encoded = quote(ref, safe="/")
@@ -839,16 +877,82 @@ class github_controller_client:
         commit_title: str | None = None,
         commit_message: str | None = None,
         merge_method: str = "merge",
+        mergeability_delays: tuple[float, ...] = (0.25, 0.5, 1.0, 2.0, 4.0),
+        transient_merge_attempts: int = 3,
     ) -> Mapping[str, Any]:
-        payload: dict[str, Any] = {"merge_method": merge_method}
-        if commit_title is not None:
-            payload["commit_title"] = commit_title
-        if commit_message is not None:
-            payload["commit_message"] = commit_message
-        return self._object(
-            "PUT",
-            f"/repos/{quote(owner)}/{quote(name)}/pulls/{number}/merge",
-            payload,
+        if transient_merge_attempts < 1:
+            raise ValueError("transient_merge_attempts must be at least 1.")
+
+        path = f"/repos/{quote(owner)}/{quote(name)}/pulls/{number}/merge"
+        last_transient: github_api_error | None = None
+
+        for attempt in range(transient_merge_attempts):
+            pull = self._wait_for_pull_request_mergeability(
+                owner,
+                name,
+                number,
+                delays=mergeability_delays,
+            )
+            head = pull.get("head")
+            head_sha = head.get("sha") if isinstance(head, Mapping) else None
+            if not isinstance(head_sha, str) or not head_sha:
+                raise github_controller_error(
+                    f"GitHub pull request #{number} does not expose a head SHA."
+                )
+
+            payload: dict[str, Any] = {
+                "merge_method": merge_method,
+                "sha": head_sha,
+            }
+            if commit_title is not None:
+                payload["commit_title"] = commit_title
+            if commit_message is not None:
+                payload["commit_message"] = commit_message
+
+            try:
+                return self._object("PUT", path, payload)
+            except github_api_error as exc:
+                if exc.status != 405 or attempt + 1 >= transient_merge_attempts:
+                    raise
+                last_transient = exc
+                # A 405 can be transient when GitHub's mergeability test was
+                # computed against an older base branch. Re-reading the PR
+                # requests a fresh mergeability calculation before retrying.
+                if mergeability_delays:
+                    self._sleep(mergeability_delays[min(attempt, len(mergeability_delays) - 1)])
+
+        assert last_transient is not None
+        raise last_transient
+
+    def _wait_for_pull_request_mergeability(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+        *,
+        delays: tuple[float, ...],
+    ) -> Mapping[str, Any]:
+        pull = self.pull_request(owner, name, number)
+        for delay in delays:
+            mergeable = pull.get("mergeable")
+            if mergeable is True:
+                return pull
+            if mergeable is False:
+                raise github_controller_error(
+                    f"GitHub pull request #{number} is not mergeable."
+                )
+            self._sleep(delay)
+            pull = self.pull_request(owner, name, number)
+
+        mergeable = pull.get("mergeable")
+        if mergeable is True:
+            return pull
+        if mergeable is False:
+            raise github_controller_error(
+                f"GitHub pull request #{number} is not mergeable."
+            )
+        raise github_controller_error(
+            f"GitHub pull request #{number} mergeability did not settle."
         )
 
     def _object(
@@ -1275,12 +1379,25 @@ def _urllib_transport(
         headers=dict(headers),
         method=method,
     )
-    try:
-        with urlopen(request, timeout=30.0) as response:
-            return response.status, dict(response.headers.items()), response.read()
-    except HTTPError as exc:
-        return exc.code, dict(exc.headers.items()), exc.read()
-    except URLError as exc:
-        raise github_controller_error(
-            f"Could not reach GitHub API: {exc.reason}"
-        ) from exc
+    retry_delays = (0.25, 1.0, 2.0)
+    for attempt in range(len(retry_delays) + 1):
+        try:
+            with urlopen(request, timeout=30.0) as response:
+                return response.status, dict(response.headers.items()), response.read()
+        except HTTPError as exc:
+            return exc.code, dict(exc.headers.items()), exc.read()
+        except URLError as exc:
+            if _is_tls_handshake_timeout(exc) and attempt < len(retry_delays):
+                time.sleep(retry_delays[attempt])
+                continue
+            raise github_controller_error(
+                f"Could not reach GitHub API during {method} {url}: {exc.reason}"
+            ) from exc
+
+    raise AssertionError("unreachable GitHub transport retry state")
+
+
+def _is_tls_handshake_timeout(exc: URLError) -> bool:
+    reason = exc.reason
+    rendered = str(reason).strip().casefold()
+    return "handshake operation timed out" in rendered

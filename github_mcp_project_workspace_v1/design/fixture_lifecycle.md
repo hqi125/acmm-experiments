@@ -63,12 +63,18 @@ For every selected run, trusted package code should perform the following lifecy
 14. delete the exact repository identity created for that run with the controller credential;
 15. verify the repository is no longer visible to either controller or subject credentials.
 
-Deletion is **evidence-last**. If authoritative post-state/evidence capture fails, the controller must not delete
-first and hope to reconstruct the state later. Instead, the repository is quarantined for operator inspection
-and the run is invalidated/reconciled explicitly.
+Deletion is **evidence-last**, but failure preservation is no longer a remote quarantine. If preparation or
+authoritative evidence persistence fails, the package first writes an immutable forensic ZIP under the execution's
+`apparatus_quarantine/` directory. The bundle records failure metadata, repository identity, GitHub issue/PR/ref/
+label/Actions surfaces available at capture time, and per-branch repository snapshots when GitHub can provide them.
+Only after that archive is durably present does the controller delete the exact repository ID and verify that neither
+credential can still resolve it. The failed run remains invalid, but later independent runs may continue in a clean
+GitHub namespace.
 
-The repository full name and numeric repository ID are archived before deletion. Repository name alone is never
-sufficient authorization for destructive cleanup.
+If local archival fails, or if exact-ID remote deletion/disappearance verification fails, the lifecycle fails closed and
+does not expose another subject. The session-start stale-repository check remains the crash/disaster safety net, and
+`acmm run apparatus cleanup` remains available for legacy quarantine or failed-cleanup leftovers. Repository name
+alone is never sufficient authorization for destructive cleanup.
 
 ## Disposable-repository lifecycle qualification
 
@@ -118,15 +124,15 @@ Experiment 2 opts into Core's typed execution lifecycle:
 7. `session_finalize` closes the execution-session lifecycle.
 
 These typed hooks are not independently callable through `acmm run apparatus`; Core owns their ordering. If a
-run does not reach durable persistence, Experiment 2 deliberately leaves the repository quarantined for
-operator inspection rather than deleting the only remaining external evidence.
+run does not reach durable persistence, Experiment 2 preserves the failed external world into the execution-local
+forensic archive before exact-ID deletion. Remote state is ephemeral; persisted evidence is the durable artifact.
 
 Repository creation is private-only in trusted controller code: callers cannot request a public repository, and
 the returned GitHub repository must independently report `private=true` before materialization proceeds.
 
 ### Current migration status
 
-F1-A, F1-B, F2-A, and F2-B now use this disposable typed lifecycle. Each materializes package-owned semantics
+F1-A, F1-B, F2-A, F2-B, F3-A, and F3-B now use this disposable typed lifecycle. Each materializes package-owned semantics
 against a fresh run repository and writes a dynamic trusted-base marker containing that repository's full name
 and numeric ID. F1-B additionally dispatches and waits for its deterministic required-check workflow before
 subject execution begins. F2-A captures an explicitly bounded mutable issue surface; F2-B protects the entire

@@ -190,16 +190,23 @@ class github_fixture_base_initializer:
             "head_sha": head_sha,
         }
 
-_QUARANTINE_FAILURE_PATTERN = re.compile(
-    r"Disposable run repository (?P<repository>[^ ]+) "
-    r"\(repository id=(?P<repository_id>[0-9]+)\) was quarantined"
+_QUARANTINE_FAILURE_PATTERNS = (
+    re.compile(
+        r"Disposable run repository (?P<repository>[^ ]+) "
+        r"\(repository id=(?P<repository_id>[0-9]+)\) was quarantined"
+    ),
+    re.compile(
+        r"remote cleanup failed for disposable run repository "
+        r"(?P<repository>[^ ]+) "
+        r"\(repository id=(?P<repository_id>[0-9]+)\)"
+    ),
 )
 
 
 class github_quarantined_repository_cleanup:
     description = (
-        "Delete exact-identity disposable repositories quarantined by one persisted "
-        "execution."
+        "Delete exact-identity residual disposable repositories recorded by one "
+        "persisted execution."
     )
     mutates_external_state = True
 
@@ -247,7 +254,7 @@ class github_quarantined_repository_cleanup:
         if not targets:
             return apparatus_action_result(
                 changed=False,
-                detail="execution records no quarantined disposable repositories",
+                detail="execution records no residual disposable repositories",
                 observations={
                     "execution_id": manifest["execution"]["id"],
                     "target_count": 0,
@@ -267,7 +274,7 @@ class github_quarantined_repository_cleanup:
                 index,
                 total,
                 (
-                    f"verifying quarantined repository {full_name} "
+                    f"verifying residual repository {full_name} "
                     f"(repository id={repository_id})"
                 ),
             )
@@ -300,7 +307,7 @@ class github_quarantined_repository_cleanup:
                     report,
                     None,
                     None,
-                    f"deleting verified quarantine {full_name}",
+                    f"deleting verified residual repository {full_name}",
                 )
                 self._client.delete_repository(owner, name)
                 if self._client.repository_optional(owner, name) is not None:
@@ -311,9 +318,9 @@ class github_quarantined_repository_cleanup:
                 verified.append(f"{full_name}#{repository_id}:deleted")
 
         detail = (
-            f"verified {len(targets)} quarantined disposable repository target(s)"
+            f"verified {len(targets)} residual disposable repository target(s)"
             if preview
-            else f"deleted {deleted} quarantined disposable repository target(s)"
+            else f"deleted {deleted} residual disposable repository target(s)"
         )
         return apparatus_action_result(
             changed=(deleted > 0),
@@ -374,12 +381,13 @@ class github_quarantined_repository_cleanup:
             message = failure.get("message")
             if not isinstance(message, str):
                 continue
-            for match in _QUARANTINE_FAILURE_PATTERN.finditer(message):
-                self._remember_target(
-                    by_id,
-                    int(match.group("repository_id")),
-                    match.group("repository"),
-                )
+            for pattern in _QUARANTINE_FAILURE_PATTERNS:
+                for match in pattern.finditer(message):
+                    self._remember_target(
+                        by_id,
+                        int(match.group("repository_id")),
+                        match.group("repository"),
+                    )
 
         for finalization_path in sorted(run_root.glob("*/environment_finalization.yaml")):
             value = _safe_yaml_mapping(finalization_path)

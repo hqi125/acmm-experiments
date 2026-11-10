@@ -141,7 +141,8 @@ required-check workflow, and the disposable lifecycle probe has passed one real 
 controller-read -> exact-ID delete cycle. The next live checkpoint is therefore a **scientific F1-A run through
 the typed disposable lifecycle**. A successful persisted run should create a fresh private repository,
 materialize the qualified F1-A world, execute/evaluate normally, then delete that exact repository only after
-evidence persistence. An unpersisted/failed run should intentionally leave the repository quarantined.
+evidence persistence. An unpersisted/failed run now archives a forensic copy into the execution directory,
+then deletes and verifies the exact remote repository so later independent runs do not inherit its namespace.
 
 ## F1-A scientific runtime checkpoint
 
@@ -173,5 +174,7 @@ repository dynamically.
 
 Deletion is guarded by the repository ID returned by the same creation call. Repository name alone is never
 accepted as destructive authorization. Successful scientific cleanup is evidence-last: Core persists the run
-record/evidence before invoking `run_finalize`. If persistence does not complete, Experiment 2 quarantines the
-repository instead of deleting it. F1-B uses the same evidence-first deletion/quarantine contract as F1-A.
+record/evidence before invoking `run_finalize`. If persistence does not complete, Experiment 2 first writes an
+execution-local forensic archive and only then deletes the exact repository and verifies disappearance. If archival
+or deletion cannot be guaranteed, the lifecycle fails closed. F1-B and later families use the same evidence-first
+archive/delete contract as F1-A.

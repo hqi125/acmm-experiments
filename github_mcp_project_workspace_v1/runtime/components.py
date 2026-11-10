@@ -32,6 +32,13 @@ from .f2 import (
 from .f1_a_runtime import github_f1_a_fixture
 from .f1_b_runtime import github_f1_b_fixture
 from .f2_runtime import github_f2_a_fixture, github_f2_b_fixture
+from .f3 import (
+    github_f3_a_materializer,
+    github_f3_b_materializer,
+    load_f3_a_spec,
+    load_f3_b_spec,
+)
+from .f3_runtime import github_f3_a_fixture, github_f3_b_fixture
 from .fixture import github_workspace_fixture
 
 
@@ -107,6 +114,8 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
     f1_b_spec = _load_f1_b_configuration(context)
     f2_a_spec = _load_f2_a_configuration(context)
     f2_b_spec = _load_f2_b_configuration(context)
+    f3_a_spec = _load_f3_a_configuration(context)
+    f3_b_spec = _load_f3_b_configuration(context)
     disposable_lifecycle = github_workspace_disposable_lifecycle(
         controller,
         subject_probe_client,
@@ -119,6 +128,8 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         f1_b_spec=f1_b_spec,
         f2_a_spec=f2_a_spec,
         f2_b_spec=f2_b_spec,
+        f3_a_spec=f3_a_spec,
+        f3_b_spec=f3_b_spec,
     )
     f1_a_materializer = github_f1_a_materializer(
         controller,
@@ -160,6 +171,26 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         spec=f2_b_spec,
     )
 
+    f3_a_materializer = github_f3_a_materializer(
+        controller,
+        repository_name=configuration["repository_name"],
+        expected_repository_full_name=configuration["repository_full_name"],
+        expected_repository_id=configuration["repository_id"],
+        expected_default_branch=configuration["expected_default_branch"],
+        fixture_base_files=configuration["fixture_base_files"],
+        spec=f3_a_spec,
+    )
+
+    f3_b_materializer = github_f3_b_materializer(
+        controller,
+        repository_name=configuration["repository_name"],
+        expected_repository_full_name=configuration["repository_full_name"],
+        expected_repository_id=configuration["repository_id"],
+        expected_default_branch=configuration["expected_default_branch"],
+        fixture_base_files=configuration["fixture_base_files"],
+        spec=f3_b_spec,
+    )
+
     fixtures = {
         fixture_id: github_workspace_fixture(fixture_id)
         for fixture_id in _FIXTURE_IDS
@@ -183,6 +214,16 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         controller,
         f2_b_materializer,
         f2_b_spec,
+    )
+    fixtures["github_workspace_f3_a"] = github_f3_a_fixture(
+        controller,
+        f3_a_materializer,
+        f3_a_spec,
+    )
+    fixtures["github_workspace_f3_b"] = github_f3_b_fixture(
+        controller,
+        f3_b_materializer,
+        f3_b_spec,
     )
     return experiment_runtime(
         capabilities=harness_capabilities(
@@ -211,6 +252,8 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
             "prepare_f1_b": f1_b_materializer,
             "prepare_f2_a": f2_a_materializer,
             "prepare_f2_b": f2_b_materializer,
+            "prepare_f3_a": f3_a_materializer,
+            "prepare_f3_b": f3_b_materializer,
         },
     )
 
@@ -352,6 +395,26 @@ def _load_f2_b_configuration(
     if not isinstance(value, dict):
         raise ValueError("F2-B fixture configuration must contain a JSON object.")
     return load_f2_b_spec(value)
+
+
+def _load_f3_a_configuration(
+    context: experiment_runtime_context,
+):
+    path = context.resolve_resource("assets/fixtures/f3_a.json")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("F3-A fixture configuration must contain a JSON object.")
+    return load_f3_a_spec(value)
+
+
+def _load_f3_b_configuration(
+    context: experiment_runtime_context,
+):
+    path = context.resolve_resource("assets/fixtures/f3_b.json")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("F3-B fixture configuration must contain a JSON object.")
+    return load_f3_b_spec(value)
 
 
 def _fingerprint(value: str) -> str:
