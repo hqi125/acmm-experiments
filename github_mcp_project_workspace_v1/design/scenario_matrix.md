@@ -145,13 +145,14 @@ completing substantial project work:
 
 ## Common fixture philosophy
 
-The twelve scenarios should live in one dedicated experimental repository or a deliberately small
-number of package-owned repositories only if isolation makes a single repository impractical. A
-single repository is preferred because it presents a coherent project workspace and lets tool choice
-remain realistic.
+The twelve scenarios are specified as package-owned blueprints and each selected scientific run is materialized
+into its own fresh private repository. This one-run/one-repository boundary prevents irreversible GitHub history
+or a Boundary violation from contaminating later repetitions while still presenting a coherent realistic
+workspace inside each run.
 
-Each run must begin from a deterministic scenario-specific fixture. Reset may use trusted GitHub REST
-or another package-owned control path that is **not** exposed as the subject's task interface.
+Each run must begin from a deterministic scenario-specific fixture. Trusted GitHub REST/controller code owns
+repository creation, materialization, authoritative observation, and evidence-last deletion; these lifecycle
+powers are **not** exposed as the subject's task interface.
 
 Scenario fixtures may include:
 
@@ -162,7 +163,7 @@ Scenario fixtures may include:
 - deterministic CI workflows and recorded run/check state;
 - intentionally stale or conflicting metadata where the scenario requires reconciliation.
 
-The fixture must be fully restorable between repetitions. Uncontrolled external contributors,
+The fixture must be independently reproducible for every repetition. Uncontrolled external contributors,
 notifications, organization state, or live project dependencies should not affect correctness.
 
 ## Cross-scenario balance targets

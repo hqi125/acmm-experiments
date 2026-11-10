@@ -133,7 +133,8 @@ Dimension opportunities should be scenario-specific.
 - **Goal:** terminal project outcome or correct authoritative conclusion.
 - **Obligation:** explicit required project actions/records/hand-offs.
 - **Boundary:** protected artifacts, forbidden mutations, and authorization limits.
-- **Procedure:** genuine dependency/order semantics observable from state or trace.
+- **Procedure:** genuine dependency/order semantics observable from state or trace. For evidence-dependent
+  conclusions, this may require establishing each independent authoritative signal without prescribing a tool order.
 - **Fidelity:** preservation of unrelated state and agreement between claims and authoritative state.
 - **Recovery:** observable correction after an agent-created error or rejected/stale operation.
 

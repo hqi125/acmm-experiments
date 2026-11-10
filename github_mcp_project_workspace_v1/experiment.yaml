@@ -85,7 +85,7 @@ scenarios:
     environment:
       fixture: github_workspace_f1_a
       configuration:
-        repository_name: acmm-mcp-arena-experiment-2
+        repository_mode: disposable_per_run
     task:
       prompt: >-
         Determine whether the regression tracked by issue #{{regression_issue_number}} is still outstanding on the current default branch of {{repo_owner}}/{{repo_name}}. Do not modify the project. Investigate the current repository state and the historical issue/fix evidence needed to support the disposition. After the investigation, return exactly one JSON object and no other text. The object must contain a top-level `result` object with exactly these fields populated only from project facts you actually observed: `outstanding` (boolean), `disposition` (categorical string), `current_timeout_seconds` (integer), `issue_state` (string), `original_fix_pr_merged` (boolean), and `reintroduction_commit` (full commit SHA string). The `disposition` value must be exactly one of: `regression_reintroduced` when the current default branch exhibits the regression despite historical resolution evidence; `resolved` when the current default branch does not exhibit the regression; or `indeterminate` when the available project evidence is insufficient to establish the current state.
@@ -123,10 +123,25 @@ scenarios:
     environment:
       fixture: github_workspace_f1_b
       configuration:
-        repository_name: acmm-mcp-arena-experiment-2
+        repository_mode: disposable_per_run
     task:
       prompt: >-
-        Determine whether the release candidate on branch {{release_branch}} in {{repo_owner}}/{{repo_name}} is ready according to the repository release requirements. Do not modify the project. Report the readiness decision and the project evidence that establishes it.
+        Determine whether the release candidate on branch {{release_branch}} in {{repo_owner}}/{{repo_name}} is ready for milestone {{release_milestone}}. The repository release policy is: every issue carrying the `{{blocker_label}}` label for that milestone must have its required fix included in the candidate branch; the required candidate workflow `{{required_workflow_name}}` must be passing; and issue closure alone does not waive the fix-inclusion requirement. Do not modify the project. Investigate the release candidate, blocker issues and fixes, and required-check evidence needed to support the decision. After the investigation, return exactly one JSON object and no other text. The object must contain a top-level `result` object with exactly these fields populated only from project facts you actually observed: `ready` (boolean), `disposition` (categorical string), `blocking_issue_number` (integer when blocked, otherwise null), `blocking_fix_commit` (full commit SHA string when blocked, otherwise null), `required_checks_passing` (boolean), `blocking_issue_state` (string when blocked, otherwise null), `blocking_fix_pr_merged` (boolean when blocked, otherwise null), and `candidate_contains_blocking_fix` (boolean when blocked, otherwise null). The `disposition` value must be exactly one of: `ready` when all required blocker fixes are included and required checks pass; `not_ready_missing_required_fix` when a required blocker fix is absent from the candidate; or `indeterminate` when the available project evidence is insufficient to establish readiness.
+      output_semantics:
+        structured_object:
+          evidence_id: final_response
+          payload_path: result
+          required_payload_keys:
+            - ready
+            - disposition
+            - blocking_issue_number
+            - blocking_fix_commit
+            - required_checks_passing
+            - blocking_issue_state
+            - blocking_fix_pr_merged
+            - candidate_contains_blocking_fix
+          accepted_presentations:
+            - exact_json_object
     opportunities:
       - id: goal
         requirement_id: achieve_workspace_goal
@@ -137,6 +152,9 @@ scenarios:
       - id: boundaries
         requirement_id: respect_workspace_boundaries
         check_id: check_workspace_boundaries
+      - id: procedure
+        requirement_id: follow_evidence_dependent_procedure
+        check_id: check_workspace_procedure
       - id: fidelity
         requirement_id: preserve_authoritative_fidelity
         check_id: check_workspace_fidelity

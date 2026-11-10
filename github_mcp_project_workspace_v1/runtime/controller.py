@@ -134,6 +134,65 @@ class github_controller_client:
     def repository(self, owner: str, name: str) -> Mapping[str, Any]:
         return self._object("GET", f"/repos/{quote(owner)}/{quote(name)}")
 
+    def repository_optional(
+        self,
+        owner: str,
+        name: str,
+    ) -> Mapping[str, Any] | None:
+        try:
+            return self.repository(owner, name)
+        except github_api_error as exc:
+            if exc.status == 404:
+                return None
+            raise
+
+    def repository_identity(
+        self,
+        owner: str,
+        name: str,
+    ) -> github_repository_identity:
+        return _repository_identity(self.repository(owner, name))
+
+    def create_repository(
+        self,
+        *,
+        name: str,
+        description: str,
+        private: bool = True,
+        has_issues: bool = True,
+        auto_init: bool = False,
+    ) -> Mapping[str, Any]:
+        if private is not True:
+            raise ValueError(
+                "ACMM trusted repository creation is private-only; public repositories "
+                "are forbidden."
+            )
+        value = self._object(
+            "POST",
+            "/user/repos",
+            {
+                "name": name,
+                "description": description,
+                "private": True,
+                "has_issues": has_issues,
+                "auto_init": auto_init,
+            },
+            expected=(201,),
+        )
+        if value.get("private") is not True:
+            raise github_controller_error(
+                "GitHub create-repository response is not private; refusing to use "
+                "the repository as ACMM apparatus."
+            )
+        return value
+
+    def delete_repository(self, owner: str, name: str) -> None:
+        self._json(
+            "DELETE",
+            f"/repos/{quote(owner)}/{quote(name)}",
+            expected=(204,),
+        )
+
     def ref(self, owner: str, name: str, ref: str) -> Mapping[str, Any]:
         encoded = quote(ref, safe="/")
         return self._object(
@@ -285,6 +344,39 @@ class github_controller_client:
             f"/repos/{quote(owner)}/{quote(name)}/commits/{quote(ref, safe='')}",
         )
 
+    def list_commits(
+        self,
+        owner: str,
+        name: str,
+        *,
+        sha: str | None = None,
+        path: str | None = None,
+        per_page: int = 100,
+    ) -> tuple[Mapping[str, Any], ...]:
+        query_values: dict[str, Any] = {"per_page": per_page}
+        if sha is not None:
+            query_values["sha"] = sha
+        if path is not None:
+            query_values["path"] = path
+        query = urlencode(query_values)
+        return self._array(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/commits?{query}",
+        )
+
+    def compare_commits(
+        self,
+        owner: str,
+        name: str,
+        base: str,
+        head: str,
+    ) -> Mapping[str, Any]:
+        comparison = quote(f"{base}...{head}", safe=".")
+        return self._object(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/compare/{comparison}",
+        )
+
     def list_workflows(
         self,
         owner: str,
@@ -303,6 +395,66 @@ class github_controller_client:
         return self._object(
             "GET",
             f"/repos/{quote(owner)}/{quote(name)}/actions/runs?per_page=1",
+        )
+
+    def list_workflow_runs_for_workflow(
+        self,
+        owner: str,
+        name: str,
+        workflow_id: int | str,
+        *,
+        branch: str | None = None,
+        event: str | None = None,
+        per_page: int = 100,
+    ) -> Mapping[str, Any]:
+        query_values: dict[str, Any] = {"per_page": per_page}
+        if branch is not None:
+            query_values["branch"] = branch
+        if event is not None:
+            query_values["event"] = event
+        query = urlencode(query_values)
+        return self._object(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/actions/workflows/"
+            f"{quote(str(workflow_id), safe='')}/runs?{query}",
+        )
+
+    def dispatch_workflow(
+        self,
+        owner: str,
+        name: str,
+        workflow_id: int | str,
+        *,
+        ref: str,
+        inputs: Mapping[str, str] | None = None,
+    ) -> Mapping[str, Any]:
+        payload: dict[str, Any] = {"ref": ref}
+        if inputs:
+            payload["inputs"] = dict(inputs)
+        value = self._json(
+            "POST",
+            f"/repos/{quote(owner)}/{quote(name)}/actions/workflows/"
+            f"{quote(str(workflow_id), safe='')}/dispatches",
+            payload,
+            expected=(200, 204),
+        )
+        if value is None:
+            return {}
+        if not isinstance(value, Mapping):
+            raise github_controller_error(
+                "GitHub workflow-dispatch response is not an object."
+            )
+        return value
+
+    def workflow_run(
+        self,
+        owner: str,
+        name: str,
+        run_id: int,
+    ) -> Mapping[str, Any]:
+        return self._object(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/actions/runs/{run_id}",
         )
 
     def list_branches(
@@ -329,6 +481,50 @@ class github_controller_client:
         return self._array(
             "GET",
             f"/repos/{quote(owner)}/{quote(name)}/labels?{query}",
+        )
+
+    def list_milestones(
+        self,
+        owner: str,
+        name: str,
+        *,
+        state: str = "all",
+        per_page: int = 100,
+    ) -> tuple[Mapping[str, Any], ...]:
+        query = urlencode({"state": state, "per_page": per_page})
+        return self._array(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/milestones?{query}",
+        )
+
+    def milestone(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+    ) -> Mapping[str, Any]:
+        return self._object(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/milestones/{number}",
+        )
+
+    def create_milestone(
+        self,
+        owner: str,
+        name: str,
+        *,
+        title: str,
+        description: str | None = None,
+        state: str = "open",
+    ) -> Mapping[str, Any]:
+        payload: dict[str, Any] = {"title": title, "state": state}
+        if description is not None:
+            payload["description"] = description
+        return self._object(
+            "POST",
+            f"/repos/{quote(owner)}/{quote(name)}/milestones",
+            payload,
+            expected=(201,),
         )
 
     def issue_comments(
@@ -534,11 +730,19 @@ class github_controller_client:
         title: str,
         body: str,
         labels: tuple[str, ...] = (),
+        milestone: int | None = None,
     ) -> Mapping[str, Any]:
+        payload: dict[str, Any] = {
+            "title": title,
+            "body": body,
+            "labels": list(labels),
+        }
+        if milestone is not None:
+            payload["milestone"] = milestone
         return self._object(
             "POST",
             f"/repos/{quote(owner)}/{quote(name)}/issues",
-            {"title": title, "body": body, "labels": list(labels)},
+            payload,
             expected=(201,),
         )
 

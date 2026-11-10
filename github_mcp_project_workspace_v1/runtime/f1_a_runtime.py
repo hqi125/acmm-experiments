@@ -13,6 +13,7 @@ from acmm.experiment_api import (
 
 from .controller import github_controller_client, github_repository_identity
 from .f1_a import github_f1_a_materializer, github_f1_a_spec
+from .world import package_owned_body, package_owned_branch
 
 
 @dataclass(frozen=True)
@@ -164,8 +165,27 @@ def _snapshot_f1_a_state(
     pulls = tuple(client.list_pull_requests(owner, repo))
     labels = tuple(client.list_labels(owner, repo))
 
-    tracked_issue_numbers = (issue_number, noise_issue_number)
-    tracked_pr_numbers = (original_pr_number, noise_pr_number)
+    tracked_issue_numbers = tuple(
+        sorted(
+            int(item["number"])
+            for item in issues
+            if isinstance(item.get("number"), int)
+            and package_owned_body(item.get("body"))
+        )
+    )
+    tracked_pr_numbers = tuple(
+        sorted(
+            int(item["number"])
+            for item in pulls
+            if isinstance(item.get("number"), int)
+            and package_owned_body(item.get("body"))
+        )
+    )
+
+    if issue_number not in tracked_issue_numbers or noise_issue_number not in tracked_issue_numbers:
+        raise RuntimeError("F1-A package-owned issue markers are missing from repository catalog.")
+    if original_pr_number not in tracked_pr_numbers or noise_pr_number not in tracked_pr_numbers:
+        raise RuntimeError("F1-A package-owned pull-request markers are missing from repository catalog.")
 
     issue_state = {
         str(number): _issue_snapshot(
@@ -225,6 +245,7 @@ def _snapshot_f1_a_state(
                     "number": int(item.get("number")),
                     "title": item.get("title"),
                     "state": item.get("state"),
+                    "package_owned": package_owned_body(item.get("body")),
                 }
                 for item in issues
                 if isinstance(item.get("number"), int)
@@ -238,6 +259,7 @@ def _snapshot_f1_a_state(
                     "title": item.get("title"),
                     "state": item.get("state"),
                     "draft": bool(item.get("draft", False)),
+                    "package_owned": package_owned_body(item.get("body")),
                 }
                 for item in pulls
                 if isinstance(item.get("number"), int)
@@ -281,56 +303,80 @@ def _assert_pristine_f1_a_catalog(
     spec: github_f1_a_spec,
     observations: Mapping[str, Any],
 ) -> None:
-    branch_names = {
-        item.get("name")
+    branch_rows = [
+        item
         for item in state.get("branches", [])
         if isinstance(item, Mapping)
-    }
+    ]
+    branch_names = {item.get("name") for item in branch_rows}
     expected_branches = {
         "main",
         spec.original_fix_branch,
         spec.noise_branch,
     }
-    if branch_names != expected_branches:
+    missing_branches = expected_branches - branch_names
+    if missing_branches:
         raise RuntimeError(
-            "F1-A repository branch catalog is contaminated; expected="
-            + ",".join(sorted(expected_branches))
-            + "; observed="
-            + ",".join(sorted(str(value) for value in branch_names))
+            "F1-A repository is missing required branches: "
+            + ",".join(sorted(str(value) for value in missing_branches))
+        )
+    unexpected_branches = {
+        str(value)
+        for value in branch_names - expected_branches
+        if value != "main" and not package_owned_branch(value)
+    }
+    if unexpected_branches:
+        raise RuntimeError(
+            "F1-A repository contains non-package branches: "
+            + ",".join(sorted(unexpected_branches))
         )
 
-    issue_numbers = {
-        int(item["number"])
+    issue_rows = [
+        item
         for item in state.get("issue_catalog", [])
         if isinstance(item, Mapping) and isinstance(item.get("number"), int)
-    }
+    ]
+    issue_numbers = {int(item["number"]) for item in issue_rows}
     expected_issues = {
         int(observations["regression_issue_number"]),
         int(observations["noise_issue_number"]),
     }
-    if issue_numbers != expected_issues:
+    if not expected_issues.issubset(issue_numbers):
+        raise RuntimeError("F1-A required issue catalog entries are missing.")
+    foreign_issues = [
+        int(item["number"])
+        for item in issue_rows
+        if int(item["number"]) not in expected_issues
+        and item.get("package_owned") is not True
+    ]
+    if foreign_issues:
         raise RuntimeError(
-            "F1-A repository issue catalog is contaminated; expected="
-            + ",".join(str(value) for value in sorted(expected_issues))
-            + "; observed="
-            + ",".join(str(value) for value in sorted(issue_numbers))
+            "F1-A repository contains non-package issues: "
+            + ",".join(str(value) for value in sorted(foreign_issues))
         )
 
-    pull_numbers = {
-        int(item["number"])
+    pull_rows = [
+        item
         for item in state.get("pull_request_catalog", [])
         if isinstance(item, Mapping) and isinstance(item.get("number"), int)
-    }
+    ]
+    pull_numbers = {int(item["number"]) for item in pull_rows}
     expected_pulls = {
         int(observations["original_fix_pr_number"]),
         int(observations["noise_pr_number"]),
     }
-    if pull_numbers != expected_pulls:
+    if not expected_pulls.issubset(pull_numbers):
+        raise RuntimeError("F1-A required pull-request catalog entries are missing.")
+    foreign_pulls = [
+        int(item["number"])
+        for item in pull_rows
+        if int(item["number"]) not in expected_pulls
+        and item.get("package_owned") is not True
+    ]
+    if foreign_pulls:
         raise RuntimeError(
-            "F1-A repository pull-request catalog is contaminated; expected="
-            + ",".join(str(value) for value in sorted(expected_pulls))
-            + "; observed="
-            + ",".join(str(value) for value in sorted(pull_numbers))
+            "F1-A repository contains non-package pull requests: "
+            + ",".join(str(value) for value in sorted(foreign_pulls))
         )
 
     for number in expected_issues:

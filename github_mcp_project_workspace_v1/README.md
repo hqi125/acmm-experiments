@@ -1,14 +1,14 @@
 # GitHub MCP Project Workspace Baseline
 
-> **Status:** IMPLEMENTATION STARTED - APPARATUS SLICE 1.
-> The package manifest, scientific contract, and pinned GitHub MCP integration now exist and are covered by
-> package-local tests. Fixture runtime/evaluators are not implemented yet, so this revision is suitable for
-> install/apply/doctor preflight but **not yet for scientific `acmm run` acquisition**.
+> **Status:** IMPLEMENTATION IN PROGRESS - F1-A QUALIFIED, F1-B DISPOSABLE SCIENTIFIC RUNTIME IMPLEMENTED.
+> F1-A is scientifically runnable and cross-agent qualified. F1-B now uses the same one-private-repository-per-run
+> typed lifecycle, including deterministic Actions evidence seeded before subject execution. F2 through F6 remain
+> design-frozen only.
 
 `github_mcp_project_workspace_v1` is the working identity for the second experiment in the reworked
-ACMM research roadmap. It follows the frozen `minimal_agent_baseline_v1` and introduces one real,
-shared external capability environment: the official GitHub MCP Server operating on a dedicated,
-controlled experimental repository.
+ACMM research roadmap. It follows the frozen `minimal_agent_baseline_v1` and introduces one real
+external capability environment: the official GitHub MCP Server operating against controller-created,
+private disposable repositories, one scientific repository per run.
 
 The experiment is intentionally **not** a single-tool or tool-call benchmark. Every subject should
 receive the same rich GitHub project workspace in every scenario. Scenarios define goals, authority,
@@ -159,11 +159,13 @@ See [`design/evaluation_model.md`](design/evaluation_model.md).
 
 ## Credential and safety boundary
 
-The experiment uses two repository-scoped credentials: a subject MCP PAT with Metadata read, Contents
-read/write, Issues read/write, Pull requests read/write, Actions read, and Commit statuses read; and a separate
-trusted controller PAT that additionally has Actions write and Workflows read/write for fixture bootstrap/reset.
-GitHub fine-grained PATs do not expose a separate Checks permission, so it is intentionally absent from both
-profiles. Neither credential requires repository Administration or Repository creation.
+The experiment uses two fine-grained credentials with **All repositories** access under the dedicated
+experiment account so newly created disposable run repositories are reachable. The subject MCP PAT retains
+Metadata read, Contents read/write, Issues read/write, Pull requests read/write, Actions read, and Commit
+statuses read, with no Repository creation or Administration permission. The trusted controller PAT additionally
+has Actions write, Workflows read/write, Repository creation read/write, and Administration read/write for
+trusted repository lifecycle. GitHub fine-grained PATs do not expose a separate Checks permission, so it is
+intentionally absent from both profiles.
 
 The dedicated subject/controller PATs have now been created by the user. Their values remain outside the
 repository and are consumed only through ACMM secret bindings. The recommended local source files are
@@ -177,32 +179,30 @@ The v2.0.3 catalog/exclusions and fixture strategy are frozen in
 
 ## Implementation checkpoint
 
-The design/pre-coding gate is closed. On 2026-11-07 the transition to executable implementation was explicitly
-announced after the dedicated repository and both PAT roles were confirmed. Apparatus slice 1 now provides:
+The design/pre-coding gate is closed and executable implementation is underway. The package now provides:
 
-- package schema v0.3 with an Experiment-scoped `controller_access_token` secret slot;
-- an Integration-scoped `github_mcp/access_token` subject secret slot;
-- the frozen 12-scenario/8-repetition Contract;
-- pinned GitHub MCP Server v2.0.3 configuration on the eight frozen toolsets;
-- the nine laboratory exclusions;
-- exact 43-tool discovery enforcement and catalog digest expectation;
-- pinned container-image digest enforcement;
-- native profile composition for Hermes, Open WebUI, and Agent Zero;
-- an Experiment-2-specific local MCP service on host port 8083 so qualification can remain installed.
+- package schema v0.3 with separate Experiment/controller and Integration/subject secret scopes;
+- the frozen 12-scenario x 8-repetition Contract;
+- pinned GitHub MCP Server v2.0.3 integration with the qualified 43-tool catalog;
+- exact tool-catalog and container-image provenance checks across Hermes, Open WebUI, and Agent Zero;
+- a trusted controller diagnostic and explicit `initialize` apparatus action for the pinned private repository;
+- an engineering-reference repository used to qualify F1-A/F1-B semantics, while final scientific acquisition
+  uses one disposable private repository per run;
+- `qualify_disposable_repositories`, now invoked through `acmm run apparatus`, with one successful live
+  create/subject-write/controller-read/exact-ID-delete qualification cycle;
+- a Core-owned typed execution lifecycle with package hooks for session/run prepare, observe, and deferred
+  evidence-last finalization;
+- a fully runnable/cross-agent-qualified F1-A Regression Disposition scenario now instantiated into a fresh
+  private repository per scientific run;
+- an F1-B `prepare_f1_b` materializer that creates the release milestone, blocker label, included/missing
+  blocker histories, release candidate branch/PR, non-blocker noise, and a deterministic passing Actions run
+  on the candidate head.
 
-The subject-side live preflight is complete: all three agents independently discover the same 43-tool
-server-defined catalog after adapter-side allowlists were removed. The trusted controller runtime, repository
-identity pin, fixture-base initialization, and live fixture-base verification are also complete.
+F1-B scientific execution now uses the disposable lifecycle. Its controller creates the fresh private repository,
+materializes the release topology, dispatches and waits for the deterministic required-check workflow, captures
+authoritative pre/post state, and deletes the exact repository only after durable run evidence. The immediate
+checkpoint is live F1-B qualification before later scenario implementation resumes.
 
-Apparatus slice 3 adds the first scenario-world materializer: `prepare_f1_a`. It can construct and then
-idempotently re-verify the F1-A Regression Disposition topology on the pinned repository, including the closed
-regression issue, merged historical fix PR, later default-branch reintroduction, and unrelated nearby issue/PR
-noise. Newly created objects are verified directly by the identifiers returned from GitHub, while later
-marker-based discovery uses bounded retries to tolerate short REST list-view propagation delays. Persistent
-partial or conflicting state remains fail-closed. The action also emits structured apparatus progress with a stable numbered phase ledger; idempotent phases are reported as `skipped (already intact)` so live
-GitHub work is visible while it runs.
-
-Scientific fixture preparation/evaluation remains intentionally blocked in this revision. The next live
-checkpoint is to run `prepare_f1_a`, inspect the resulting GitHub world and idempotent second call, and only then
-wire F1-A into `acmm run` with authoritative pre/post observation and reset semantics. See
-[`design/controller_runtime_checkpoint.md`](design/controller_runtime_checkpoint.md).
+See [`design/controller_runtime_checkpoint.md`](design/controller_runtime_checkpoint.md),
+[`design/fixture_lifecycle.md`](design/fixture_lifecycle.md), and
+[`design/design_progress.md`](design/design_progress.md).

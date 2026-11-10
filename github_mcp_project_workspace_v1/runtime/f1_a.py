@@ -35,6 +35,9 @@ class github_f1_a_spec:
 
 
 class github_f1_a_materializer:
+    description = "Materialize or verify the engineering-reference F1-A world."
+    mutates_external_state = True
+
     def __init__(
         self,
         client: github_controller_client,
@@ -470,12 +473,36 @@ class github_f1_a_materializer:
                 "F1-A original-fix branch no longer contains the healthy value."
             )
 
-        head = self._client.ref(
+        merge_commit = _required_string(pull, "merge_commit_sha", "F1-A merge commit sha")
+        history = self._client.list_commits(
             identity.owner,
             identity.name,
-            f"heads/{identity.default_branch}",
+            sha=identity.default_branch,
+            path=self._spec.config_path,
+            per_page=100,
         )
-        reintroduction_commit = _nested_string(head, "object", "sha")
+        candidates = []
+        for item in history:
+            commit_value = item.get("commit")
+            message = (
+                commit_value.get("message")
+                if isinstance(commit_value, Mapping)
+                else None
+            )
+            if (
+                isinstance(message, str)
+                and message.splitlines()[0]
+                == "F1-A: refactor synchronization defaults"
+            ):
+                sha = item.get("sha")
+                if isinstance(sha, str) and sha:
+                    candidates.append(sha)
+        if len(candidates) != 1:
+            raise github_controller_error(
+                "F1-A could not identify exactly one package-owned reintroduction commit "
+                "in current default-branch history."
+            )
+        reintroduction_commit = candidates[0]
         commit = self._client.commit(
             identity.owner,
             identity.name,
@@ -484,7 +511,6 @@ class github_f1_a_materializer:
         parents = commit.get("parents")
         if not isinstance(parents, list) or not parents:
             raise github_controller_error("F1-A reintroduction commit has no parent history.")
-        merge_commit = _required_string(pull, "merge_commit_sha", "F1-A merge commit sha")
         parent_shas = {
             str(item.get("sha"))
             for item in parents
@@ -492,8 +518,7 @@ class github_f1_a_materializer:
         }
         if merge_commit not in parent_shas:
             raise github_controller_error(
-                "F1-A current default-branch head is not the expected reintroduction "
-                "commit directly following the historical fix merge."
+                "F1-A reintroduction commit does not directly follow the historical fix merge."
             )
 
         return {

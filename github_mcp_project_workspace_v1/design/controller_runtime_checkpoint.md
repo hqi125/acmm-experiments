@@ -2,16 +2,21 @@
 
 ## Status
 
-The trusted controller foundation and explicit fixture-base initialization action are now implemented.
-Scientific scenario materialization and route-independent evaluation are intentionally still blocked.
+The trusted controller foundation and explicit fixture-base initialization are implemented. F1-A is
+scientifically runnable/cross-agent qualified, and both F1-A and F1-B now use the disposable per-run repository
+lifecycle. F1-B includes deterministic completed Actions evidence seeded by the controller before subject timing.
 
 ## Generic Core support
 
-Core now permits an Experiment Package runtime to expose named diagnostics and trusted apparatus actions.
-`acmm env doctor` executes diagnostics for the active staged runtime and includes their readiness in the
-environment-wide READY / NOT READY result. `acmm package apparatus <selector> <action>` explicitly invokes a
-package-owned lifecycle action. Core does not know what GitHub is; the package owns both controller diagnosis
-and initialization logic. Existing package runtimes that expose neither remain valid.
+Core permits an Experiment Package runtime to expose named diagnostics, free-form engineering apparatus
+actions, and an optional typed execution lifecycle. `acmm env doctor` executes diagnostics for the active staged
+runtime and includes their readiness in the environment-wide READY / NOT READY result. `acmm run apparatus`
+lists actions from the currently converged package; `acmm run apparatus <action>` explicitly invokes one.
+
+Scientific lifecycle hooks are separate: Core owns the fixed order `session_initialize` -> `run_prepare` ->
+subject execution -> `run_observe` -> durable persistence/evaluation -> `run_finalize` -> `session_finalize`.
+Operators do not invoke these typed hooks independently. Existing packages without a typed lifecycle remain
+backward compatible with the legacy fixture lifecycle. Core still does not know what GitHub is.
 
 ## Experiment 2 runtime foundation
 
@@ -97,45 +102,45 @@ doctor subsequently reported the entire controller, integration, and subject sta
 
 ## F1-A world materializer
 
-The runtime now also exposes apparatus action `prepare_f1_a`. This action remains outside scientific execution and
-is intended for live apparatus qualification before F1-A becomes runnable. It:
+Apparatus action `prepare_f1_a` constructs and idempotently verifies the F1-A regression-disposition world.
+Its historical reintroduction commit is now located from package-owned file history rather than assuming that
+it remains the current `main` head forever. This allows later scenario setup to advance the default branch
+without invalidating F1-A.
 
-1. re-verifies the pinned repository identity, default branch, and trusted fixture-base files;
-2. uses bounded marker-discovery retries so short GitHub REST list-view propagation delays do not look like
-   persistent partial fixture state;
-3. seeds a simple synchronization-timeout configuration at the regressed 15-second value;
-4. creates the canonical regression issue;
-5. creates a dedicated historical-fix branch, changes the value to 30 seconds, opens the original-fix PR, and
-   merges it into `main`;
-6. closes the regression issue while preserving an explicit link to the historical fix PR;
-7. creates a later direct default-branch commit that reintroduces the 15-second value;
-8. creates one unrelated issue and one unrelated open PR as nearby project noise; and
-9. verifies newly created issue/PR objects directly through the identifiers returned by GitHub and validates the
-   expected direct parent relationship between the reintroduction commit and the original-fix merge commit.
+F1-A scientific snapshots also protect every package-owned issue/PR currently present in the canonical shared
+world, while rejecting unmarked foreign objects. This lets later scenario fixtures coexist as stable background
+state and still makes cross-scenario mutation during a read-only F1-A run observable/resettable.
 
-The materializer is idempotent only when all four marked fixture objects and the authoritative repository state
-match package-owned expectations exactly. On later calls, marker-based list discovery is retried for a bounded
-period before a partial-world error is declared; this specifically avoids false partial-state failures caused by
-short GitHub list-endpoint visibility lag. Persistent partial/conflicting state is still refused. Test-only fake
-repositories cover first materialization, idempotent re-verification, eventual-consistency retry, and persistent
-partial-world refusal. The action publishes structured progress events for each major GitHub materialization
-phase.
+## F1-B world materializer
 
-Scientific `github_workspace_f1_a.prepare()` is still deliberately blocked in this revision. No agent can execute
-F1-A until the next slice adds authoritative pre/post snapshots, protected-state comparison, reset/finalization,
-and evaluator semantics.
+The runtime now exposes `prepare_f1_b`. It remains outside scientific execution and is intended for live
+apparatus qualification before F1-B becomes runnable. The action:
 
-## Next live checkpoint
+1. re-verifies pinned repository identity and trusted fixture-base files;
+2. creates/verifies the canonical `release-blocker` label and a package-marked release milestone;
+3. seeds a deterministic package-owned workflow under `.github/workflows/`;
+4. creates a closed blocker issue whose merged fix is included before the release branch diverges;
+5. creates the release candidate branch and open release PR;
+6. creates a second closed blocker issue whose merged fix lands on `main` only after candidate divergence;
+7. creates an open non-blocker issue on the same milestone as nearby noise;
+8. dispatches the deterministic required-check workflow on the candidate branch outside subject timing and
+   waits for a completed successful run; and
+9. verifies issue/PR lifecycle, milestone/label membership, candidate/default-branch contents, commit inclusion,
+   and workflow-run head SHA/conclusion.
 
-Upgrade the staged package, then run:
+The action has a stable 12-step progress ledger. Existing marked F1-B worlds are re-verified idempotently; a
+partial marked world remains fail-closed. If all GitHub objects exist but the completed required-check run is
+missing, the trusted controller may seed that run because Actions history is append-only and the run is part of
+fixture preparation rather than subject behavior.
 
-```text
-acmm package apparatus github_mcp_project_workspace_v1 prepare_f1_a
-acmm package apparatus github_mcp_project_workspace_v1 prepare_f1_a
-```
+## Current live checkpoint
 
-The first call should report `changed: yes` and concrete GitHub issue/PR/commit identities. The second should
-report `changed: no` with the same observations. Inspect the repository before enabling scientific execution.
+The engineering-reference F1-B materializer has already passed live materialization with a completed successful
+required-check workflow, and the disposable lifecycle probe has passed one real create -> subject-write ->
+controller-read -> exact-ID delete cycle. The next live checkpoint is therefore a **scientific F1-A run through
+the typed disposable lifecycle**. A successful persisted run should create a fresh private repository,
+materialize the qualified F1-A world, execute/evaluate normally, then delete that exact repository only after
+evidence persistence. An unpersisted/failed run should intentionally leave the repository quarantined.
 
 ## F1-A scientific runtime checkpoint
 
@@ -156,3 +161,16 @@ The current reset implementation is deliberately fail-closed for GitHub side eff
 perfectly erased (for example a submitted pull-request review or a newly created issue/PR that remains
 in repository history). Such contamination is observable in authoritative post-state and prevents a
 later pristine prepare from silently treating the altered world as baseline.
+
+
+## Disposable repository lifecycle pivot (2026-11-09)
+
+The shared reference repository remains an engineering fixture, but final acquisition uses one fresh private
+repository per selected run. The `qualify_disposable_repositories` engineering action has passed one live
+create/access/write/delete probe. F1-A now uses the typed runtime lifecycle to create and materialize its own
+repository dynamically.
+
+Deletion is guarded by the repository ID returned by the same creation call. Repository name alone is never
+accepted as destructive authorization. Successful scientific cleanup is evidence-last: Core persists the run
+record/evidence before invoking `run_finalize`. If persistence does not complete, Experiment 2 quarantines the
+repository instead of deleting it. F1-B uses the same evidence-first deletion/quarantine contract as F1-A.

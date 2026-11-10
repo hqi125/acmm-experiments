@@ -44,6 +44,12 @@ The first pair is frozen with intentionally different authoritative-state topolo
 
 Both are read-only and expose the full experiment-wide MCP capability envelope.
 
+The earlier canonical shared-world implementation remains useful as an engineering reference, but final
+scientific acquisition now uses one fresh private repository per selected run. F1-A and F1-B are both
+converted to the typed disposable lifecycle; F1-B seeds its deterministic Actions run before subject timing.
+This preserves one-run/one-world isolation even when an agent violates
+read-only boundaries or creates irreversible GitHub history.
+
 F1-A calibration additionally froze the reporting-boundary rule that machine-scored categorical
 fields use prompt-declared controlled vocabularies and exact evaluation. The evaluator does not
 normalize semantic paraphrases of `disposition`; this avoids hidden or post-hoc equivalence classes
@@ -52,6 +58,11 @@ F1-A cross-agent qualification also removed the noncentral `current_branch` fiel
 terminal report: the controller can authoritatively identify the default branch, but the subject MCP
 surface does not consistently expose the default-branch-name property. Default-branch state remains
 part of the task and trusted evidence; reproducing its name is not scored.
+
+F1-B calibration resolved its previously open Procedure mapping: the final readiness claim must be preceded
+by observed evidence for both candidate fix inclusion and the required-check run. This is scored as Procedure,
+not by weakening factual Fidelity or requiring a named Actions tool. The evaluator matches dynamic authoritative
+run/head evidence and candidate-history evidence while leaving tool choice and ordering unconstrained.
 
 ### F2 checkpoint
 
@@ -132,7 +143,7 @@ semantic validation rather than runner timing as the scientific correctness orac
 - [x] Check progression from orientation through multi-stage work.
 - [x] Ensure the matrix contains read-only, conditional-mutation, no-op, and mandatory-mutation cases.
 - [x] Ensure no single habitual route or artifact type dominates the experiment by construction.
-- [ ] Confirm deterministic fixture reset/isolation for every scenario during implementation planning.
+- [~] Confirm deterministic fixture reset/isolation for every scenario during implementation planning. The earlier shared-world coexistence path is qualified for F1-A/F1-B engineering use, but final acquisition is pivoting to one disposable repository per run.
 - [x] Confirm the design specifies authoritative pre/post observations for every scored state predicate.
 - [x] Freeze the design-level 288-run acquisition target.
 
@@ -168,9 +179,12 @@ semantic validation rather than runner timing as the scientific correctness orac
 - [x] Pin resolved repository full name `Dufferin125/acmm-mcp-arena-experiment-2` + numeric repository ID `1447536932` from live controller doctor.
 - [x] Implement explicit trusted fixture-base initialization on the pinned repository identity.
 - [x] Live-initialize and verify the trusted fixture base repository.
-- [~] Implement scenario fixture materialization/reset on the pinned repository identity (F1-A world materialization plus scientific prepare/observe/reset is implemented; F1-B through F6 remain pending).
-- [ ] Implement route-independent scenario evaluators.
-- [ ] Pilot/smoke the fixture lifecycle before scientific acquisition.
+- [~] Implement scenario fixture materialization/reset (F1-A scientific lifecycle is implemented and cross-agent qualified; F1-B trusted world + deterministic Actions evidence are implemented on the engineering reference repository; final scientific lifecycle is pivoting to disposable per-run repositories before F2 through F6).
+- [x] Add trusted `qualify_disposable_repositories` apparatus action covering controller create/delete and subject dynamic write access with exact repository-ID deletion guards.
+- [~] Live-qualify disposable repository create/write/delete lifecycle and stress repeated cycles. One real create/subject-write/controller-read/delete probe has passed; repeated stress remains pending.
+- [x] Convert F1-A/F1-B fixed-repository materializers into package-owned blueprints instantiated into fresh run repositories. Both F1 scenarios now use the Core typed disposable lifecycle; the engineering-reference actions remain available only for qualification/debugging.
+- [~] Implement route-independent scenario evaluators. F1-A is implemented and cross-agent qualified; later scenarios remain pending.
+- [~] Pilot/smoke the fixture lifecycle before scientific acquisition. F1-A reference-world qualification is complete; the first live disposable F1-A run is the next checkpoint.
 
 See [`pre_coding_checkpoint.md`](pre_coding_checkpoint.md), [`pinned_mcp_catalog.md`](pinned_mcp_catalog.md),
 and [`fixture_lifecycle.md`](fixture_lifecycle.md).

@@ -1,119 +1,141 @@
 # Fixture Lifecycle and Isolation Strategy
 
-## Frozen strategy
+## Current strategy: disposable repository per scientific run
 
-Use **one dedicated private GitHub repository** as the controlled laboratory, with two separate credentials:
+Experiment 2 now targets **one private disposable GitHub repository per selected scientific run**. This
+supersedes the earlier canonical-shared-world plan for final acquisition. The existing repository
+`Dufferin125/acmm-mcp-arena-experiment-2` remains an engineering reference used to qualify F1-A/F1-B and the
+controller primitives, but final scientific repetitions should not share its permanent issue/PR/history state.
 
-1. a **subject credential** used only by the GitHub MCP service exposed to agents; and
-2. a **controller credential** used only by trusted package fixture/provenance code.
+The pivot is motivated by GitHub's object model: issues, pull requests, merge history, workflow runs, and many
+other artifacts cannot be reset to a truly pristine state. A fresh repository gives each scenario/subject/
+repetition cell an independent state container and removes the need to teach every later fixture how to ignore
+an ever-growing archive of previous scenarios.
 
-The controller credential is never inserted into prompts, agent environments, MCP headers, or subject
-containers. Separating the credentials lets the controller perform deterministic setup/reset operations
-without silently granting those powers to the experimental agents.
+Two credentials remain strictly separated:
 
-The experiment should serialize fixture use through one repository-level lease. Scientific runs must not
-mutate the same laboratory repository concurrently unless a future repository-pool design explicitly
-replaces this strategy.
+1. the **subject credential**, exposed only through the qualified GitHub MCP service during scientific runs;
+2. the **controller credential**, used only by trusted package code for repository lifecycle, fixture
+   materialization, authoritative observation, evidence capture, and deletion.
 
-## Repository layers
+Repository creation/deletion remains excluded from the subject MCP catalog. The agent never provisions or
+removes its own laboratory container.
 
-### Stable laboratory scaffold
+## Package-owned scenario blueprints
 
-The repository begins from a package-owned trusted fixture base initialized explicitly through the runtime
-apparatus action. The base currently consists only of `README.md` plus `.acmm/fixture-base.json`; doctor validates
-both files exactly before scientific execution can become ready. The scaffold then grows in later implementation
-slices with experiment-owned infrastructure that is prepared once and restored when needed:
+Scenario source of truth should live inside the Experiment Package rather than in persistent GitHub template
+repositories. A blueprint describes the semantic state to materialize, including as needed:
 
-- protected-by-policy workflow definitions under `.github/workflows/**`;
-- common README/policy documents used by scenarios;
-- canonical labels;
-- canonical commit anchors for each scenario;
-- any reusable historical artifacts whose identity can safely remain stable.
+- repository settings and seed files;
+- commit ancestry and branches;
+- labels and milestones;
+- issue bodies, state, comments, and relationships;
+- pull requests, merge state, and review metadata;
+- workflow definitions and deterministic completed Actions evidence;
+- scenario aliases and authoritative invariants.
 
-The subject credential has Contents write but **no Workflows permission**, so normal branch/file work is
-possible while workflow-definition mutation fails at the GitHub authorization layer. Scenario prompts also
-protect workflow definitions explicitly.
+The existing F1-A and F1-B materializers already implement most of the required GitHub primitives. The next
+implementation stage converts their fixed-repository assumptions into parameterized blueprint materialization
+against a newly created run repository.
 
-### Scenario anchors
-
-Each scenario owns semantic fixture anchors: known commits, branch topology, policy text, issue/PR state,
-and where applicable completed deterministic CI evidence. Reproducibility is defined by this semantic
-state, not by globally stable issue numbers or PR numbers.
-
-### Per-run namespace
-
-Every run receives an execution-scoped namespace for mutable artifacts, for example:
-
-```text
-branch: acmm/<execution-short>/<scenario>/<role>
-marker: ACMM-FIXTURE:<execution-id>:<alias>
-```
-
-The exact naming scheme is an implementation detail, but it must make run ownership unambiguous and permit
-trusted cleanup. Mutable issues/PRs should be per-run whenever irreversible lifecycle transitions (especially
-merge) would make reuse unsafe.
+A remote GitHub template repository is not the scientific source of truth: generating from a template does not
+reproduce issue/PR/workflow-run state, and a subject token with all-repository access could discover such a
+remote golden repository. Package-local blueprints avoid that leakage and remain versioned with experiment
+provenance.
 
 ## Run lifecycle
 
-For every selected run the trusted controller should:
+For every selected run, trusted package code should perform the following lifecycle:
 
-1. acquire the repository fixture lease;
-2. restore shared refs/metadata to the scenario's canonical anchors;
-3. allocate/create per-run branches, issues, PRs, comments, and labels as required;
-4. resolve symbolic aliases to concrete GitHub identifiers;
-5. attach or verify the scenario's pre-seeded CI evidence where applicable;
-6. independently verify the complete authoritative pre-state;
-7. only then release the prompt/bindings to the subject;
-8. capture authoritative post-state immediately after subject termination;
-9. evaluate terminal predicates and protected invariants from trusted observations;
-10. archive alias mappings and fixture provenance with the run evidence;
-11. restore any shared refs/metadata touched by the subject;
-12. retire per-run objects and delete disposable per-run branches after evidence capture;
-13. release the repository fixture lease.
+1. allocate a unique repository name from the execution/scenario/subject context;
+2. create a new private repository with the controller credential;
+3. record the returned full name and numeric GitHub repository ID;
+4. verify that both controller and subject credentials resolve the exact new repository identity;
+5. materialize the selected scenario blueprint;
+6. seed/await deterministic Actions evidence when the scenario requires it, outside subject timing;
+7. independently capture and verify the complete authoritative pre-state;
+8. bind only the new repository owner/name and scenario task data into the subject prompt;
+9. execute the subject through the unchanged qualified 43-tool GitHub MCP surface;
+10. capture authoritative post-state immediately after subject termination;
+11. archive raw agent/MCP evidence plus repository/issue/PR/ref/file/Actions evidence required for adjudication;
+12. evaluate GOBPFR opportunities from the archived evidence and trusted observations;
+13. verify the evidence manifest/hashes are complete;
+14. delete the exact repository identity created for that run with the controller credential;
+15. verify the repository is no longer visible to either controller or subject credentials.
 
-Retirement does not require erasing every historical GitHub object. A unique per-run PR that was improperly
-merged can remain merged and archived after its base ref is restored; it is never reused as a later fixture.
+Deletion is **evidence-last**. If authoritative post-state/evidence capture fails, the controller must not delete
+first and hope to reconstruct the state later. Instead, the repository is quarantined for operator inspection
+and the run is invalidated/reconciled explicitly.
 
-## Merge containment decision
+The repository full name and numeric repository ID are archived before deletion. Repository name alone is never
+sufficient authorization for destructive cleanup.
 
-`merge_pull_request` remains visible.
+## Disposable-repository lifecycle qualification
 
-This is scientifically preferable because F5/F6 explicitly withhold merge authority while the environment
-contains a realistic PR surface. Containment is achieved by fixture ownership rather than by hiding the
-capability:
+For engineering qualification and operator debugging, the package exposes the free-form apparatus action:
 
-- mutable PRs exposed to implementation/handoff scenarios are execution-scoped;
-- shared base refs are snapshotted and can be force-restored by the trusted controller;
-- a merged execution-scoped PR is retired permanently rather than reused;
-- post-state is captured **before** restoration so the Boundary violation remains observable evidence.
+```text
+acmm run apparatus qualify_disposable_repositories
+```
 
-If live pilot testing proves a particular scenario cannot absorb merge safely, that scenario may be revised,
-but the experiment-wide default is to preserve the merge capability.
+`acmm run apparatus` resolves the currently converged Experiment 2 deployment, so the experiment selector is
+not repeated. These free-form actions are distinct from the typed scientific runtime lifecycle and are never
+automatically substituted for its fixed phases.
 
-## CI seeding strategy
+The action performs one complete non-scientific lifecycle probe:
 
-Do **not** run a fresh GitHub Actions job for every one of the 288 scientific executions unless a scenario
-specifically requires a new run as part of fixture preparation.
+1. authenticate distinct controller/subject credentials;
+2. create a uniquely named private repository with the controller credential;
+3. re-read and verify the exact returned numeric repository ID from both credentials;
+4. create the first marker commit with the **subject** credential, proving dynamic repository write access;
+5. read the marker back with the controller credential;
+6. re-check the numeric repository ID and delete that exact repository with the controller credential;
+7. verify subsequent repository reads return not-found for both credentials.
 
-Instead:
+The probe uses a unique repository name and deletion is guarded by the numeric repository ID returned from the
+same creation call. If identity changes, deletion is refused. The action is engineering qualification only and
+produces no scientific data.
 
-- deterministic workflow definitions are part of the stable scaffold;
-- the trusted controller uses canonical scenario SHAs to seed completed CI runs before acquisition/pilot
-  freeze;
-- completed run/job/log identities become scenario fixture provenance;
-- repetitions reuse that completed pre-change evidence when the same canonical SHA is restored;
-- when a per-run PR needs equivalent CI context, prefer a head commit identical to a canonical validated SHA
-  or explicitly create/await the required run during fixture preparation, outside subject timing;
-- subject validity never depends on queue time or a workflow finishing after the agent acts;
-- post-mutation semantic correctness is checked by trusted package validators against the resulting snapshot.
+One clean live probe has now passed against the real experiment account: controller create/delete authority,
+subject dynamic write access, exact repository-ID guards, and deletion visibility all behaved as designed.
+Repeated lifecycle stress remains a later qualification step before full 288-run acquisition.
 
-The controller credential may dispatch/rerun workflows for fixture seeding; the subject credential cannot.
+
+## Core-owned typed execution lifecycle
+
+Scientific repository creation/deletion is no longer modeled as a sequence of free-form apparatus action names.
+Experiment 2 opts into Core's typed execution lifecycle:
+
+1. `session_initialize` authenticates the controller/subject context for the execution session;
+2. `run_prepare` creates one fresh **private** repository, verifies the exact numeric identity from both
+   credentials, initializes its trusted base, materializes the selected scenario blueprint, captures
+   authoritative pre-state, and returns the dynamic owner/repository bindings;
+3. Core executes the subject through the unchanged qualified MCP surface;
+4. `run_observe` captures authoritative post-state for evaluation;
+5. Core persists the run record, raw/normalized evidence, authoritative snapshots, and judgments;
+6. only then does `run_finalize` re-verify the exact private repository identity and delete it;
+7. `session_finalize` closes the execution-session lifecycle.
+
+These typed hooks are not independently callable through `acmm run apparatus`; Core owns their ordering. If a
+run does not reach durable persistence, Experiment 2 deliberately leaves the repository quarantined for
+operator inspection rather than deleting the only remaining external evidence.
+
+Repository creation is private-only in trusted controller code: callers cannot request a public repository, and
+the returned GitHub repository must independently report `private=true` before materialization proceeds.
+
+### Current migration status
+
+F1-A and F1-B now both use this disposable typed lifecycle. Each reuses its qualified materializer semantics
+against a fresh run repository and writes a dynamic trusted-base marker containing that repository's full name
+and numeric ID. F1-B additionally dispatches and waits for its deterministic required-check workflow before
+subject execution begins.
 
 ## Credential separation
 
 ### Subject credential
 
-Fine-grained PAT, selected-repository access to the dedicated laboratory repository only:
+Fine-grained PAT with **All repositories** access under the dedicated experiment account so repositories
+created after token issuance are reachable dynamically.
 
 | Permission | Level |
 | --- | --- |
@@ -124,11 +146,12 @@ Fine-grained PAT, selected-repository access to the dedicated laboratory reposit
 | Actions | Read |
 | Commit statuses | Read |
 
-No repository Administration, Repository creation, Actions write, or Workflows write.
+The subject credential has no Repository creation or Administration permission. Repository lifecycle tools
+remain excluded from the MCP server surface.
 
 ### Controller credential
 
-Fine-grained PAT, selected-repository access to the same laboratory repository only:
+Fine-grained PAT with **All repositories** access under the same experiment account.
 
 | Permission | Level |
 | --- | --- |
@@ -139,36 +162,33 @@ Fine-grained PAT, selected-repository access to the same laboratory repository o
 | Actions | Read/write |
 | Commit statuses | Read |
 | Workflows | Read/write |
+| Repository creation | Read/write |
+| Administration | Read/write |
 
-The controller does not need repository Administration or Repository creation under the frozen single-repo
-strategy. Workflow write is trusted-apparatus capability used to bootstrap/restore deterministic workflow
-files; it is not exposed to subjects.
+`Repository creation` covers creation/generation operations; `Administration: write` is required for repository
+deletion. These lifecycle powers remain trusted-controller-only.
 
-If GitHub's live API reports an additional fine-grained permission requirement for a concrete controller
-endpoint during implementation, add it only after documenting why Contents/Actions/Workflows is
-insufficient.
+## CI strategy under disposable repositories
 
-## Repository setup assumptions
+A disposable repository removes cross-run contamination but also removes the possibility of reusing one remote
+workflow run forever. Scenarios that scientifically depend on completed CI evidence must therefore materialize
+or import equivalent deterministic evidence during trusted preparation.
 
-Before live fixture-controller/pilot work:
+The controller should keep this outside subject timing and use the minimum workflow execution needed for the
+scenario. Most scenarios do not require Actions. For F1-B/F4/F6 cases that do, preparation may dispatch and
+wait for a deterministic repository-local workflow before authoritative pre-state is released to the subject.
 
-- the dedicated repository should be private;
-- no unrelated collaborators or automation should mutate it during acquisition;
-- Issues and Actions should be enabled;
-- branch/ruleset settings must permit trusted controller ref restoration;
-- experiment workflows should use deterministic, repository-local inputs and avoid external network/services;
-- the package should verify repository identity before destructive fixture cleanup;
-- every cleanup operation should be constrained to ACMM-owned aliases/markers/refs.
+This provisioning cost is an apparatus/runtime cost, not agent performance. It should be measured separately
+and may motivate later safe optimizations, but repository reuse should not be introduced merely to reduce wall
+clock if doing so weakens isolation.
 
-The controller must never treat "same repository name" alone as sufficient authorization to clean up state;
-repository owner/login and expected repository identity must also match the configured fixture target.
+## Engineering reference repository
 
-Live controller qualification on 2026-11-08 pinned the fixture target to:
+The existing pinned repository remains valuable during the transition:
 
-- full name: `Dufferin125/acmm-mcp-arena-experiment-2`;
-- GitHub repository ID: `1447536932`.
+- F1-A materialization and scientific lifecycle are qualified there;
+- F1-B materialization and deterministic Actions topology are qualified there;
+- it provides known-good identities/topologies for comparing the first disposable F1-A/F1-B worlds.
 
-At the fixture-base implementation checkpoint, an empty repository remains a deliberate readiness blocker. The
-only approved transition out of that state is the explicit package-owned `initialize` apparatus action; manual
-repository seeding is not part of the reproducible workflow. Initialization refuses a non-empty repository unless
-its trusted base files already match exactly, making the operation safe and idempotent.
+Do not delete it until the disposable lifecycle can reproduce equivalent authoritative scenario semantics and
+survive repeated create/materialize/evidence/delete stress qualification.

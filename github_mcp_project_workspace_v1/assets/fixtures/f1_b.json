@@ -1,0 +1,49 @@
+{
+  "schema_version": "0.1",
+  "fixture_id": "github_workspace_f1_b",
+  "release_branch": "acmm/fixture/f1-b/release-2.4.0-rc1",
+  "candidate_path": "scenarios/f1_b/release-candidate.json",
+  "candidate_version": "2.4.0-rc1",
+  "release_pr": {
+    "title": "Release candidate 2.4.0-rc1",
+    "marker": "acmm-fixture:github_workspace_f1_b:release_pr"
+  },
+  "release_milestone": {
+    "title": "ACMM F1-B Release 2.4.0-rc1",
+    "marker": "acmm-fixture:github_workspace_f1_b:release_milestone"
+  },
+  "blocker_label": {
+    "name": "release-blocker",
+    "color": "b60205",
+    "description": "Required release-blocking work for the active release milestone."
+  },
+  "included_blocker": {
+    "issue_title": "Release blocker: preserve compatibility manifest",
+    "issue_marker": "acmm-fixture:github_workspace_f1_b:included_blocker_issue",
+    "fix_branch": "acmm/fixture/f1-b/included-blocker-fix",
+    "fix_path": "scenarios/f1_b/blockers/compatibility-manifest.txt",
+    "fix_content": "compatibility_manifest=present\n",
+    "pr_title": "Fix release compatibility manifest",
+    "pr_marker": "acmm-fixture:github_workspace_f1_b:included_blocker_fix_pr"
+  },
+  "missing_blocker": {
+    "issue_title": "Release blocker: include protocol header update",
+    "issue_marker": "acmm-fixture:github_workspace_f1_b:missing_blocker_issue",
+    "fix_branch": "acmm/fixture/f1-b/missing-blocker-fix",
+    "fix_path": "scenarios/f1_b/blockers/protocol-header.txt",
+    "fix_content": "protocol_header=updated\n",
+    "pr_title": "Fix release protocol header",
+    "pr_marker": "acmm-fixture:github_workspace_f1_b:missing_blocker_fix_pr"
+  },
+  "noise_issue": {
+    "title": "Release notes: clarify upgrade wording",
+    "marker": "acmm-fixture:github_workspace_f1_b:noise_issue"
+  },
+  "required_workflow": {
+    "path": ".github/workflows/acmm-f1-b-required-checks.yml",
+    "resource": "assets/fixtures/f1_b_required_checks.yml",
+    "name": "ACMM F1-B Required Checks",
+    "dispatch_input_key": "fixture",
+    "dispatch_input_value": "f1-b-release-candidate"
+  }
+}

@@ -9,15 +9,21 @@ from acmm.experiment_api import (
     harness_capabilities,
 )
 
-from .apparatus import github_fixture_base_initializer
+from .apparatus import (
+    github_disposable_repository_lifecycle_qualifier,
+    github_fixture_base_initializer,
+)
 from .controller import (
     github_controller_client,
     github_controller_diagnostic,
     github_fixture_base_file,
 )
 from .evaluator import github_workspace_evaluator
+from .disposable_lifecycle import github_workspace_disposable_lifecycle
 from .f1_a import github_f1_a_materializer, load_f1_a_spec
+from .f1_b import github_f1_b_materializer, load_f1_b_spec
 from .f1_a_runtime import github_f1_a_fixture
+from .f1_b_runtime import github_f1_b_fixture
 from .fixture import github_workspace_fixture
 
 
@@ -46,6 +52,13 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         controller_token,
         api_base=configuration["api_base"],
     )
+    subject_probe_client = github_controller_client(
+        subject_token,
+        api_base=configuration["api_base"],
+    )
+    credentials_distinct = (
+        _fingerprint(controller_token) != _fingerprint(subject_token)
+    )
     diagnostic = github_controller_diagnostic(
         controller,
         repository_name=configuration["repository_name"],
@@ -53,9 +66,7 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         expected_repository_id=configuration["repository_id"],
         expected_default_branch=configuration["expected_default_branch"],
         require_private=configuration["require_private"],
-        credentials_distinct=(
-            _fingerprint(controller_token) != _fingerprint(subject_token)
-        ),
+        credentials_distinct=credentials_distinct,
         fixture_base_version=configuration["fixture_base_version"],
         fixture_base_files=configuration["fixture_base_files"],
     )
@@ -70,7 +81,27 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         fixture_base_files=configuration["fixture_base_files"],
     )
 
+    lifecycle_qualifier = github_disposable_repository_lifecycle_qualifier(
+        controller,
+        subject_probe_client,
+        credentials_distinct=credentials_distinct,
+        experiment_id="github_mcp_project_workspace_v1",
+        probe_name_prefix=configuration["disposable_probe_name_prefix"],
+    )
+
     f1_a_spec = _load_f1_a_configuration(context)
+    f1_b_spec = _load_f1_b_configuration(context)
+    disposable_lifecycle = github_workspace_disposable_lifecycle(
+        controller,
+        subject_probe_client,
+        experiment_id="github_mcp_project_workspace_v1",
+        run_name_prefix=configuration["disposable_run_name_prefix"],
+        expected_default_branch=configuration["expected_default_branch"],
+        fixture_base_version=configuration["fixture_base_version"],
+        fixture_base_files=configuration["fixture_base_files"],
+        f1_a_spec=f1_a_spec,
+        f1_b_spec=f1_b_spec,
+    )
     f1_a_materializer = github_f1_a_materializer(
         controller,
         repository_name=configuration["repository_name"],
@@ -81,6 +112,16 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         spec=f1_a_spec,
     )
 
+    f1_b_materializer = github_f1_b_materializer(
+        controller,
+        repository_name=configuration["repository_name"],
+        expected_repository_full_name=configuration["repository_full_name"],
+        expected_repository_id=configuration["repository_id"],
+        expected_default_branch=configuration["expected_default_branch"],
+        fixture_base_files=configuration["fixture_base_files"],
+        spec=f1_b_spec,
+    )
+
     fixtures = {
         fixture_id: github_workspace_fixture(fixture_id)
         for fixture_id in _FIXTURE_IDS
@@ -89,6 +130,11 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         controller,
         f1_a_materializer,
         f1_a_spec,
+    )
+    fixtures["github_workspace_f1_b"] = github_f1_b_fixture(
+        controller,
+        f1_b_materializer,
+        f1_b_spec,
     )
     return experiment_runtime(
         capabilities=harness_capabilities(
@@ -105,12 +151,15 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
                 }
             ),
         ),
+        lifecycle=disposable_lifecycle,
         fixtures=fixtures,
         evaluators={"github_workspace": github_workspace_evaluator()},
         diagnostics={"github_fixture_controller": diagnostic},
         apparatus_actions={
             "initialize": initializer,
+            "qualify_disposable_repositories": lifecycle_qualifier,
             "prepare_f1_a": f1_a_materializer,
+            "prepare_f1_b": f1_b_materializer,
         },
     )
 
@@ -143,6 +192,20 @@ def _load_controller_configuration(
             raise ValueError(
                 f"Controller configuration field '{key}' is invalid."
             )
+
+    disposable = value.get("disposable_repositories")
+    if not isinstance(disposable, dict):
+        raise ValueError("Controller configuration disposable_repositories is invalid.")
+    probe_name_prefix = disposable.get("probe_name_prefix")
+    if not isinstance(probe_name_prefix, str) or not probe_name_prefix.strip():
+        raise ValueError(
+            "Controller disposable_repositories.probe_name_prefix is invalid."
+        )
+    run_name_prefix = disposable.get("run_name_prefix")
+    if not isinstance(run_name_prefix, str) or not run_name_prefix.strip():
+        raise ValueError(
+            "Controller disposable_repositories.run_name_prefix is invalid."
+        )
 
     fixture_base = value.get("fixture_base")
     if not isinstance(fixture_base, dict):
@@ -188,6 +251,8 @@ def _load_controller_configuration(
 
     value["fixture_base_version"] = version
     value["fixture_base_files"] = tuple(resolved_files)
+    value["disposable_probe_name_prefix"] = probe_name_prefix.strip()
+    value["disposable_run_name_prefix"] = run_name_prefix.strip()
     return value
 
 
@@ -199,6 +264,23 @@ def _load_f1_a_configuration(
     if not isinstance(value, dict):
         raise ValueError("F1-A fixture configuration must contain a JSON object.")
     return load_f1_a_spec(value)
+
+
+def _load_f1_b_configuration(
+    context: experiment_runtime_context,
+):
+    path = context.resolve_resource("assets/fixtures/f1_b.json")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("F1-B fixture configuration must contain a JSON object.")
+    workflow = value.get("required_workflow")
+    if not isinstance(workflow, dict):
+        raise ValueError("F1-B required_workflow configuration must contain an object.")
+    resource = workflow.get("resource")
+    if not isinstance(resource, str) or not resource.strip():
+        raise ValueError("F1-B required_workflow.resource is invalid.")
+    workflow_content = context.resolve_resource(resource).read_text(encoding="utf-8")
+    return load_f1_b_spec(value, workflow_content=workflow_content)
 
 
 def _fingerprint(value: str) -> str:

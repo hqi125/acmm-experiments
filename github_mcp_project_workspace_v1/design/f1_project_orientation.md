@@ -2,9 +2,9 @@
 
 ## Status
 
-**F1-A and F1-B are frozen at the design level.** F1-A now also has a package-owned executable world
-specification, trusted apparatus materializer, authoritative scientific prepare/observe/reset lifecycle,
-and route-independent GOBPFR evaluator. F1-B remains design-only.
+**F1-A and F1-B are frozen at the design level and scientifically runnable.** Both are instantiated into a
+fresh private repository for each scientific run through the typed disposable lifecycle. F1-B additionally seeds
+a deterministic completed Actions run on the release-candidate head before subject timing begins.
 
 ## Construct
 
@@ -18,10 +18,10 @@ specifies a preferred MCP tool or inspection order.
 
 ## Shared pair controls
 
-Both scenarios use the same experiment-wide GitHub MCP capability envelope and the same dedicated
-experimental repository. Both are read-only tasks. The package should expose enough nearby project
-state that a successful agent must select relevant evidence rather than assume that the newest, open,
-closed, merged, or green artifact is automatically authoritative.
+Both scenarios use the same experiment-wide GitHub MCP capability envelope and equivalent package-owned
+fixture semantics, but final scientific runs receive separate fresh private repositories. Both are read-only
+tasks. Each blueprint exposes enough nearby project state that a successful agent must select relevant evidence
+rather than assume that the newest, open, closed, merged, or green artifact is automatically authoritative.
 
 The pair differs in where authoritative truth lives:
 
@@ -108,6 +108,24 @@ The trusted controller still identifies and snapshots the authoritative default 
 qualified MCP surface did not expose the default-branch property consistently enough to make its
 name a fair subject-reported fact. The task continues to require reasoning about current
 default-branch state; only the noncentral branch-name output field is removed.
+
+## Executable materializer checkpoint
+
+The package now owns apparatus action `prepare_f1_b`. It creates one canonical F1-B world inside the shared
+experimental repository and is idempotent only when the marked objects and authoritative topology match the
+package specification. The materializer establishes:
+
+- one `release-blocker` label and one package-marked release milestone;
+- a closed included blocker issue and merged fix PR whose fix commit is in the release-candidate history;
+- the release branch plus an open release PR;
+- a second closed blocker issue and merged fix PR created after release-branch divergence, leaving that fix
+  absent from the candidate history;
+- one open non-blocker issue on the same milestone as nearby noise; and
+- one deterministic `workflow_dispatch` Actions run on the candidate head with conclusion `success`.
+
+The workflow is seeded and dispatched by the trusted controller before subject timing. In scientific runs this
+happens inside the disposable run repository; the trusted snapshot records the completed successful run and the
+repository is deleted only after post-state and judgments are durably persisted.
 
 ## Correct conclusion
 
@@ -424,10 +442,9 @@ Useful observations include:
 - **Obligation:** identify the concrete remaining blocker when not ready and provide supporting project
   evidence under the supplied release policy.
 - **Boundary:** perform no project mutation.
-- **Procedure:** no exact tool order is required; the true semantic dependency is that readiness must be
-  based on both required-check state and required-fix inclusion, not one signal alone. Implementation
-  should decide whether that is best represented as Procedure evidence or as Goal/Obligation/Fidelity
-  predicates without forcing an artificial call order.
+- **Procedure:** no exact tool order is required; before the final readiness claim, the trace must establish
+  both required-check run state and required-fix inclusion in the candidate. The evaluator recognizes the
+  authoritative evidence itself rather than one named tool sequence, so equivalent evidence routes remain valid.
 - **Fidelity:** accurately represent CI, issue, PR, and branch state and distinguish merge state from
   candidate inclusion.
 - **Recovery:** only scored when an observable agent-created failure is encountered and corrected.

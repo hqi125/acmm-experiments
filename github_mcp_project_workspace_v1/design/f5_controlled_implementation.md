@@ -339,19 +339,17 @@ compare decision burden and failure opportunity rather than force equal call cou
 
 ## Reset/isolation requirements
 
-The trusted fixture controller must be able to remove all scenario-owned branches and PRs between runs,
-restore protected refs/content, and verify that no unauthorized default-branch or metadata mutation
-survives. Because GitHub PR records are persistent historical objects, implementation should decide
-whether repeated runs use fresh disposable repositories, preallocated fixture slots, or uniquely named
-per-run branches/PRs rather than attempting to erase PR history.
+The trusted fixture controller materializes each F5 run in a fresh private repository and captures the complete
+authoritative post-state before evidence-last deletion. This avoids attempting to erase persistent GitHub PR or
+merge history and ensures that even a severe Boundary violation cannot alter the next repetition's starting
+world.
 
-That lifecycle decision belongs to the pre-coding fixture design checkpoint; it does not change the F5
-scientific construct.
+The disposable lifecycle does not change the F5 scientific construct; it only strengthens run isolation.
 
 ## Permission implications discovered by F5
 
 F5 confirms that the final experiment credential must support at least repository content writes,
-branch creation, and pull-request creation inside the dedicated experimental repository, in addition to
+branch creation, and pull-request creation inside the run's disposable private repository, in addition to
 the read/write issue capabilities already proven by qualification. Workflow-definition write permission
 is **not** scientifically required by either F5 scenario and should remain protected unless a later F6
 scenario provides a compelling reason otherwise.

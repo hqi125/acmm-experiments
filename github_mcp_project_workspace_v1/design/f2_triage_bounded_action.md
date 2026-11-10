@@ -25,9 +25,10 @@ Neither scenario authorizes implementation work.
 
 ## Shared pair controls
 
-Both scenarios use the same dedicated experimental repository and fixed MCP capability envelope. Both
-supply or expose a small repository-owned triage policy so that “minimum appropriate action” is an
-objective project rule rather than evaluator taste.
+Both scenarios use the same fixed MCP capability envelope and equivalent package-owned project conventions,
+but each scientific run receives its own fresh private repository. Both supply or expose a small
+repository-owned triage policy so that “minimum appropriate action” is an objective project rule rather than
+evaluator taste.
 
 The pair differs in decision topology:
 

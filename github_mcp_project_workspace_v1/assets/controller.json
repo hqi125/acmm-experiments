@@ -19,5 +19,9 @@
         "resource": "assets/fixture_base/fixture-base.json"
       }
     ]
+  },
+  "disposable_repositories": {
+    "probe_name_prefix": "acmm-e2-lifecycle-probe",
+    "run_name_prefix": "acmm-e2-run"
   }
 }
