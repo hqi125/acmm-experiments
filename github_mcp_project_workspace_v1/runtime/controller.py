@@ -97,6 +97,26 @@ class github_controller_client:
     def current_user(self) -> Mapping[str, Any]:
         return self._object("GET", "/user")
 
+    def list_repositories(self) -> tuple[Mapping[str, Any], ...]:
+        repositories: list[Mapping[str, Any]] = []
+        page = 1
+        while page <= 20:
+            query = urlencode(
+                {
+                    "affiliation": "owner,collaborator,organization_member",
+                    "per_page": 100,
+                    "page": page,
+                }
+            )
+            values = self._array("GET", f"/user/repos?{query}")
+            repositories.extend(
+                item for item in values if isinstance(item, Mapping)
+            )
+            if len(values) < 100:
+                break
+            page += 1
+        return tuple(repositories)
+
     def resolve_repository(self, repository_name: str) -> github_repository_identity:
         matches: list[Mapping[str, Any]] = []
         page = 1
@@ -539,6 +559,20 @@ class github_controller_client:
         return self._array(
             "GET",
             f"/repos/{quote(owner)}/{quote(name)}/issues/{number}/comments?{query}",
+        )
+
+    def create_issue_comment(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+        body: str,
+    ) -> Mapping[str, Any]:
+        return self._object(
+            "POST",
+            f"/repos/{quote(owner)}/{quote(name)}/issues/{number}/comments",
+            {"body": body},
+            expected=(201,),
         )
 
     def pull_request_reviews(

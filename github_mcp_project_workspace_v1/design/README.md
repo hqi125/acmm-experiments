@@ -1,9 +1,9 @@
 # GitHub MCP Project Workspace - Design Notes
 
-This directory is the living design record for `github_mcp_project_workspace_v1` before executable
-package implementation begins. The experiment is deliberately being designed in documentation first
-because tool availability, fixture state, and route-independent evaluation determine the scientific
-tone of the study.
+This directory is the living design and implementation record for `github_mcp_project_workspace_v1`.
+The experiment was deliberately designed in documentation first because tool availability, fixture state,
+and route-independent evaluation determine the scientific tone of the study. F1 and F2 now have executable
+disposable scientific runtimes; later families remain design-frozen until implemented.
 
 ## Documents
 

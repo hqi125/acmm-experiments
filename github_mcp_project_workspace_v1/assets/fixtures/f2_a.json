@@ -1,0 +1,38 @@
+{
+  "schema_version": "0.1",
+  "fixture_id": "github_workspace_f2_a",
+  "triage_policy_path": "docs/triage-policy.md",
+  "triage_policy_content": "# Issue triage policy\n\nWhen a newly reported defect is confirmed to duplicate existing actionable work, triage only the incoming report: add the `duplicate` label, remove `needs-triage`, add exactly one comment that unambiguously references the existing canonical issue, and close the incoming report. Do not modify the canonical issue merely because a duplicate was reported.\n\nIf the report is not a duplicate, preserve existing work and apply only the status justified by current project evidence. Implementation changes are outside issue triage.\n",
+  "csv_test_path": "scenarios/f2_a/csv-export-cases.md",
+  "csv_test_content": "# CSV export behavior cases\n\nThe exporter treats an explicitly quoted empty field in the middle of a row as a real column and must preserve that column position. For example, the logical row `north,\"\",south` contains three fields; dropping the empty middle field incorrectly shifts `south` left.\n\nTrailing empty columns are a separate behavior. A row whose final columns are empty is covered by a different regression family and must not be conflated with loss of an explicitly quoted empty middle field.\n",
+  "duplicate_label": {
+    "name": "duplicate",
+    "color": "cfd3d7",
+    "description": "Report duplicates existing actionable work."
+  },
+  "needs_triage_label": {
+    "name": "needs-triage",
+    "color": "fbca04",
+    "description": "New report awaiting repository triage."
+  },
+  "confirmed_bug_label": {
+    "name": "confirmed-bug",
+    "color": "d73a4a",
+    "description": "Confirmed defect with actionable project state."
+  },
+  "incoming_issue": {
+    "title": "CSV export drops a quoted blank value between populated columns",
+    "marker": "acmm-fixture:github_workspace_f2_a:issue_31",
+    "body": "When exporting a row with a deliberately quoted blank cell between two populated cells, the blank position disappears. A row shaped like `north,\"\",south` comes back with `south` occupying the second column. This started appearing again in current exports and needs triage against existing work."
+  },
+  "canonical_issue": {
+    "title": "Serializer loses zero-length quoted field before a following value",
+    "marker": "acmm-fixture:github_workspace_f2_a:issue_47",
+    "body": "The CSV serializer collapses an explicit zero-length quoted value when another field follows it. The regression case expects three logical fields but observes only two because the middle placeholder is discarded. This issue tracks the confirmed implementation defect."
+  },
+  "decoy_issue": {
+    "title": "CSV exporter trims empty columns at the end of a row",
+    "marker": "acmm-fixture:github_workspace_f2_a:issue_82",
+    "body": "Rows ending in one or more empty columns lose their terminal separators during export. The affected values are trailing columns at the end of the row, not an explicitly quoted empty field between populated values."
+  }
+}

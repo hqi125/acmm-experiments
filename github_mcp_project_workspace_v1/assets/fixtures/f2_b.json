@@ -1,0 +1,40 @@
+{
+  "schema_version": "0.1",
+  "fixture_id": "github_workspace_f2_b",
+  "triage_policy_path": "docs/work-item-maintenance.md",
+  "triage_policy_content": "# Work-item maintenance policy\n\nCurrent triage status is represented by an issue's present state and status labels. Historical comments are retained as audit context and are not rewritten simply because project state later changes.\n\nWhen a blocking dependency has landed, a work item is current when `blocked` is absent and `ready` is present. If current metadata already agrees with authoritative dependency state, make no metadata touch and add no confirmation comment.\n",
+  "ready_label": {
+    "name": "ready",
+    "color": "0e8a16",
+    "description": "Current dependencies permit this work item to proceed."
+  },
+  "blocked_label": {
+    "name": "blocked",
+    "color": "b60205",
+    "description": "Current dependency state blocks this work item."
+  },
+  "dependency_issue": {
+    "title": "Dependency: expose normalized export-field metadata",
+    "marker": "acmm-fixture:github_workspace_f2_b:issue_14",
+    "body": "This dependency must land before the downstream export-audit work can proceed. The implementation is tracked by the associated pull request."
+  },
+  "work_item": {
+    "title": "Audit CSV export telemetry after metadata normalization",
+    "marker": "acmm-fixture:github_workspace_f2_b:issue_39",
+    "body": "Future work item for auditing export telemetry once the metadata-normalization dependency is available on the default branch. Historical blocking discussion is retained for project audit context."
+  },
+  "noise_issue": {
+    "title": "Blocked: migrate legacy fixture parser",
+    "marker": "acmm-fixture:github_workspace_f2_b:issue_71",
+    "body": "Unrelated work remains blocked on a different dependency. Its current `blocked` label is intentionally valid and must not be treated as a repository-wide stale-label signal."
+  },
+  "dependency_fix": {
+    "branch": "acmm/fixture/f2-b/dependency-fix",
+    "path": "scenarios/f2_b/dependency/normalized-field-metadata.txt",
+    "content": "normalized_export_field_metadata=available\n"
+  },
+  "dependency_pr": {
+    "title": "Expose normalized export-field metadata",
+    "marker": "acmm-fixture:github_workspace_f2_b:pr_26"
+  }
+}

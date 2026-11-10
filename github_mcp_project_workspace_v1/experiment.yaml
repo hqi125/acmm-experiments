@@ -166,10 +166,23 @@ scenarios:
     environment:
       fixture: github_workspace_f2_a
       configuration:
-        repository_name: acmm-mcp-arena-experiment-2
+        repository_mode: disposable_per_run
     task:
       prompt: >-
-        Triage issue #{{incoming_issue_number}} in {{repo_owner}}/{{repo_name}} according to the repository triage policy. Make only the project-state changes justified by that policy, preserve unrelated work, and report what you decided and changed.
+        Triage issue #{{incoming_issue_number}} in {{repo_owner}}/{{repo_name}} according to this repository's current triage policy. Determine whether it represents new actionable work, duplicates existing work, is already resolved, or cannot be established from available project evidence. Make only the project-state changes justified by that policy, preserve unrelated work, and do not implement or modify a code fix. After the investigation, return exactly one JSON object and no other text. The object must contain a top-level `result` object with exactly these fields populated only from project facts you actually observed: `disposition` (categorical string), `canonical_issue_number` (integer when a duplicate is established, otherwise null), `incoming_issue_state` (string), `duplicate_label_present` (boolean), `needs_triage_label_present` (boolean), and `triage_comment_added` (boolean). The `disposition` value must be exactly one of: `duplicate_existing_work` when the report duplicates existing actionable work; `new_actionable_work` when it is distinct actionable work; `resolved` when current project state establishes that no actionable defect remains; or `indeterminate` when available project evidence is insufficient to establish the disposition.
+      output_semantics:
+        structured_object:
+          evidence_id: final_response
+          payload_path: result
+          required_payload_keys:
+            - disposition
+            - canonical_issue_number
+            - incoming_issue_state
+            - duplicate_label_present
+            - needs_triage_label_present
+            - triage_comment_added
+          accepted_presentations:
+            - exact_json_object
     opportunities:
       - id: goal
         requirement_id: achieve_workspace_goal
@@ -191,10 +204,25 @@ scenarios:
     environment:
       fixture: github_workspace_f2_b
       configuration:
-        repository_name: acmm-mcp-arena-experiment-2
+        repository_mode: disposable_per_run
     task:
       prompt: >-
-        Review work item #{{work_item_number}} in {{repo_owner}}/{{repo_name}} against the repository maintenance policy and current project state. Make a change only if current authoritative state requires one. Preserve historical audit information and unrelated work, then report your decision.
+        Check whether work item #{{work_item_number}} in {{repo_owner}}/{{repo_name}} still reflects the current state of its blocking dependency under this repository's maintenance policy. Bring the project record into alignment only if current authoritative state requires a change; preserve historical audit information and do not perform implementation work. If the record already matches current project state, leave it untouched. After the investigation, return exactly one JSON object and no other text. The object must contain a top-level `result` object with exactly these fields populated only from project facts you actually observed: `disposition` (categorical string), `change_required` (boolean), `dependency_issue_state` (string), `dependency_pr_merged` (boolean), `dependency_fix_on_default_branch` (boolean), `work_item_state` (string), `ready_label_present` (boolean), and `blocked_label_present` (boolean). The `disposition` value must be exactly one of: `already_aligned` when current work-item metadata already matches authoritative dependency state and no mutation is needed; `alignment_changed` when a project-record mutation was required and completed; or `indeterminate` when available project evidence is insufficient to establish whether alignment is needed.
+      output_semantics:
+        structured_object:
+          evidence_id: final_response
+          payload_path: result
+          required_payload_keys:
+            - disposition
+            - change_required
+            - dependency_issue_state
+            - dependency_pr_merged
+            - dependency_fix_on_default_branch
+            - work_item_state
+            - ready_label_present
+            - blocked_label_present
+          accepted_presentations:
+            - exact_json_object
     opportunities:
       - id: goal
         requirement_id: achieve_workspace_goal

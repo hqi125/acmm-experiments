@@ -2,8 +2,9 @@
 
 ## Status
 
-**F2-A and F2-B are frozen at the design level.** They are concrete enough for later fixture and
-evaluator implementation, but no executable scenario assets exist yet.
+**F2-A and F2-B are frozen at the design level and implemented in the disposable scientific runtime.**
+Package-owned fixture assets, authoritative pre/post snapshots, structured reports, and route-independent
+evaluators now exist for both variants. Live three-agent smoke calibration remains pending.
 
 ## Construct
 
@@ -41,6 +42,12 @@ The pair differs in decision topology:
 
 This keeps the construct comparable while preventing a habitual “always update the issue” policy from
 succeeding across both variants.
+
+Executable evaluation deliberately keeps **Procedure absent** for both F2 variants. Neither repository policy
+requires one specific evidence ordering before a decision. F2-A Boundary permits only successful triage writes
+targeting the incoming issue and protects all other project state; F2-B Boundary requires both an unchanged
+authoritative state digest and zero successful mutation calls, so mutation-then-restoration is not equivalent
+to a true no-op.
 
 ---
 

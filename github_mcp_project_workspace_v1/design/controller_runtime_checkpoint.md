@@ -10,8 +10,9 @@ lifecycle. F1-B includes deterministic completed Actions evidence seeded by the 
 
 Core permits an Experiment Package runtime to expose named diagnostics, free-form engineering apparatus
 actions, and an optional typed execution lifecycle. `acmm env doctor` executes diagnostics for the active staged
-runtime and includes their readiness in the environment-wide READY / NOT READY result. `acmm run apparatus`
-lists actions from the currently converged package; `acmm run apparatus <action>` explicitly invokes one.
+runtime and includes their readiness in the environment-wide READY / NOT READY result. `acmm run apparatus list`
+lists actions from the currently converged package; `acmm run apparatus exec <action>` explicitly invokes one.
+The apparatus root itself has no default action.
 
 Scientific lifecycle hooks are separate: Core owns the fixed order `session_initialize` -> `run_prepare` ->
 subject execution -> `run_observe` -> durable persistence/evaluation -> `run_finalize` -> `session_finalize`.

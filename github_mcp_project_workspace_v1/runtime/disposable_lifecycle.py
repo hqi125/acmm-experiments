@@ -26,6 +26,13 @@ from .f1_a import github_f1_a_materializer, github_f1_a_spec
 from .f1_a_runtime import github_f1_a_fixture
 from .f1_b import github_f1_b_materializer, github_f1_b_spec
 from .f1_b_runtime import github_f1_b_fixture
+from .f2 import (
+    github_f2_a_materializer,
+    github_f2_a_spec,
+    github_f2_b_materializer,
+    github_f2_b_spec,
+)
+from .f2_runtime import github_f2_a_fixture, github_f2_b_fixture
 
 
 @dataclass
@@ -55,6 +62,8 @@ class github_workspace_disposable_lifecycle:
         fixture_base_files: tuple[github_fixture_base_file, ...],
         f1_a_spec: github_f1_a_spec,
         f1_b_spec: github_f1_b_spec,
+        f2_a_spec: github_f2_a_spec,
+        f2_b_spec: github_f2_b_spec,
         sleep=time.sleep,
     ) -> None:
         self._controller = controller
@@ -66,6 +75,8 @@ class github_workspace_disposable_lifecycle:
         self._fixture_base_files = tuple(fixture_base_files)
         self._f1_a_spec = f1_a_spec
         self._f1_b_spec = f1_b_spec
+        self._f2_a_spec = f2_a_spec
+        self._f2_b_spec = f2_b_spec
         self._sleep = sleep
 
     def session_initialize(self, context: runtime_session_context) -> github_disposable_session:
@@ -76,6 +87,15 @@ class github_workspace_disposable_lifecycle:
             raise github_controller_error(
                 "Controller and subject credentials must authenticate as the same "
                 "GitHub repository owner for disposable scientific runs."
+            )
+
+        stale = self._discover_disposable_repositories()
+        if stale:
+            names = ", ".join(stale)
+            raise github_controller_error(
+                "Disposable scientific session is blocked because prior run "
+                f"repositories are still discoverable: {names}. Clean the recorded "
+                "quarantine before starting another execution."
             )
         return github_disposable_session(owner=controller_login)
 
@@ -88,10 +108,24 @@ class github_workspace_disposable_lifecycle:
     ) -> prepared_environment:
         if not isinstance(session_handle, github_disposable_session):
             raise TypeError("Disposable GitHub session handle is invalid.")
+        if session_handle.quarantined_repositories:
+            names = ", ".join(sorted(session_handle.quarantined_repositories.values()))
+            raise github_controller_error(
+                "Disposable scientific session is blocked after a quarantined run; "
+                f"later subjects must not observe {names}."
+            )
+        if session_handle.active_repositories:
+            names = ", ".join(sorted(session_handle.active_repositories.values()))
+            raise github_controller_error(
+                "Disposable scientific session already has active run apparatus: "
+                f"{names}."
+            )
         scenario_id = scenario.get("id")
         if scenario_id not in {
             "f1_a_regression_disposition",
             "f1_b_release_candidate_status",
+            "f2_a_incoming_regression_triage",
+            "f2_b_stale_work_item_maintenance",
         }:
             raise RuntimeError(
                 f"Scenario '{scenario_id}' has not yet been migrated to the "
@@ -162,14 +196,9 @@ class github_workspace_disposable_lifecycle:
                     fixture_base_files=dynamic_base,
                     spec=self._f1_a_spec,
                 )
-                materializer.run()
-                fixture = github_f1_a_fixture(
-                    self._controller,
-                    materializer,
-                    self._f1_a_spec,
-                )
+                fixture = github_f1_a_fixture(self._controller, materializer, self._f1_a_spec)
                 fixture_id = self._f1_a_spec.fixture_id
-            else:
+            elif scenario_id == "f1_b_release_candidate_status":
                 materializer = github_f1_b_materializer(
                     self._controller,
                     repository_name=repository_name,
@@ -179,13 +208,33 @@ class github_workspace_disposable_lifecycle:
                     fixture_base_files=dynamic_base,
                     spec=self._f1_b_spec,
                 )
-                materializer.run()
-                fixture = github_f1_b_fixture(
-                    self._controller,
-                    materializer,
-                    self._f1_b_spec,
-                )
+                fixture = github_f1_b_fixture(self._controller, materializer, self._f1_b_spec)
                 fixture_id = self._f1_b_spec.fixture_id
+            elif scenario_id == "f2_a_incoming_regression_triage":
+                materializer = github_f2_a_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f2_a_spec,
+                )
+                fixture = github_f2_a_fixture(self._controller, materializer, self._f2_a_spec)
+                fixture_id = self._f2_a_spec.fixture_id
+            else:
+                materializer = github_f2_b_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f2_b_spec,
+                )
+                fixture = github_f2_b_fixture(self._controller, materializer, self._f2_b_spec)
+                fixture_id = self._f2_b_spec.fixture_id
+            materializer.run()
 
             prepared = fixture.prepare(scenario, reset)
             configuration = dict(prepared.provenance.get("configuration", {}))
@@ -309,10 +358,28 @@ class github_workspace_disposable_lifecycle:
             ),
         }
 
+    def _discover_disposable_repositories(self) -> tuple[str, ...]:
+        prefix = self._run_name_prefix + "-"
+        found: set[str] = set()
+        for client in (self._controller, self._subject_client):
+            for repository in client.list_repositories():
+                name = repository.get("name")
+                full_name = repository.get("full_name")
+                if (
+                    isinstance(name, str)
+                    and name.startswith(prefix)
+                    and isinstance(full_name, str)
+                    and full_name
+                ):
+                    found.add(full_name)
+        return tuple(sorted(found))
+
     def _repository_name(self, context: runtime_run_context) -> str:
         scenario_aliases = {
             "f1_a_regression_disposition": "f1-a",
             "f1_b_release_candidate_status": "f1-b",
+            "f2_a_incoming_regression_triage": "f2-a",
+            "f2_b_stale_work_item_maintenance": "f2-b",
         }
         scenario = scenario_aliases.get(context.scenario_id, _slug(context.scenario_id))
         subject = _slug(context.subject_id.replace("_gpt_oss120b", ""))

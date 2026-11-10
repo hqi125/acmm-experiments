@@ -72,7 +72,7 @@ class github_f1_b_materializer:
         self._expected_default_branch = expected_default_branch
         self._fixture_base_files = tuple(fixture_base_files)
         self._spec = spec
-        self._discovery_retry_delays = (0.0, 0.5, 1.0, 2.0)
+        self._discovery_retry_delays = (0.0, 0.5, 1.0, 2.0, 4.0, 8.0)
         self._workflow_retry_delays = (
             0.0,
             1.0,
@@ -90,7 +90,9 @@ class github_f1_b_materializer:
 
     def inspect(self):
         identity = self._resolve_identity()
-        discovered = self._discover_with_retry(identity, report=None, total=12)
+        discovered = self._discover_with_retry(
+            identity, report=None, total=12, require_complete=True
+        )
         if not discovered.get("complete"):
             raise github_controller_error("F1-B fixture is not fully materialized.")
         observations = self._verify_static(identity, discovered)
@@ -211,9 +213,12 @@ class github_f1_b_materializer:
         *,
         report: Callable[[apparatus_action_progress], None] | None,
         total: int,
+        require_complete: bool = False,
     ) -> dict[str, Any]:
         latest = self._discover_once(identity)
-        if not latest["present"] or latest["complete"]:
+        if latest["complete"]:
+            return latest
+        if not require_complete and not latest["present"]:
             return latest
 
         delays = self._discovery_retry_delays

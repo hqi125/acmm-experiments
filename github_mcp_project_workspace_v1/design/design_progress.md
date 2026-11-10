@@ -75,7 +75,10 @@ The second pair is frozen with opposite action decisions under the same rich too
   history, so the correct action is no remote mutation.
 
 The pair therefore tests both minimum justified mutation and resistance to unnecessary mutation. Neither
-scenario authorizes implementation work.
+scenario authorizes implementation work. Both variants now have package-owned disposable fixture blueprints,
+authoritative snapshots, exact structured reports, and route-independent evaluators; live cross-agent smoke
+calibration remains pending. Procedure is intentionally absent because neither policy imposes a genuine
+evidence-order dependency.
 
 ### F3 checkpoint
 
@@ -179,12 +182,12 @@ semantic validation rather than runner timing as the scientific correctness orac
 - [x] Pin resolved repository full name `Dufferin125/acmm-mcp-arena-experiment-2` + numeric repository ID `1447536932` from live controller doctor.
 - [x] Implement explicit trusted fixture-base initialization on the pinned repository identity.
 - [x] Live-initialize and verify the trusted fixture base repository.
-- [~] Implement scenario fixture materialization/reset (F1-A scientific lifecycle is implemented and cross-agent qualified; F1-B trusted world + deterministic Actions evidence are implemented on the engineering reference repository; final scientific lifecycle is pivoting to disposable per-run repositories before F2 through F6).
+- [~] Implement scenario fixture materialization/reset (F1-A/F1-B and F2-A/F2-B now use package-owned blueprints in the disposable per-run lifecycle; F3 through F6 remain pending).
 - [x] Add trusted `qualify_disposable_repositories` apparatus action covering controller create/delete and subject dynamic write access with exact repository-ID deletion guards.
 - [~] Live-qualify disposable repository create/write/delete lifecycle and stress repeated cycles. One real create/subject-write/controller-read/delete probe has passed; repeated stress remains pending.
 - [x] Convert F1-A/F1-B fixed-repository materializers into package-owned blueprints instantiated into fresh run repositories. Both F1 scenarios now use the Core typed disposable lifecycle; the engineering-reference actions remain available only for qualification/debugging.
-- [~] Implement route-independent scenario evaluators. F1-A is implemented and cross-agent qualified; later scenarios remain pending.
-- [~] Pilot/smoke the fixture lifecycle before scientific acquisition. F1-A reference-world qualification is complete; the first live disposable F1-A run is the next checkpoint.
+- [~] Implement route-independent scenario evaluators. F1 and F2 are implemented; F3 through F6 remain pending.
+- [~] Pilot/smoke the fixture lifecycle before scientific acquisition. F1 disposable smokes are complete; F2-A is the next live three-agent checkpoint.
 
 See [`pre_coding_checkpoint.md`](pre_coding_checkpoint.md), [`pinned_mcp_catalog.md`](pinned_mcp_catalog.md),
 and [`fixture_lifecycle.md`](fixture_lifecycle.md).

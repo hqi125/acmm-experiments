@@ -75,12 +75,13 @@ sufficient authorization for destructive cleanup.
 For engineering qualification and operator debugging, the package exposes the free-form apparatus action:
 
 ```text
-acmm run apparatus qualify_disposable_repositories
+acmm run apparatus exec qualify_disposable_repositories
 ```
 
-`acmm run apparatus` resolves the currently converged Experiment 2 deployment, so the experiment selector is
-not repeated. These free-form actions are distinct from the typed scientific runtime lifecycle and are never
-automatically substituted for its fixed phases.
+`acmm run apparatus exec` resolves the currently converged Experiment 2 deployment, so the experiment selector
+is not repeated. `acmm run apparatus list` enumerates the available engineering operations, while the bare
+`acmm run apparatus` family is intentionally invalid. These free-form actions are distinct from the typed
+scientific runtime lifecycle and are never automatically substituted for its fixed phases.
 
 The action performs one complete non-scientific lifecycle probe:
 
@@ -125,10 +126,11 @@ the returned GitHub repository must independently report `private=true` before m
 
 ### Current migration status
 
-F1-A and F1-B now both use this disposable typed lifecycle. Each reuses its qualified materializer semantics
+F1-A, F1-B, F2-A, and F2-B now use this disposable typed lifecycle. Each materializes package-owned semantics
 against a fresh run repository and writes a dynamic trusted-base marker containing that repository's full name
 and numeric ID. F1-B additionally dispatches and waits for its deterministic required-check workflow before
-subject execution begins.
+subject execution begins. F2-A captures an explicitly bounded mutable issue surface; F2-B protects the entire
+remote state and additionally distinguishes true no-op trajectories from successful mutation followed by restore.
 
 ## Credential separation
 
@@ -167,6 +169,24 @@ Fine-grained PAT with **All repositories** access under the same experiment acco
 
 `Repository creation` covers creation/generation operations; `Administration: write` is required for repository
 deletion. These lifecycle powers remain trusted-controller-only.
+
+## No ahead-of-time remote repository buffering
+
+Scientific repository provisioning remains strictly sequential: while a subject is operating on run N, trusted
+code must not create the remote repository for run N+1. Both fine-grained PATs currently have **All repositories**
+visibility under the same dedicated account, so any pre-created future repository would become discoverable to
+the current subject through repository search/list operations. That is cross-run environmental leakage even if
+the future repository is never mutated.
+
+A post-hoc "repository N+1 was unchanged" checksum is therefore insufficient: read-only discovery of future-run
+state can still alter the current agent's search path, interpretation, or tool choices. Likewise, buffering an
+empty repository still exposes an extra account-level artifact not belonging to the current run.
+
+Accordingly, safe optimization may reduce work *inside* one run's trusted preparation, but it must preserve this
+visibility invariant. Concurrent remote pre-creation should be reconsidered only if the credential/repository
+model can make future-run repositories inaccessible to the current subject (for example, per-repository scoped
+credentials or an equivalent independently verified isolation mechanism). Wall-clock savings alone do not justify
+weakening one-run/one-visible-world isolation.
 
 ## CI strategy under disposable repositories
 

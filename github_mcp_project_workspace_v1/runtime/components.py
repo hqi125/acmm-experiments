@@ -12,6 +12,7 @@ from acmm.experiment_api import (
 from .apparatus import (
     github_disposable_repository_lifecycle_qualifier,
     github_fixture_base_initializer,
+    github_quarantined_repository_cleanup,
 )
 from .controller import (
     github_controller_client,
@@ -22,8 +23,15 @@ from .evaluator import github_workspace_evaluator
 from .disposable_lifecycle import github_workspace_disposable_lifecycle
 from .f1_a import github_f1_a_materializer, load_f1_a_spec
 from .f1_b import github_f1_b_materializer, load_f1_b_spec
+from .f2 import (
+    github_f2_a_materializer,
+    github_f2_b_materializer,
+    load_f2_a_spec,
+    load_f2_b_spec,
+)
 from .f1_a_runtime import github_f1_a_fixture
 from .f1_b_runtime import github_f1_b_fixture
+from .f2_runtime import github_f2_a_fixture, github_f2_b_fixture
 from .fixture import github_workspace_fixture
 
 
@@ -89,8 +97,16 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         probe_name_prefix=configuration["disposable_probe_name_prefix"],
     )
 
+    quarantine_cleanup = github_quarantined_repository_cleanup(
+        controller,
+        experiment_id="github_mcp_project_workspace_v1",
+        run_name_prefix=configuration["disposable_run_name_prefix"],
+    )
+
     f1_a_spec = _load_f1_a_configuration(context)
     f1_b_spec = _load_f1_b_configuration(context)
+    f2_a_spec = _load_f2_a_configuration(context)
+    f2_b_spec = _load_f2_b_configuration(context)
     disposable_lifecycle = github_workspace_disposable_lifecycle(
         controller,
         subject_probe_client,
@@ -101,6 +117,8 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         fixture_base_files=configuration["fixture_base_files"],
         f1_a_spec=f1_a_spec,
         f1_b_spec=f1_b_spec,
+        f2_a_spec=f2_a_spec,
+        f2_b_spec=f2_b_spec,
     )
     f1_a_materializer = github_f1_a_materializer(
         controller,
@@ -122,6 +140,26 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         spec=f1_b_spec,
     )
 
+    f2_a_materializer = github_f2_a_materializer(
+        controller,
+        repository_name=configuration["repository_name"],
+        expected_repository_full_name=configuration["repository_full_name"],
+        expected_repository_id=configuration["repository_id"],
+        expected_default_branch=configuration["expected_default_branch"],
+        fixture_base_files=configuration["fixture_base_files"],
+        spec=f2_a_spec,
+    )
+
+    f2_b_materializer = github_f2_b_materializer(
+        controller,
+        repository_name=configuration["repository_name"],
+        expected_repository_full_name=configuration["repository_full_name"],
+        expected_repository_id=configuration["repository_id"],
+        expected_default_branch=configuration["expected_default_branch"],
+        fixture_base_files=configuration["fixture_base_files"],
+        spec=f2_b_spec,
+    )
+
     fixtures = {
         fixture_id: github_workspace_fixture(fixture_id)
         for fixture_id in _FIXTURE_IDS
@@ -135,6 +173,16 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         controller,
         f1_b_materializer,
         f1_b_spec,
+    )
+    fixtures["github_workspace_f2_a"] = github_f2_a_fixture(
+        controller,
+        f2_a_materializer,
+        f2_a_spec,
+    )
+    fixtures["github_workspace_f2_b"] = github_f2_b_fixture(
+        controller,
+        f2_b_materializer,
+        f2_b_spec,
     )
     return experiment_runtime(
         capabilities=harness_capabilities(
@@ -152,6 +200,7 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
             ),
         ),
         lifecycle=disposable_lifecycle,
+        apparatus_cleanup=quarantine_cleanup,
         fixtures=fixtures,
         evaluators={"github_workspace": github_workspace_evaluator()},
         diagnostics={"github_fixture_controller": diagnostic},
@@ -160,6 +209,8 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
             "qualify_disposable_repositories": lifecycle_qualifier,
             "prepare_f1_a": f1_a_materializer,
             "prepare_f1_b": f1_b_materializer,
+            "prepare_f2_a": f2_a_materializer,
+            "prepare_f2_b": f2_b_materializer,
         },
     )
 
@@ -281,6 +332,26 @@ def _load_f1_b_configuration(
         raise ValueError("F1-B required_workflow.resource is invalid.")
     workflow_content = context.resolve_resource(resource).read_text(encoding="utf-8")
     return load_f1_b_spec(value, workflow_content=workflow_content)
+
+
+def _load_f2_a_configuration(
+    context: experiment_runtime_context,
+):
+    path = context.resolve_resource("assets/fixtures/f2_a.json")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("F2-A fixture configuration must contain a JSON object.")
+    return load_f2_a_spec(value)
+
+
+def _load_f2_b_configuration(
+    context: experiment_runtime_context,
+):
+    path = context.resolve_resource("assets/fixtures/f2_b.json")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("F2-B fixture configuration must contain a JSON object.")
+    return load_f2_b_spec(value)
 
 
 def _fingerprint(value: str) -> str:

@@ -1,9 +1,8 @@
 # GitHub MCP Project Workspace Baseline
 
-> **Status:** IMPLEMENTATION IN PROGRESS - F1-A QUALIFIED, F1-B DISPOSABLE SCIENTIFIC RUNTIME IMPLEMENTED.
-> F1-A is scientifically runnable and cross-agent qualified. F1-B now uses the same one-private-repository-per-run
-> typed lifecycle, including deterministic Actions evidence seeded before subject execution. F2 through F6 remain
-> design-frozen only.
+> **Status:** IMPLEMENTATION IN PROGRESS - F1 QUALIFIED; F2 LIVE-SMOKE HARDENING AFTER APPARATUS CONSISTENCY/ISOLATION FINDINGS.
+> F1-A/F1-B are scientifically runnable on the one-private-repository-per-run typed lifecycle. F2-A/F2-B now use
+> that same lifecycle with authoritative bounded-mutation/no-op evaluation. F3 through F6 remain design-frozen only.
 
 `github_mcp_project_workspace_v1` is the working identity for the second experiment in the reworked
 ACMM research roadmap. It follows the frozen `minimal_agent_baseline_v1` and introduces one real
@@ -101,8 +100,8 @@ All F1-A/F1-B through F6-A/F6-B scenarios are now frozen at the design level.
 | --- | --- | --- | --- |
 | F1-A | Project orientation | Regression Disposition | Reconcile stale resolved metadata with a later default-branch reintroduction; **design frozen** |
 | F1-B | Project orientation | Release Candidate Status | Reconcile green CI/closed blockers with a required fix absent from the candidate branch; **design frozen** |
-| F2-A | Triage and bounded action | Incoming Regression Triage | Identify the true duplicate and apply only the repository-required incoming-issue triage transition; **design frozen** |
-| F2-B | Triage and bounded action | Stale Work Item Maintenance | Reconcile historical blocker evidence with already-correct current status and perform a true no-op; **design frozen** |
+| F2-A | Triage and bounded action | Incoming Regression Triage | Identify the true duplicate and apply only the repository-required incoming-issue triage transition; **runtime implemented, live smoke qualified** |
+| F2-B | Triage and bounded action | Stale Work Item Maintenance | Reconcile historical blocker evidence with already-correct current status and perform a true no-op; **runtime implemented, live smoke qualified** |
 | F3-A | Cross-artifact reconciliation | Implementation Provenance | Distinguish the merged PR/commit that actually delivered implementation and correct stale provenance metadata only; **design frozen** |
 | F3-B | Cross-artifact reconciliation | Reverted Fix Status | Reconcile merged fix, later revert, and open replacement work to correct stale release-blocker status only; **design frozen** |
 | F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Diagnose a current required-check failure from completed CI + repository evidence and record only the diagnosis; **design frozen** |
@@ -188,10 +187,14 @@ The design/pre-coding gate is closed and executable implementation is underway. 
 - a trusted controller diagnostic and explicit `initialize` apparatus action for the pinned private repository;
 - an engineering-reference repository used to qualify F1-A/F1-B semantics, while final scientific acquisition
   uses one disposable private repository per run;
-- `qualify_disposable_repositories`, now invoked through `acmm run apparatus`, with one successful live
+- `qualify_disposable_repositories`, now invoked through `acmm run apparatus exec`, with one successful live
   create/subject-write/controller-read/exact-ID-delete qualification cycle;
 - a Core-owned typed execution lifecycle with package hooks for session/run prepare, observe, and deferred
   evidence-last finalization;
+- typed apparatus cleanup via `acmm run apparatus cleanup --execution <execution-dir>`, using the controller
+  credential and exact repository IDs recorded by the failed execution to batch-delete quarantined run repos;
+- fail-closed disposable isolation: a new session refuses stale `acmm-e2-run-*` repositories, and any quarantine
+  created during an execution blocks all later runs before another subject can observe GitHub;
 - a fully runnable/cross-agent-qualified F1-A Regression Disposition scenario now instantiated into a fresh
   private repository per scientific run;
 - an F1-B `prepare_f1_b` materializer that creates the release milestone, blocker label, included/missing
@@ -200,8 +203,11 @@ The design/pre-coding gate is closed and executable implementation is underway. 
 
 F1-B scientific execution now uses the disposable lifecycle. Its controller creates the fresh private repository,
 materializes the release topology, dispatches and waits for the deterministic required-check workflow, captures
-authoritative pre/post state, and deletes the exact repository only after durable run evidence. The immediate
-checkpoint is live F1-B qualification before later scenario implementation resumes.
+authoritative pre/post state, and deletes the exact repository only after durable run evidence. F2-A/F2-B reuse
+that lifecycle with bounded-mutation versus true-no-op semantics. The first F2-A live smokes exposed two apparatus
+issues now covered by regressions: GitHub default-label convergence and eventual-consistency lag in newly created
+issue list views. A later same-execution search also demonstrated that quarantined repositories are scientifically
+discoverable to the all-repositories subject PAT, so current execution now fails closed after any quarantine.
 
 See [`design/controller_runtime_checkpoint.md`](design/controller_runtime_checkpoint.md),
 [`design/fixture_lifecycle.md`](design/fixture_lifecycle.md), and

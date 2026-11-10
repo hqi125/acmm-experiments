@@ -21,6 +21,15 @@ These layers should remain separately inspectable. A correct final response must
 remote mutation, and a correct remote state must not automatically excuse a materially false final
 report.
 
+### Tool-result interpretation boundary
+
+Normalized error status follows the source of the semantics rather than accumulating provider phrases in
+Core. Core subject adapters own stable agent/runtime envelopes. The GitHub MCP integration owns
+GitHub-MCP/provider-specific payload conventions. In particular, the GitHub MCP integration may promote
+an opaque normalized tool result to `is_error: true` when the provider returns an explicit plain-text
+failure payload; it cannot clear an error already established by Core. Evaluators consume the resulting
+normalized evidence and do not embed transport/provider parsing rules themselves.
+
 ## Controlled categorical outputs
 
 When a machine-scored response field represents a true category rather than free-form explanation,

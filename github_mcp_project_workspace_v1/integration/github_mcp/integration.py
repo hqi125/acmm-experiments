@@ -16,12 +16,44 @@ from acmm.integration_api import (
     shared_integration_context,
     subject_integration,
     subject_integration_context,
+    tool_result_interpretation_context,
 )
 from acmm_infra.common import doctor_check, doctor_report, infrastructure_error
 from acmm_infra.process import command_runner
 
 
 _REDACTED = "<redacted>"
+
+
+class github_mcp_tool_result_error_interpreter:
+    def detects_error(
+        self,
+        context: tool_result_interpretation_context,
+    ) -> bool:
+        if not _is_github_mcp_tool_name(context.tool_name):
+            return False
+
+        value = context.output
+        for _ in range(2):
+            if not isinstance(value, str):
+                break
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                break
+
+        if not isinstance(value, str):
+            return False
+        return value.strip().casefold().startswith("failed to ")
+
+
+def _is_github_mcp_tool_name(name: str) -> bool:
+    value = name.casefold()
+    return (
+        value.startswith("github.")
+        or value.startswith("github_")
+        or value.startswith("mcp__github__")
+    )
 
 
 def build_integration(
@@ -37,6 +69,9 @@ def build_integration(
 
     return experiment_integration(
         shared_resource=_local_github_mcp_resource(settings),
+        tool_result_error_interpreters=(
+            github_mcp_tool_result_error_interpreter(),
+        ),
         subjects={
             "hermes": subject_integration(profile=profile, manager=manager),
             "open-webui": subject_integration(profile=profile, manager=manager),
