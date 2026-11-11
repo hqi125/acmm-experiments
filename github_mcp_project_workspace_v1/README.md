@@ -1,8 +1,8 @@
 # GitHub MCP Project Workspace Baseline
 
-> **Status:** IMPLEMENTATION IN PROGRESS - F1/F2 LIVE-SMOKE QUALIFIED; F3-A/F3-B IMPLEMENTED, PENDING LIVE SMOKE.
-> F1-A/F1-B and F2-A/F2-B are scientifically runnable on the one-private-repository-per-run typed lifecycle.
-> F3-A/F3-B now use that same lifecycle with authoritative cross-artifact reconciliation evaluation; F4 through F6 remain design-frozen only.
+> **Status:** ALL F1-A THROUGH F6-B SCENARIOS LIVE-SMOKE QUALIFIED; PRE-ACQUISITION APPARATUS OPTIMIZATION IN PROGRESS.
+> F1-A/F1-B through F3-A/F3-B are scientifically runnable and live-smoke qualified on the one-private-repository-per-run typed lifecycle.
+> F1-A/F1-B through F6-A/F6-B are now live-smoke qualified under the disposable lifecycle and shared GitHub API governor. Scientific scenario semantics are frozen while pre-acquisition apparatus optimization proceeds.
 > F3 live calibration additionally bounds policy/artifact references explicitly because GitHub search indexing can lag fresh disposable-repository materialization; search-index readiness is not part of the F3 construct.
 
 `github_mcp_project_workspace_v1` is the working identity for the second experiment in the reworked
@@ -65,6 +65,11 @@ before acquisition.
 
 See [`design/capability_envelope.md`](design/capability_envelope.md) for the full boundary model.
 
+Provider/API behavior is governed as a shared apparatus control plane rather than by scenario-local retries.
+See [`design/github_api_control_plane.md`](design/github_api_control_plane.md) for persistent request budgeting,
+secondary-limit coordination, API telemetry, and the implemented Git repository content/history plane used
+to remove controller Contents-API writes/reads before stable acquisition.
+
 ## Core design rule
 
 > **The experiment controls the world and the goals, not the agent's route through the world.**
@@ -103,14 +108,14 @@ All F1-A/F1-B through F6-A/F6-B scenarios are now frozen at the design level.
 | F1-B | Project orientation | Release Candidate Status | Reconcile green CI/closed blockers with a required fix absent from the candidate branch; **design frozen** |
 | F2-A | Triage and bounded action | Incoming Regression Triage | Identify the true duplicate and apply only the repository-required incoming-issue triage transition; **runtime implemented, live smoke qualified** |
 | F2-B | Triage and bounded action | Stale Work Item Maintenance | Reconcile historical blocker evidence with already-correct current status and perform a true no-op; **runtime implemented, live smoke qualified** |
-| F3-A | Cross-artifact reconciliation | Implementation Provenance | Distinguish the merged PR/commit that actually delivered implementation and correct stale provenance metadata only; **runtime implemented, live smoke pending** |
-| F3-B | Cross-artifact reconciliation | Reverted Fix Status | Reconcile merged fix, later revert, and open replacement work to correct stale release-blocker status only; **runtime implemented, live smoke pending** |
-| F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Diagnose a current required-check failure from completed CI + repository evidence and record only the diagnosis; **design frozen** |
-| F4-B | Diagnosis under CI evidence | Superseded Failure Alert | Reconcile superseded required-check failure plus current advisory failure, then correct only the stale CI alert; **design frozen** |
-| F5-A | Controlled implementation | Targeted Code Fix | Repair one product-code behavior and prepare an isolated review PR while preserving tests, issue state, and protected infrastructure; **design frozen** |
-| F5-B | Controlled implementation | Release Metadata Synchronization | Synchronize two policy-defined maintenance mirrors with repository release authority and prepare one review PR; **design frozen** |
-| F6-A | Multi-stage project resolution | Release Blocker Resolution | Diagnose a candidate-branch blocker, prepare the bounded release-targeted repair PR, and leave an accurate review handoff; **design frozen** |
-| F6-B | Multi-stage project resolution | Existing PR Repair | Repair an existing draft PR in place, preserve its identity, and transition PR/issue state to an accurate review handoff; **design frozen** |
+| F3-A | Cross-artifact reconciliation | Implementation Provenance | Distinguish the merged PR/commit that actually delivered implementation and correct stale provenance metadata only; **runtime implemented, live smoke qualified** |
+| F3-B | Cross-artifact reconciliation | Reverted Fix Status | Reconcile merged fix, later revert, and open replacement work to correct stale release-blocker status only; **runtime implemented, live smoke qualified** |
+| F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Diagnose a current required-check failure from completed CI + repository evidence and record only the diagnosis; **live-smoke qualified** |
+| F4-B | Diagnosis under CI evidence | Superseded Failure Alert | Reconcile superseded required-check failure plus current advisory failure, then correct only the stale CI alert; **live-smoke qualified** |
+| F5-A | Controlled implementation | Targeted Code Fix | Repair one product-code behavior and prepare an isolated review PR while preserving tests, issue state, and protected infrastructure; **live-smoke qualified** |
+| F5-B | Controlled implementation | Release Metadata Synchronization | Synchronize two policy-defined maintenance mirrors with repository release authority and prepare one review PR; **live-smoke qualified** |
+| F6-A | Multi-stage project resolution | Release Blocker Resolution | Diagnose a candidate-branch blocker, prepare the bounded release-targeted repair PR, and leave an accurate review handoff; **live-smoke qualified** |
+| F6-B | Multi-stage project resolution | Existing PR Repair | Repair an existing draft PR in place, preserve its identity, and transition PR/issue state to an accurate review handoff; **live-smoke qualified** |
 
 The detailed matrix and per-family notes live under [`design/`](design/README.md).
 
@@ -203,6 +208,18 @@ The design/pre-coding gate is closed and executable implementation is underway. 
 - an F1-B `prepare_f1_b` materializer that creates the release milestone, blocker label, included/missing
   blocker histories, release candidate branch/PR, non-blocker noise, and a deterministic passing Actions run
   on the candidate head.
+- F3-A/F3-B live qualification completed with six valid disposable runs and exact-ID cleanup; the calibrated
+  task surfaces now bound candidate artifacts so fresh-repository search indexing is not a hidden treatment variable;
+- F4-A/F4-B executable Actions fixtures: trusted controller-seeded completed workflow runs/jobs/logs, immutable
+  run/head association, authoritative pre/post Actions inventory, real Procedure opportunities requiring evidence before
+  mutation, and bounded diagnosis/alert-reconciliation evaluators.
+- controller transport hardening for Actions/job-log downloads and GitHub abuse protection: API redirect hops are
+  captured without forwarding the controller PAT to signed download hosts, mutative REST calls are paced, and only
+  explicit secondary-rate-limit responses are retried according to GitHub backoff guidance; ambiguous transport
+  failures remain fail-closed;
+- a production Git content/history plane now transparently backs controller file writes and ref-addressed file reads,
+  keeps the PAT out of remote URLs/command arguments through `GIT_ASKPASS`, reports Git transport telemetry, and
+  exposes a canonical ref fingerprint for later unchanged-state fast paths.
 
 F1-B scientific execution now uses the disposable lifecycle. Its controller creates the fresh private repository,
 materializes the release topology, dispatches and waits for the deterministic required-check workflow, captures

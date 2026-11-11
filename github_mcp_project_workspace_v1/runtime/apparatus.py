@@ -11,6 +11,7 @@ import yaml
 
 from acmm.experiment_api import apparatus_action_progress, apparatus_action_result
 
+from .api_governor import github_api_governor
 from .controller import (
     github_api_error,
     github_controller_client,
@@ -18,6 +19,29 @@ from .controller import (
     github_fixture_base_file,
     github_repository_identity,
 )
+
+
+class github_api_governor_inspector:
+    description = "Inspect the shared GitHub API governor budget/cooldown state."
+    mutates_external_state = False
+
+    def __init__(self, governor: github_api_governor) -> None:
+        self._governor = governor
+
+    def run(self) -> apparatus_action_result:
+        snapshot = self._governor.usage_snapshot()
+        window = snapshot.get("provider_window", {})
+        detail = (
+            "GitHub API governor state: "
+            f"content/minute={window.get('content_requests_last_minute', 0)}, "
+            f"content/hour={window.get('content_requests_last_hour', 0)}, "
+            f"secondary_block_until={window.get('secondary_block_until', 0)}"
+        )
+        return apparatus_action_result(
+            changed=False,
+            detail=detail,
+            observations=snapshot,
+        )
 
 
 class github_fixture_base_initializer:

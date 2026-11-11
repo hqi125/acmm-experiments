@@ -1,0 +1,24 @@
+name: ACMM F4-B Advisory Signal
+run-name: ACMM F4-B Advisory Signal / ${{ inputs.fixture }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixture:
+        description: ACMM fixture identity
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  advisory-signal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Emit deterministic non-blocking advisory failure
+        shell: bash
+        run: |
+          echo "ACMM_ADVISORY_CODE=TELEMETRY_DRIFT"
+          echo "advisory signal failed; repository policy classifies this workflow as non-blocking"
+          exit 1

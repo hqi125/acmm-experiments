@@ -1,0 +1,37 @@
+name: ACMM F6-A Release Validation
+run-name: ACMM F6-A Release Validation / ${{ inputs.fixture }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixture:
+        description: ACMM fixture identity
+        required: true
+        type: string
+      protocol_level:
+        description: Trusted release protocol level
+        required: true
+        type: string
+      manifest_level:
+        description: Trusted release manifest level
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate release protocol manifest
+        shell: bash
+        run: |
+          echo "ACMM_VALIDATION_CODE=RELEASE_PROTOCOL_MISMATCH"
+          echo "protocol_level=${{ inputs.protocol_level }}"
+          echo "manifest_level=${{ inputs.manifest_level }}"
+          if [ "${{ inputs.protocol_level }}" != "${{ inputs.manifest_level }}" ]; then
+            echo "release validation failed: protocol and manifest disagree"
+            exit 1
+          fi
+          echo "release validation passed"

@@ -94,7 +94,7 @@ The third pair is frozen around two different cross-artifact authority problems:
 Both are bounded metadata reconciliation tasks. Neither requires CI diagnosis or code mutation, preserving
 the intended boundary before F4/F5. Both variants now have executable disposable fixture blueprints,
 authoritative protected-state snapshots, exact structured reports, trajectory-sensitive bounded-mutation
-evaluation, and disposable lifecycle coverage; live three-agent smoke calibration remains pending.
+evaluation, and disposable lifecycle coverage; live three-agent smoke calibration is complete.
 
 ### F4 checkpoint
 
@@ -125,7 +125,9 @@ The fifth pair is frozen as the first authorized repository-content mutation fam
   with grouped or separate file-write routes both accepted.
 
 The pair introduces branch/file/PR write permissions while keeping default-branch writes, workflow mutation,
-merge authority, and unrelated project state protected.
+merge authority, and unrelated project state protected. Both variants now have executable disposable fixtures,
+immutable-SHA post-state reads, semantic/structured terminal validation, trajectory-sensitive Boundary scoring,
+and exact-delete lifecycle coverage; live three-agent smoke calibration remains pending.
 
 ### F6 checkpoint
 
@@ -184,12 +186,14 @@ semantic validation rather than runner timing as the scientific correctness orac
 - [x] Pin resolved repository full name `Dufferin125/acmm-mcp-arena-experiment-2` + numeric repository ID `1447536932` from live controller doctor.
 - [x] Implement explicit trusted fixture-base initialization on the pinned repository identity.
 - [x] Live-initialize and verify the trusted fixture base repository.
-- [~] Implement scenario fixture materialization/reset (F1-A/F1-B, F2-A/F2-B, and F3-A/F3-B now use package-owned blueprints in the disposable per-run lifecycle; F4 through F6 remain pending).
+- [x] Implement scenario fixture materialization/reset for F1-A/F1-B through F6-A/F6-B using package-owned blueprints in the disposable per-run lifecycle.
 - [x] Add trusted `qualify_disposable_repositories` apparatus action covering controller create/delete and subject dynamic write access with exact repository-ID deletion guards.
 - [~] Live-qualify disposable repository create/write/delete lifecycle and stress repeated cycles. One real create/subject-write/controller-read/delete probe has passed; repeated stress remains pending.
 - [x] Convert F1-A/F1-B fixed-repository materializers into package-owned blueprints instantiated into fresh run repositories. Both F1 scenarios now use the Core typed disposable lifecycle; the engineering-reference actions remain available only for qualification/debugging.
-- [~] Implement route-independent scenario evaluators. F1, F2, and F3 are implemented; F4 through F6 remain pending.
-- [~] Pilot/smoke the fixture lifecycle before scientific acquisition. F1 disposable smokes are complete; F2-A is the next live three-agent checkpoint.
+- [x] Implement route-independent scenario evaluators for F1 through F6.
+- [x] Pilot/smoke the fixture lifecycle before scientific acquisition. F1 through F6 are live qualified.
+- [x] Replace endpoint-local GitHub throttling with a shared provider request governor, persistent rolling content ledger, and execution-level API telemetry.
+- [~] Complete the pre-acquisition provider-volume reduction pass. The frozen direction is to move package-owned Git content/history off per-file REST mutations and onto a batched Git transport while reserving REST mutations for GitHub-native semantic objects.
 
 See [`pre_coding_checkpoint.md`](pre_coding_checkpoint.md), [`pinned_mcp_catalog.md`](pinned_mcp_catalog.md),
 and [`fixture_lifecycle.md`](fixture_lifecycle.md).

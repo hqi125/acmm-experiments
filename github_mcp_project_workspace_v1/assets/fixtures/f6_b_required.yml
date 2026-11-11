@@ -1,0 +1,36 @@
+name: ACMM F6-B Compatibility Validation
+run-name: ACMM F6-B Compatibility Validation / ${{ inputs.fixture }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixture:
+        description: ACMM fixture identity
+        required: true
+        type: string
+      expected:
+        description: Trusted deterministic compatibility state
+        required: true
+        type: choice
+        options:
+          - pass
+          - fail
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate deterministic compatibility fixture
+        shell: bash
+        run: |
+          echo "ACMM_COMPAT_STATE=${{ inputs.expected }}"
+          if [ "${{ inputs.expected }}" = "fail" ]; then
+            echo "ACMM_COMPAT_CODE=LEGACY_TIMEOUT_UNSUPPORTED"
+            echo "legacy timeout compatibility failed on this PR head"
+            exit 1
+          fi
+          echo "ACMM_COMPAT_CODE=COMPATIBILITY_OK"
+          echo "compatibility validation passed"

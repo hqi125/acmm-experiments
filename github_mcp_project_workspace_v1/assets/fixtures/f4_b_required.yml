@@ -1,0 +1,36 @@
+name: ACMM F4-B Required Validation
+run-name: ACMM F4-B Required Validation / ${{ inputs.fixture }} / ${{ inputs.expected }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixture:
+        description: ACMM fixture identity
+        required: true
+        type: string
+      expected:
+        description: Trusted deterministic required-check state
+        required: true
+        type: choice
+        options:
+          - pass
+          - fail
+
+permissions:
+  contents: read
+
+jobs:
+  required-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate deterministic required candidate validation
+        shell: bash
+        run: |
+          echo "ACMM_REQUIRED_STATE=${{ inputs.expected }}"
+          if [ "${{ inputs.expected }}" = "fail" ]; then
+            echo "ACMM_REQUIRED_CODE=OLD_HEAD_VALIDATION_FAILURE"
+            echo "required validation failed on this candidate head"
+            exit 1
+          fi
+          echo "ACMM_REQUIRED_CODE=CURRENT_HEAD_VALIDATION_OK"
+          echo "required validation passed on this candidate head"

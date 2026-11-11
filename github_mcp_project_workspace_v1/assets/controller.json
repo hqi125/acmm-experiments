@@ -23,5 +23,20 @@
   "disposable_repositories": {
     "probe_name_prefix": "acmm-e2-lifecycle-probe",
     "run_name_prefix": "acmm-e2-run"
+  },
+  "api_policy": {
+    "mutation_interval_seconds": 1.0,
+    "content_requests_per_minute": 60,
+    "content_requests_per_hour": 360,
+    "max_secondary_retries": 5,
+    "secondary_backoff_seconds": [
+      60.0,
+      120.0,
+      240.0,
+      480.0,
+      600.0
+    ],
+    "primary_remaining_floor": 1000,
+    "primary_reset_grace_seconds": 2.0
   }
 }

@@ -1,0 +1,40 @@
+{
+  "schema_version": "0.1",
+  "fixture_id": "github_workspace_f4_b",
+  "ci_status_policy_path": "docs/ci-status-policy.md",
+  "ci_status_policy_content": "# CI status policy\n\n`ACMM F4-B Required Validation` is the required blocking workflow for this candidate. `ACMM F4-B Advisory Signal` is informational and non-blocking. Only the required-workflow result for the pull request's current head determines whether `ci-blocked` is warranted. Historical runs remain audit evidence. When an alert refers to a superseded required failure but the current required run passes, remove `ci-blocked`, add `ci-resolved`, leave one resolution comment identifying the superseded failure and current successful required run while noting that the advisory failure is non-blocking, then close the alert issue. Do not modify code, workflows, branches, pull-request state, or Actions state.\n",
+  "candidate_state_path": "scenarios/f4_b/runtime/candidate-validation.txt",
+  "candidate_base_content": "validation_state=baseline\n",
+  "candidate_old_content": "validation_state=old_failure\n",
+  "candidate_current_content": "validation_state=current_success\n",
+  "candidate_pr": {
+    "title": "Prepare candidate validation update",
+    "marker": "acmm-fixture:github_workspace_f4_b:pr_83",
+    "branch": "acmm/fixture/f4-b/candidate"
+  },
+  "alert_issue": {
+    "title": "CI alert: required candidate validation is failing",
+    "marker": "acmm-fixture:github_workspace_f4_b:issue_84",
+    "body": "Track the required validation failure observed on the earlier candidate head. Reconcile this alert against current CI evidence and repository policy."
+  },
+  "ci_blocked_label": {
+    "name": "ci-blocked",
+    "color": "b60205",
+    "description": "Current required CI blocks progress."
+  },
+  "ci_resolved_label": {
+    "name": "ci-resolved",
+    "color": "0e8a16",
+    "description": "The tracked required CI alert has been reconciled as resolved."
+  },
+  "required_workflow": {
+    "name": "ACMM F4-B Required Validation",
+    "path": ".github/workflows/acmm-f4-b-required.yml",
+    "resource": "assets/fixtures/f4_b_required.yml"
+  },
+  "advisory_workflow": {
+    "name": "ACMM F4-B Advisory Signal",
+    "path": ".github/workflows/acmm-f4-b-advisory.yml",
+    "resource": "assets/fixtures/f4_b_advisory.yml"
+  }
+}

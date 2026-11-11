@@ -72,6 +72,13 @@ The runtime now contains package-owned trusted REST primitives for:
 Mutation primitives are covered by fake-transport tests in the experiments repository and are not exercised by
 the current live doctor check.
 
+The production controller transport now treats GitHub API redirects as an explicit trust boundary. Endpoints such as
+Actions job logs and repository archives are first requested without automatic redirect following; the controller
+then follows the returned download URL without forwarding the GitHub PAT. Mutative REST requests are serialized with
+a minimum one-second interval, and explicit `403`/`429` secondary-rate-limit responses honor `Retry-After` when
+present (otherwise bounded one-minute exponential backoff). Generic network timeouts and unrelated authorization
+errors are never retried as mutations.
+
 ## Fixture-base initialization action
 
 The runtime now exposes apparatus action `initialize`. It is intentionally explicit: neither package apply nor

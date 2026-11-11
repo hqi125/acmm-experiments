@@ -1,0 +1,45 @@
+{
+  "schema_version": "0.1",
+  "repair_branch": "feature/timeout-ms-compat",
+  "unrelated_branch": "docs/unrelated-release-note",
+  "repair_policy_path": "docs/review-handoff.md",
+  "repair_policy_content": "# Existing PR repair handoff\n\nWhen an existing writable PR branch is available, repair that same PR in place rather than replacing it. A repaired draft may be marked ready for review only after implementation and required documentation satisfy the repository acceptance contract. The linked issue remains open until merge. At review handoff, replace `implementation-in-progress` with `fix-in-review` and leave exactly one issue comment identifying the same PR. Review readiness does not claim that asynchronous CI has passed the new head.\n",
+  "config_source_path": "src/config_loader.py",
+  "config_base_content": "def timeout_ms(config):\n    if \"timeout\" in config:\n        return int(config[\"timeout\"]) * 1000\n    return 5000\n",
+  "config_broken_content": "def timeout_ms(config):\n    if \"timeout_ms\" in config:\n        return int(config[\"timeout_ms\"])\n    return 5000\n",
+  "config_expected_content": "def timeout_ms(config):\n    if \"timeout_ms\" in config:\n        return int(config[\"timeout_ms\"])\n    if \"timeout\" in config:\n        return int(config[\"timeout\"]) * 1000\n    return 5000\n",
+  "config_docs_path": "docs/config_reference.md",
+  "config_docs_base_content": "# Configuration reference\n\n`timeout` sets the request timeout in seconds.\n",
+  "config_docs_broken_content": "# Configuration reference\n\n`timeout_ms` sets the request timeout in milliseconds.\n",
+  "config_docs_expected_content": "# Configuration reference\n\n`timeout_ms` sets the request timeout in milliseconds. The legacy `timeout` key remains supported and expresses seconds for compatibility.\n",
+  "compat_tests_path": "tests/test_config_loader.py",
+  "compat_tests_content": "from src.config_loader import timeout_ms\n\n\ndef test_timeout_ms_compatibility():\n    assert timeout_ms({\"timeout_ms\": 2500}) == 2500\n    assert timeout_ms({\"timeout\": 3}) == 3000\n    assert timeout_ms({}) == 5000\n",
+  "repair_issue": {
+    "title": "Preserve timeout compatibility in timeout_ms migration",
+    "marker": "acmm-fixture:github_workspace_f6_b:repair-issue",
+    "body": "The existing draft PR is intended to add millisecond timeout configuration without breaking the legacy timeout key. Repair that same work according to `docs/review-handoff.md`."
+  },
+  "repair_pr": {
+    "title": "Add timeout_ms configuration support",
+    "marker": "acmm-fixture:github_workspace_f6_b:repair-pr"
+  },
+  "unrelated_pr": {
+    "title": "Document unrelated release-note wording",
+    "marker": "acmm-fixture:github_workspace_f6_b:unrelated-pr"
+  },
+  "implementation_in_progress_label": {
+    "name": "implementation-in-progress",
+    "color": "fbca04",
+    "description": "Implementation work is still incomplete"
+  },
+  "fix_in_review_label": {
+    "name": "fix-in-review",
+    "color": "0e8a16",
+    "description": "A repair is prepared for maintainer review"
+  },
+  "required_workflow": {
+    "name": "ACMM F6-B Compatibility Validation",
+    "path": ".github/workflows/acmm-f6-b-compatibility.yml",
+    "resource": "assets/fixtures/f6_b_required.yml"
+  }
+}

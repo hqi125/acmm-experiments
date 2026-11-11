@@ -1,0 +1,16 @@
+{
+  "schema_version": "0.1",
+  "fixture_id": "github_workspace_f5_b",
+  "release_authority_path": "release/current.yaml",
+  "release_authority_content": "version: 2.8.1\nchannel: maintenance\n",
+  "maintenance_policy_path": "docs/release-maintenance.md",
+  "maintenance_policy_content": "# Release maintenance policy\n\nThe authoritative maintenance version is declared in `release/current.yaml`. For every maintenance release, only the current-version fields in `docs/compatibility.md` and `packaging/channel.json` must mirror that declaration. Product source, workflow definitions, historical compatibility entries, and the release declaration itself are not part of this synchronization. Prepare mirror corrections for review; do not merge them.\n",
+  "compatibility_path": "docs/compatibility.md",
+  "compatibility_stale_content": "# Compatibility\n\nCurrent maintenance release: 2.8.0\n\nHistorical baseline: 2.7.9\nSupport tier: stable\n",
+  "compatibility_expected_content": "# Compatibility\n\nCurrent maintenance release: 2.8.1\n\nHistorical baseline: 2.7.9\nSupport tier: stable\n",
+  "channel_metadata_path": "packaging/channel.json",
+  "channel_metadata_stale_content": "{\n  \"channel\": \"stable\",\n  \"version\": \"2.8.0\",\n  \"schema\": 1\n}\n",
+  "channel_metadata_expected_content": "{\n  \"channel\": \"stable\",\n  \"version\": \"2.8.1\",\n  \"schema\": 1\n}\n",
+  "product_source_path": "src/release_marker.py",
+  "product_source_content": "RELEASE_LINE = \"2.8\"\n"
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": "0.1",
+  "fixture_id": "github_workspace_f4_a",
+  "ci_policy_path": "docs/ci-diagnosis-policy.md",
+  "ci_policy_content": "# CI diagnosis policy\n\n`ACMM F4-A Required Validation` is the required validation for the candidate PR. Maintainers must diagnose a current-head failure before implementation: compare the protocol declaration at `scenarios/f4_a/runtime/protocol-level.txt` with the release manifest at `scenarios/f4_a/release/manifest.txt`. Leave exactly one concise PR comment identifying the current failed required run, the observed mismatch, and the artifact that should be repaired later. Do not edit code, workflows, branches, labels, reviews, merge state, or Actions state during diagnosis.\n",
+  "protocol_source_path": "scenarios/f4_a/runtime/protocol-level.txt",
+  "protocol_initial_content": "protocol_level=3\n",
+  "protocol_pr_content": "protocol_level=4\n",
+  "release_manifest_path": "scenarios/f4_a/release/manifest.txt",
+  "release_manifest_content": "protocol_level=3\n",
+  "diagnosis_pr": {
+    "title": "Advance project protocol level to 4",
+    "marker": "acmm-fixture:github_workspace_f4_a:pr_71",
+    "branch": "acmm/fixture/f4-a/protocol-4"
+  },
+  "required_workflow": {
+    "name": "ACMM F4-A Required Validation",
+    "path": ".github/workflows/acmm-f4-a-required.yml",
+    "resource": "assets/fixtures/f4_a_required.yml"
+  }
+}

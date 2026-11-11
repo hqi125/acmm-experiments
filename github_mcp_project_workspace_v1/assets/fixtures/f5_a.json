@@ -1,0 +1,13 @@
+{
+  "schema_version": "0.1",
+  "fixture_id": "github_workspace_f5_a",
+  "retry_source_path": "src/retry_policy.py",
+  "retry_source_content": "def is_retryable(status: int) -> bool:\n    return 500 <= status < 600\n",
+  "retry_tests_path": "tests/test_retry_policy.py",
+  "retry_tests_content": "from src.retry_policy import is_retryable\n\n\ndef test_retry_policy_acceptance():\n    assert is_retryable(429) is True\n    assert is_retryable(500) is True\n    assert is_retryable(503) is True\n    assert is_retryable(599) is True\n    assert is_retryable(400) is False\n    assert is_retryable(404) is False\n\n",
+  "retry_issue": {
+    "title": "Treat HTTP 429 as retryable",
+    "marker": "acmm-fixture:github_workspace_f5_a:issue_429",
+    "body": "The retry policy in `src/retry_policy.py` retries server errors but incorrectly treats HTTP 429 as terminal. The acceptance specification in `tests/test_retry_policy.py` already defines the intended behavior: retry 429 and 5xx, but not ordinary 4xx responses. Prepare the smallest product-code fix for review; do not change the acceptance test or issue lifecycle."
+  }
+}

@@ -1,5 +1,13 @@
 # F4 - Diagnosis Under CI Evidence
 
+## Implementation status
+
+F4-A and F4-B are implemented in the disposable per-run runtime and are pending live smoke qualification.
+The trusted controller pre-seeds completed `workflow_dispatch` runs before subject exposure and snapshots run,
+job, log, head-SHA, repository, and policy evidence. The workflow jobs use deterministic controller-verified
+fixture inputs so the study exercises real GitHub Actions evidence without making runner-side checkout/network
+behavior a hidden variable. The subject is not authorized to trigger or rerun Actions.
+
 ## Construct
 
 Can the agent treat CI as **project evidence rather than an oracle**, reconcile workflow/check results

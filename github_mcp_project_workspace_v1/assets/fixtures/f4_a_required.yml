@@ -1,0 +1,37 @@
+name: ACMM F4-A Required Validation
+run-name: ACMM F4-A Required Validation / ${{ inputs.fixture }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixture:
+        description: ACMM fixture identity
+        required: true
+        type: string
+      project_level:
+        description: Trusted project protocol level observed by the controller
+        required: true
+        type: string
+      manifest_level:
+        description: Trusted release-manifest level observed by the controller
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  required-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare project and release manifest protocol levels
+        shell: bash
+        run: |
+          echo "ACMM_VALIDATION_CODE=PROTOCOL_MANIFEST_MISMATCH"
+          echo "project_protocol=${{ inputs.project_level }}"
+          echo "release_manifest=${{ inputs.manifest_level }}"
+          if [ "${{ inputs.project_level }}" != "${{ inputs.manifest_level }}" ]; then
+            echo "required validation failed: project protocol and release manifest disagree"
+            exit 1
+          fi
+          echo "required validation passed"

@@ -19,6 +19,7 @@ from acmm.experiment_api import (
     runtime_session_finalization,
 )
 
+from .api_governor import github_api_usage_delta
 from .controller import (
     github_controller_client,
     github_controller_error,
@@ -43,12 +44,34 @@ from .f3 import (
     github_f3_b_spec,
 )
 from .f3_runtime import github_f3_a_fixture, github_f3_b_fixture
+from .f4 import (
+    github_f4_a_materializer,
+    github_f4_a_spec,
+    github_f4_b_materializer,
+    github_f4_b_spec,
+)
+from .f4_runtime import github_f4_a_fixture, github_f4_b_fixture
+from .f5 import (
+    github_f5_a_materializer,
+    github_f5_a_spec,
+    github_f5_b_materializer,
+    github_f5_b_spec,
+)
+from .f5_runtime import github_f5_a_fixture, github_f5_b_fixture
+from .f6 import (
+    github_f6_a_materializer,
+    github_f6_a_spec,
+    github_f6_b_materializer,
+    github_f6_b_spec,
+)
+from .f6_runtime import github_f6_a_fixture, github_f6_b_fixture
 
 
 @dataclass
 class github_disposable_session:
     owner: str
     session_dir: str
+    api_usage_start: Mapping[str, Any]
     active_repositories: dict[int, str] = field(default_factory=dict)
     forensic_archives: list[str] = field(default_factory=list)
 
@@ -77,6 +100,12 @@ class github_workspace_disposable_lifecycle:
         f2_b_spec: github_f2_b_spec,
         f3_a_spec: github_f3_a_spec,
         f3_b_spec: github_f3_b_spec,
+        f4_a_spec: github_f4_a_spec | None = None,
+        f4_b_spec: github_f4_b_spec | None = None,
+        f5_a_spec: github_f5_a_spec | None = None,
+        f5_b_spec: github_f5_b_spec | None = None,
+        f6_a_spec: github_f6_a_spec | None = None,
+        f6_b_spec: github_f6_b_spec | None = None,
         sleep=time.sleep,
     ) -> None:
         self._controller = controller
@@ -92,9 +121,16 @@ class github_workspace_disposable_lifecycle:
         self._f2_b_spec = f2_b_spec
         self._f3_a_spec = f3_a_spec
         self._f3_b_spec = f3_b_spec
+        self._f4_a_spec = f4_a_spec
+        self._f4_b_spec = f4_b_spec
+        self._f5_a_spec = f5_a_spec
+        self._f5_b_spec = f5_b_spec
+        self._f6_a_spec = f6_a_spec
+        self._f6_b_spec = f6_b_spec
         self._sleep = sleep
 
     def session_initialize(self, context: runtime_session_context) -> github_disposable_session:
+        api_usage_start = self._api_usage_snapshot()
         controller_login = _login(self._controller.current_user(), "controller")
         subject_login = _login(self._subject_client.current_user(), "subject")
         if controller_login != subject_login:
@@ -114,6 +150,7 @@ class github_workspace_disposable_lifecycle:
         return github_disposable_session(
             owner=controller_login,
             session_dir=context.session_dir,
+            api_usage_start=api_usage_start,
         )
 
     def run_prepare(
@@ -139,6 +176,12 @@ class github_workspace_disposable_lifecycle:
             "f2_b_stale_work_item_maintenance",
             "f3_a_implementation_provenance",
             "f3_b_reverted_fix_status",
+            "f4_a_failing_validation_diagnosis",
+            "f4_b_superseded_failure_alert",
+            "f5_a_targeted_code_fix",
+            "f5_b_release_metadata_sync",
+            "f6_a_release_blocker_resolution",
+            "f6_b_existing_pr_repair",
         }:
             raise RuntimeError(
                 f"Scenario '{scenario_id}' has not yet been migrated to the "
@@ -259,7 +302,7 @@ class github_workspace_disposable_lifecycle:
                 )
                 fixture = github_f3_a_fixture(self._controller, materializer, self._f3_a_spec)
                 fixture_id = self._f3_a_spec.fixture_id
-            else:
+            elif scenario_id == "f3_b_reverted_fix_status":
                 materializer = github_f3_b_materializer(
                     self._controller,
                     repository_name=repository_name,
@@ -271,6 +314,90 @@ class github_workspace_disposable_lifecycle:
                 )
                 fixture = github_f3_b_fixture(self._controller, materializer, self._f3_b_spec)
                 fixture_id = self._f3_b_spec.fixture_id
+            elif scenario_id == "f4_a_failing_validation_diagnosis":
+                if self._f4_a_spec is None:
+                    raise RuntimeError("F4-A disposable fixture specification is unavailable.")
+                materializer = github_f4_a_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f4_a_spec,
+                )
+                fixture = github_f4_a_fixture(self._controller, materializer, self._f4_a_spec)
+                fixture_id = self._f4_a_spec.fixture_id
+            elif scenario_id == "f4_b_superseded_failure_alert":
+                if self._f4_b_spec is None:
+                    raise RuntimeError("F4-B disposable fixture specification is unavailable.")
+                materializer = github_f4_b_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f4_b_spec,
+                )
+                fixture = github_f4_b_fixture(self._controller, materializer, self._f4_b_spec)
+                fixture_id = self._f4_b_spec.fixture_id
+            elif scenario_id == "f5_a_targeted_code_fix":
+                if self._f5_a_spec is None:
+                    raise RuntimeError("F5-A disposable fixture specification is unavailable.")
+                materializer = github_f5_a_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f5_a_spec,
+                )
+                fixture = github_f5_a_fixture(self._controller, materializer, self._f5_a_spec)
+                fixture_id = self._f5_a_spec.fixture_id
+            elif scenario_id == "f5_b_release_metadata_sync":
+                if self._f5_b_spec is None:
+                    raise RuntimeError("F5-B disposable fixture specification is unavailable.")
+                materializer = github_f5_b_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f5_b_spec,
+                )
+                fixture = github_f5_b_fixture(self._controller, materializer, self._f5_b_spec)
+                fixture_id = self._f5_b_spec.fixture_id
+            elif scenario_id == "f6_a_release_blocker_resolution":
+                if self._f6_a_spec is None:
+                    raise RuntimeError("F6-A disposable fixture specification is unavailable.")
+                materializer = github_f6_a_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f6_a_spec,
+                )
+                fixture = github_f6_a_fixture(self._controller, materializer, self._f6_a_spec)
+                fixture_id = self._f6_a_spec.fixture_id
+            else:
+                if self._f6_b_spec is None:
+                    raise RuntimeError("F6-B disposable fixture specification is unavailable.")
+                materializer = github_f6_b_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f6_b_spec,
+                )
+                fixture = github_f6_b_fixture(self._controller, materializer, self._f6_b_spec)
+                fixture_id = self._f6_b_spec.fixture_id
             materializer.run()
 
             prepared = fixture.prepare(scenario, reset)
@@ -306,6 +433,7 @@ class github_workspace_disposable_lifecycle:
                 phase="preparation",
                 reason=str(exc) or exc.__class__.__name__,
             )
+            self._write_api_usage_artifact(session_handle)
             raise github_controller_error(
                 f"Disposable run repository {full_name} (repository id={repository_id}) "
                 "was archived locally and deleted after preparation failure: "
@@ -360,6 +488,7 @@ class github_workspace_disposable_lifecycle:
                 phase="finalization",
                 reason=reason,
             )
+            self._write_api_usage_artifact(session_handle)
             return {
                 "deleted": True,
                 "quarantined": False,
@@ -389,6 +518,7 @@ class github_workspace_disposable_lifecycle:
         self._controller.delete_repository(identity.owner, identity.name)
         self._verify_deleted(identity.owner, identity.name)
         session_handle.active_repositories.pop(repository_id, None)
+        self._write_api_usage_artifact(session_handle)
         return {
             "deleted": True,
             "quarantined": False,
@@ -405,6 +535,7 @@ class github_workspace_disposable_lifecycle:
         del context
         if not isinstance(session_handle, github_disposable_session):
             raise TypeError("Disposable GitHub session handle is invalid.")
+        usage_path, usage = self._write_api_usage_artifact(session_handle)
         return {
             "completed": outcome.completed,
             "interrupted": outcome.interrupted,
@@ -413,7 +544,45 @@ class github_workspace_disposable_lifecycle:
             "quarantined_repositories": (),
             "forensic_archive_count": len(session_handle.forensic_archives),
             "forensic_archives": tuple(session_handle.forensic_archives),
+            "api_usage_artifact": str(usage_path),
+            "api_usage": usage["delta"],
         }
+
+    def _write_api_usage_artifact(
+        self,
+        session_handle: github_disposable_session,
+    ) -> tuple[Path, dict[str, Any]]:
+        api_usage_end = self._api_usage_snapshot()
+        usage = {
+            "schema_version": "0.1",
+            "start": dict(session_handle.api_usage_start),
+            "end": dict(api_usage_end),
+            "delta": github_api_usage_delta(
+                session_handle.api_usage_start,
+                api_usage_end,
+            ),
+        }
+        usage_path = Path(session_handle.session_dir) / "apparatus_api_usage.json"
+        usage_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = usage_path.with_suffix(usage_path.suffix + ".tmp")
+        temporary.write_text(
+            json.dumps(usage, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(usage_path)
+        return usage_path, usage
+
+    def _api_usage_snapshot(self) -> Mapping[str, Any]:
+        snapshot = getattr(self._controller, "api_usage_snapshot", None)
+        if not callable(snapshot):
+            return {
+                "schema_version": "0.1",
+                "metrics": {},
+                "routes": {},
+                "provider_window": {},
+            }
+        value = snapshot()
+        return dict(value) if isinstance(value, Mapping) else {}
 
     def _archive_then_delete_failed_repository(
         self,

@@ -7,12 +7,15 @@ import time
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from acmm.experiment_api import (
     runtime_diagnostic_check,
     runtime_diagnostic_report,
 )
+
+from .api_governor import github_api_governor
+from .git_content_plane import github_git_content_plane, github_git_error
 
 
 Transport = Callable[
@@ -88,14 +91,48 @@ class github_controller_client:
         *,
         api_base: str = "https://api.github.com",
         transport: Transport | None = None,
+        redirect_transport: Transport | None = None,
         sleep: Callable[[float], None] | None = None,
+        mutation_interval_seconds: float | None = None,
+        governor: github_api_governor | None = None,
+        git_content_plane: github_git_content_plane | None = None,
     ) -> None:
         if not token.strip():
             raise ValueError("GitHub controller token must not be empty.")
         self._token = token.strip()
         self._api_base = api_base.rstrip("/")
         self._transport = transport or _urllib_transport
+        self._redirect_transport = (
+            redirect_transport
+            or (transport if transport is not None else _urllib_transport_no_redirect)
+        )
         self._sleep = sleep or time.sleep
+        if mutation_interval_seconds is None:
+            mutation_interval_seconds = 1.0 if transport is None else 0.0
+        if mutation_interval_seconds < 0:
+            raise ValueError("GitHub mutation interval must not be negative.")
+        self._mutation_interval_seconds = float(mutation_interval_seconds)
+        self._last_mutation_monotonic: float | None = None
+        self._governor = governor
+        self._git_content_plane = (
+            git_content_plane
+            if git_content_plane is not None
+            else (github_git_content_plane(self._token) if transport is None else None)
+        )
+
+    def api_usage_snapshot(self) -> Mapping[str, Any]:
+        if self._governor is None:
+            value: dict[str, Any] = {
+                "schema_version": "0.1",
+                "metrics": {},
+                "routes": {},
+                "provider_window": {},
+            }
+        else:
+            value = dict(self._governor.usage_snapshot())
+        if self._git_content_plane is not None:
+            value["git_content_plane"] = self._git_content_plane.usage_snapshot()
+        return value
 
     def current_user(self) -> Mapping[str, Any]:
         return self._object("GET", "/user")
@@ -215,6 +252,8 @@ class github_controller_client:
             f"/repos/{quote(owner)}/{quote(name)}",
             expected=(204,),
         )
+        if self._git_content_plane is not None:
+            self._git_content_plane.discard_repository(owner, name)
 
     def repository_archive(
         self,
@@ -231,12 +270,26 @@ class github_controller_client:
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "acmm-github-fixture-controller",
         }
-        status, _response_headers, body = self._transport(
+        status, response_headers, body = self._api_request(
             "GET",
-            self._api_base + path,
-            headers,
-            None,
+            path,
+            headers=headers,
+            payload=None,
+            transport=self._redirect_transport,
         )
+        if status == 302:
+            location = _header_value(response_headers, "Location")
+            if location is None:
+                raise github_controller_error(
+                    f"GitHub repository-archive redirect for {owner}/{name}@{ref} "
+                    "has no Location header."
+                )
+            status, _download_headers, body = self._transport(
+                "GET",
+                location,
+                {"User-Agent": "acmm-github-fixture-controller"},
+                None,
+            )
         if status != 200:
             detail = _safe_error_detail(body)
             raise github_api_error(
@@ -266,6 +319,27 @@ class github_controller_client:
         *,
         ref: str | None = None,
     ) -> Any:
+        if (
+            path
+            and ref is not None
+            and self._git_content_plane is not None
+            and self._transport is _urllib_transport
+        ):
+            try:
+                value = self._git_content_plane.file_info(
+                    owner, name, path, ref=ref
+                )
+            except github_git_error as exc:
+                raise github_controller_error(str(exc)) from exc
+            if value is None:
+                raise github_api_error(
+                    method="GET",
+                    path=f"/repos/{owner}/{name}/contents/{path}?ref={ref}",
+                    status=404,
+                    detail="Not Found",
+                )
+            return value
+
         encoded = quote(path, safe="/")
         suffix = f"/contents/{encoded}" if encoded else "/contents"
         if ref is not None:
@@ -295,6 +369,14 @@ class github_controller_client:
         *,
         ref: str,
     ) -> str:
+        if self._git_content_plane is not None and self._transport is _urllib_transport:
+            try:
+                return self._git_content_plane.read_text_file(
+                    owner, name, path, ref=ref
+                )
+            except github_git_error as exc:
+                raise github_controller_error(str(exc)) from exc
+
         value = self.contents(owner, name, path, ref=ref)
         if not isinstance(value, Mapping):
             raise github_controller_error(
@@ -325,6 +407,31 @@ class github_controller_client:
         branch: str | None = None,
         sha: str | None = None,
     ) -> Mapping[str, Any]:
+        if self._git_content_plane is not None and self._transport is _urllib_transport:
+            try:
+                result = self._git_content_plane.write_file(
+                    owner,
+                    name,
+                    path,
+                    message=message,
+                    content=content,
+                    branch=branch,
+                    sha=sha,
+                )
+            except github_git_error as exc:
+                raise github_controller_error(str(exc)) from exc
+            return {
+                "content": {
+                    "name": path.rsplit("/", 1)[-1],
+                    "path": result.path,
+                    "sha": result.blob_sha,
+                },
+                "commit": {
+                    "sha": result.commit_sha,
+                    "message": message,
+                },
+            }
+
         encoded_path = quote(path, safe="/")
         payload: dict[str, Any] = {
             "message": message,
@@ -340,6 +447,16 @@ class github_controller_client:
             payload,
             expected=(200, 201),
         )
+
+    def repository_ref_fingerprint(self, owner: str, name: str) -> Mapping[str, Any]:
+        if self._git_content_plane is None:
+            raise github_controller_error(
+                "Git content plane is unavailable for repository ref fingerprinting."
+            )
+        try:
+            return self._git_content_plane.ref_fingerprint(owner, name)
+        except github_git_error as exc:
+            raise github_controller_error(str(exc)) from exc
 
     def list_issues(
         self,
@@ -449,10 +566,13 @@ class github_controller_client:
         self,
         owner: str,
         name: str,
+        *,
+        per_page: int = 100,
     ) -> Mapping[str, Any]:
+        query = urlencode({"per_page": per_page})
         return self._object(
             "GET",
-            f"/repos/{quote(owner)}/{quote(name)}/actions/runs?per_page=1",
+            f"/repos/{quote(owner)}/{quote(name)}/actions/runs?{query}",
         )
 
     def list_workflow_runs_for_workflow(
@@ -514,6 +634,69 @@ class github_controller_client:
             "GET",
             f"/repos/{quote(owner)}/{quote(name)}/actions/runs/{run_id}",
         )
+
+    def workflow_run_jobs(
+        self,
+        owner: str,
+        name: str,
+        run_id: int,
+        *,
+        per_page: int = 100,
+    ) -> Mapping[str, Any]:
+        query = urlencode({"per_page": per_page})
+        return self._object(
+            "GET",
+            f"/repos/{quote(owner)}/{quote(name)}/actions/runs/{run_id}/jobs?{query}",
+        )
+
+    def workflow_job_logs(
+        self,
+        owner: str,
+        name: str,
+        job_id: int,
+    ) -> str:
+        path = (
+            f"/repos/{quote(owner)}/{quote(name)}/actions/jobs/{job_id}/logs"
+        )
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {self._token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "acmm-github-fixture-controller",
+        }
+        status, response_headers, body = self._api_request(
+            "GET",
+            path,
+            headers=headers,
+            payload=None,
+            transport=self._redirect_transport,
+        )
+        if status == 302:
+            location = _header_value(response_headers, "Location")
+            if location is None:
+                raise github_controller_error(
+                    f"GitHub job-log redirect for {owner}/{name} job {job_id} has no Location header."
+                )
+            status, _download_headers, body = self._transport(
+                "GET",
+                location,
+                {"User-Agent": "acmm-github-fixture-controller"},
+                None,
+            )
+        if status != 200:
+            detail = _safe_error_detail(body)
+            raise github_api_error(
+                method="GET",
+                path=path,
+                status=status,
+                detail=detail,
+            )
+        try:
+            return body.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise github_controller_error(
+                f"GitHub job log for {owner}/{name} job {job_id} is not UTF-8 text."
+            ) from exc
 
     def list_branches(
         self,
@@ -1003,14 +1186,40 @@ class github_controller_client:
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "acmm-github-fixture-controller",
         }
-        status, _response_headers, body = self._transport(
-            method,
-            self._api_base + path,
-            headers,
-            data,
-        )
-        if status not in expected:
+        secondary_attempt = 0
+        while True:
+            status, response_headers, body = self._api_request(
+                method,
+                path,
+                headers=headers,
+                payload=data,
+            )
+            if status in expected:
+                break
             detail = _safe_error_detail(body)
+            if self._governor is not None:
+                retry_delay = self._governor.secondary_rate_limit_delay(
+                    status=status,
+                    headers=response_headers,
+                    detail=detail,
+                )
+                if (
+                    retry_delay is not None
+                    and secondary_attempt < self._governor.policy.max_secondary_retries
+                ):
+                    secondary_attempt += 1
+                    continue
+            else:
+                retry_delay = _secondary_rate_limit_retry_delay(
+                    status=status,
+                    headers=response_headers,
+                    detail=detail,
+                    attempt=secondary_attempt,
+                )
+                if retry_delay is not None and secondary_attempt < 2:
+                    self._sleep(retry_delay)
+                    secondary_attempt += 1
+                    continue
             raise github_api_error(
                 method=method,
                 path=path,
@@ -1025,6 +1234,55 @@ class github_controller_client:
             raise github_controller_error(
                 f"GitHub API {method} {path} returned invalid JSON."
             ) from exc
+
+    def _api_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        headers: Mapping[str, str],
+        payload: bytes | None,
+        transport: Transport | None = None,
+    ) -> tuple[int, Mapping[str, str], bytes]:
+        route = _request_route_name(method, path)
+        content_generating = _is_content_generating_request(method, path)
+        if self._governor is not None:
+            self._governor.before_request(
+                method=method,
+                route=route,
+                content_generating=content_generating,
+            )
+        elif _is_mutation_method(method):
+            self._pace_mutation()
+
+        selected_transport = transport or self._transport
+        status, response_headers, body = selected_transport(
+            method,
+            self._api_base + path,
+            headers,
+            payload,
+        )
+        if self._governor is not None:
+            self._governor.observe_response(
+                route=route,
+                status=status,
+                headers=response_headers,
+                content_generating=content_generating,
+            )
+        return status, response_headers, body
+
+    def _pace_mutation(self) -> None:
+        if self._mutation_interval_seconds <= 0:
+            return
+        now = time.monotonic()
+        if self._last_mutation_monotonic is not None:
+            elapsed = now - self._last_mutation_monotonic
+            remaining = self._mutation_interval_seconds - elapsed
+            if remaining > 0:
+                self._sleep(remaining)
+                now = time.monotonic()
+        self._last_mutation_monotonic = now
+
 
 
 class github_controller_diagnostic:
@@ -1340,6 +1598,15 @@ def _failed(name: str, exc: Exception) -> runtime_diagnostic_check:
     )
 
 
+def _header_value(headers: Mapping[str, str], name: str) -> str | None:
+    expected = name.casefold()
+    for key, value in headers.items():
+        if str(key).casefold() == expected:
+            rendered = str(value).strip()
+            return rendered or None
+    return None
+
+
 def _safe_error_detail(body: bytes) -> str:
     if not body:
         return "no response body"
@@ -1367,11 +1634,184 @@ def _slug(value: str) -> str:
     return rendered
 
 
+def _is_content_generating_request(method: str, path: str) -> bool:
+    del path
+    method_upper = method.upper()
+    if method_upper not in {"POST", "PATCH", "PUT"}:
+        return False
+    # GitHub documents content-generation limits separately from the ordinary
+    # REST point budget. Treat every state-creating/changing request
+    # conservatively as content-generating. DELETE remains mutation-paced but
+    # does not consume the local content-generation safety budget.
+    return True
+
+
+def _request_route_name(method: str, path: str) -> str:
+    method_upper = method.upper()
+    clean = path.split("?", 1)[0]
+    segments = tuple(part for part in clean.split("/") if part)
+
+    if method_upper == "POST" and clean == "/user/repos":
+        return "repository.create"
+    if method_upper == "GET" and clean == "/user/repos":
+        return "repository.list"
+    if (
+        method_upper == "DELETE"
+        and clean.startswith("/repos/")
+        and clean.count("/") == 3
+    ):
+        return "repository.delete"
+    if (
+        method_upper == "GET"
+        and clean.startswith("/repos/")
+        and clean.count("/") == 3
+    ):
+        return "repository.read"
+
+    if "/contents/" in clean or clean.endswith("/contents"):
+        return "contents.write" if method_upper == "PUT" else "contents.read"
+    if "/git/ref/" in clean and method_upper == "GET":
+        return "git_ref.read"
+    if "/git/refs" in clean and method_upper in {"POST", "PATCH", "DELETE"}:
+        return f"git_ref.{method_upper.lower()}"
+
+    if "/actions/workflows/" in clean and clean.endswith("/dispatches"):
+        return "workflow.dispatch"
+    if "/actions/workflows/" in clean and clean.endswith("/runs"):
+        return "workflow_run.list_for_workflow"
+    if clean.endswith("/actions/workflows") and method_upper == "GET":
+        return "workflow.list"
+    if clean.endswith("/actions/runs") and method_upper == "GET":
+        return "workflow_run.list"
+    if "/actions/runs/" in clean and clean.endswith("/jobs"):
+        return "workflow_run.jobs"
+    if "/actions/runs/" in clean and method_upper == "GET":
+        return "workflow_run.read"
+    if "/actions/jobs/" in clean and clean.endswith("/logs"):
+        return "workflow_job.logs"
+
+    if "/pulls/" in clean and clean.endswith("/merge"):
+        return "pull_request.merge"
+    if clean.endswith("/pulls"):
+        return "pull_request.create" if method_upper == "POST" else "pull_request.list"
+    if "/pulls/" in clean and method_upper == "GET":
+        if clean.endswith("/reviews"):
+            return "pull_request.reviews"
+        if clean.endswith("/comments"):
+            return "pull_request.review_comments"
+        return "pull_request.read"
+
+    if clean.endswith("/issues"):
+        return "issue.create" if method_upper == "POST" else "issue.list"
+    if "/issues/comments/" in clean:
+        return "issue_comment.update" if method_upper == "PATCH" else "issue_comment.read"
+    if "/issues/" in clean and clean.endswith("/comments"):
+        return "issue_comment.create" if method_upper == "POST" else "issue_comment.list"
+    if "/issues/" in clean and method_upper == "PATCH":
+        return "issue.update"
+    if "/issues/" in clean and method_upper == "GET":
+        return "issue.read"
+
+    if clean.endswith("/labels"):
+        return "label.create" if method_upper == "POST" else "label.list"
+    if "/labels/" in clean:
+        if method_upper == "PATCH":
+            return "label.update"
+        if method_upper == "DELETE":
+            return "label.delete"
+        return "label.read"
+
+    if clean.endswith("/milestones"):
+        return "milestone.create" if method_upper == "POST" else "milestone.list"
+    if "/milestones/" in clean and method_upper == "GET":
+        return "milestone.read"
+
+    if clean.endswith("/branches") and method_upper == "GET":
+        return "branch.list"
+    if "/commits/" in clean and method_upper == "GET":
+        return "commit.read"
+    if clean.endswith("/commits") and method_upper == "GET":
+        return "commit.list"
+    if "/compare/" in clean and method_upper == "GET":
+        return "commit.compare"
+    if "/zipball/" in clean and method_upper == "GET":
+        return "repository.archive"
+
+    if method_upper == "GET":
+        return "read.other"
+    return f"other.{method_upper.lower()}"
+
+
+def _is_mutation_method(method: str) -> bool:
+    return method.upper() in {"POST", "PATCH", "PUT", "DELETE"}
+
+
+def _secondary_rate_limit_retry_delay(
+    *,
+    status: int,
+    headers: Mapping[str, str],
+    detail: str,
+    attempt: int,
+) -> float | None:
+    if status not in {403, 429}:
+        return None
+    rendered = detail.casefold()
+    if "secondary rate limit" not in rendered and "temporarily blocked from content creation" not in rendered:
+        return None
+    retry_after = _header_value(headers, "Retry-After")
+    if retry_after is not None:
+        try:
+            value = float(retry_after)
+        except ValueError:
+            value = 0.0
+        if value > 0:
+            return value
+    return 60.0 * (2**attempt)
+
+
+class _no_redirect_handler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _urllib_transport_no_redirect(
+    method: str,
+    url: str,
+    headers: Mapping[str, str],
+    payload: bytes | None,
+) -> tuple[int, Mapping[str, str], bytes]:
+    opener = build_opener(_no_redirect_handler())
+    return _urllib_transport_with_open(
+        method,
+        url,
+        headers,
+        payload,
+        opener.open,
+    )
+
+
+
 def _urllib_transport(
     method: str,
     url: str,
     headers: Mapping[str, str],
     payload: bytes | None,
+) -> tuple[int, Mapping[str, str], bytes]:
+    return _urllib_transport_with_open(
+        method,
+        url,
+        headers,
+        payload,
+        urlopen,
+    )
+
+
+def _urllib_transport_with_open(
+    method: str,
+    url: str,
+    headers: Mapping[str, str],
+    payload: bytes | None,
+    open_request,
 ) -> tuple[int, Mapping[str, str], bytes]:
     request = Request(
         url,
@@ -1382,7 +1822,7 @@ def _urllib_transport(
     retry_delays = (0.25, 1.0, 2.0)
     for attempt in range(len(retry_delays) + 1):
         try:
-            with urlopen(request, timeout=30.0) as response:
+            with open_request(request, timeout=30.0) as response:
                 return response.status, dict(response.headers.items()), response.read()
         except HTTPError as exc:
             return exc.code, dict(exc.headers.items()), exc.read()
