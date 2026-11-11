@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import fields, is_dataclass, replace
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
+import time
 from typing import Any, Mapping
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from acmm.integration_api import (
     experiment_integration,
@@ -23,6 +27,8 @@ from acmm_infra.process import command_runner
 
 
 _REDACTED = "<redacted>"
+_UNADMITTED_TOKEN = "acmm-runtime-admission-required"
+_AGENT_ZERO_CATALOG_RETRY_DELAYS = (0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
 
 
 class github_mcp_tool_result_error_interpreter:
@@ -66,6 +72,12 @@ def build_integration(
     settings = _settings(context.configuration)
     profile = _github_mcp_profile_integration(settings)
     manager = _github_mcp_manager_integration(settings)
+    admission = _github_mcp_runtime_admission(settings)
+    binding = subject_integration(
+        profile=profile,
+        manager=manager,
+        admission=admission,
+    )
 
     return experiment_integration(
         shared_resource=_local_github_mcp_resource(settings),
@@ -73,10 +85,10 @@ def build_integration(
             github_mcp_tool_result_error_interpreter(),
         ),
         subjects={
-            "hermes": subject_integration(profile=profile, manager=manager),
-            "open-webui": subject_integration(profile=profile, manager=manager),
-            "agent-zero": subject_integration(profile=profile, manager=manager),
-        }
+            "hermes": binding,
+            "open-webui": binding,
+            "agent-zero": binding,
+        },
     )
 
 
@@ -89,37 +101,21 @@ class _github_mcp_profile_integration:
         context: subject_integration_context,
         profile: object,
     ) -> object:
-        token = context.resolve_secret("access_token").strip()
-
+        token = _UNADMITTED_TOKEN
         if context.infrastructure_subject == "hermes":
             return self._hermes(profile, token)
         if context.infrastructure_subject == "open-webui":
             return self._open_webui(profile, token)
         if context.infrastructure_subject == "agent-zero":
             return self._agent_zero(profile, token)
-
         raise ValueError(
-            "GitHub MCP project-workspace integration does not support infrastructure "
-            f"subject '{context.infrastructure_subject}'."
+            "Unsupported infrastructure subject for GitHub MCP integration: "
+            + context.infrastructure_subject
         )
 
     def _hermes(self, profile: object, token: str) -> object:
         key = f"mcp_servers.{self._settings.server_id}"
-        value = json.dumps(
-            {
-                "url": self._settings.endpoint,
-                "headers": _headers(token),
-                "enabled": True,
-                "timeout": 120,
-                "connect_timeout": 30,
-                "supports_parallel_tool_calls": False,
-                "tools": {
-                    "resources": False,
-                    "prompts": False,
-                },
-            },
-            separators=(",", ":"),
-        )
+        value = _hermes_server_value(self._settings, token)
         overrides = tuple(getattr(profile, "managed_config_overrides", ()))
         return replace(
             profile,
@@ -151,25 +147,8 @@ class _github_mcp_profile_integration:
 
     def _agent_zero(self, profile: object, token: str) -> object:
         isolation = getattr(profile, "experiment_isolation")
-        isolation = replace(
-            isolation,
-            mcp_tool_default="allow",
-        )
-        mcp_servers = json.dumps(
-            {
-                "mcpServers": {
-                    self._settings.server_id: {
-                        "type": "streamable-http",
-                        "url": self._settings.endpoint,
-                        "headers": _headers(token),
-                        "init_timeout": 60,
-                        "tool_timeout": 120,
-                        "verify": True,
-                    }
-                }
-            },
-            separators=(",", ":"),
-        )
+        isolation = replace(isolation, mcp_tool_default="allow")
+        mcp_servers = _agent_zero_servers(self._settings, token)
         environment = tuple(getattr(profile, "managed_environment_overrides", ()))
         environment = _append_unique_pair(
             environment,
@@ -195,28 +174,118 @@ class _github_mcp_manager_integration:
         context: subject_integration_context,
         manager: object,
     ) -> object:
-        token = context.resolve_secret("access_token").strip()
-        return _redacting_workspace_manager(
+        return _runtime_workspace_manager(
             manager=manager,
             infrastructure_subject=context.infrastructure_subject,
             settings=self._settings,
-            token=token,
         )
 
 
-class _redacting_workspace_manager:
+@dataclass(frozen=True)
+class _runtime_admission_handle:
+    token: str = field(repr=False)
+    repository_id: int
+    repository_full_name: str
+    ledger_path: str
+
+
+class _github_mcp_runtime_admission:
+    def __init__(self, settings: "_integration_settings") -> None:
+        self._settings = settings
+
+    def admit(
+        self,
+        context: subject_integration_context,
+        manager: object,
+        payload: Mapping[str, Any],
+    ) -> _runtime_admission_handle:
+        del context
+        token = _required_payload_text(payload, "access_token")
+        repository_full_name = _required_payload_text(
+            payload, "repository_full_name"
+        )
+        ledger_path = _required_payload_text(payload, "ledger_path")
+        repository_id = payload.get("repository_id")
+        if not isinstance(repository_id, int) or isinstance(repository_id, bool) or repository_id <= 0:
+            raise ValueError("Runtime GitHub MCP admission repository_id is invalid.")
+        runtime_admit = getattr(manager, "runtime_admit", None)
+        if not callable(runtime_admit):
+            raise ValueError("GitHub MCP subject manager does not support runtime admission.")
+        runtime_admit(token)
+        _update_resource_ledger(
+            ledger_path,
+            repository_id,
+            subject_bound=True,
+        )
+        return _runtime_admission_handle(
+            token=token,
+            repository_id=repository_id,
+            repository_full_name=repository_full_name,
+            ledger_path=ledger_path,
+        )
+
+    def revoke(
+        self,
+        context: subject_integration_context,
+        manager: object,
+        handle: _runtime_admission_handle,
+    ) -> Mapping[str, Any]:
+        del context
+        if not isinstance(handle, _runtime_admission_handle):
+            raise ValueError("GitHub MCP runtime admission handle is invalid.")
+        errors: list[str] = []
+        token_revoked = False
+        subject_unbound = False
+        try:
+            _revoke_installation_token(self._settings.github_api_base, handle.token)
+            token_revoked = True
+            _update_resource_ledger(
+                handle.ledger_path,
+                handle.repository_id,
+                token_revoked=True,
+            )
+        except Exception as exc:
+            errors.append("token revocation: " + (str(exc) or exc.__class__.__name__))
+
+        try:
+            runtime_revoke = getattr(manager, "runtime_revoke", None)
+            if not callable(runtime_revoke):
+                raise ValueError(
+                    "GitHub MCP subject manager does not support runtime revocation."
+                )
+            runtime_revoke(handle.token)
+            subject_unbound = True
+            _update_resource_ledger(
+                handle.ledger_path,
+                handle.repository_id,
+                subject_unbound=True,
+            )
+        except Exception as exc:
+            errors.append("subject unbind: " + (str(exc) or exc.__class__.__name__))
+
+        if errors:
+            raise RuntimeError(
+                "GitHub MCP runtime revocation failed: " + "; ".join(errors)
+            )
+        return {
+            "repository_id": handle.repository_id,
+            "repository_full_name": handle.repository_full_name,
+            "token_revoked": token_revoked,
+            "subject_unbound": subject_unbound,
+        }
+
+
+class _runtime_workspace_manager:
     def __init__(
         self,
         *,
         manager: object,
         infrastructure_subject: str,
         settings: "_integration_settings",
-        token: str,
     ) -> None:
         self._manager = manager
         self._infrastructure_subject = infrastructure_subject
         self._settings = settings
-        self._token = token
         self.profile = getattr(manager, "profile")
         self.deployment_root = getattr(manager, "deployment_root")
         self.docker = getattr(manager, "docker")
@@ -225,27 +294,26 @@ class _redacting_workspace_manager:
         return getattr(self._manager, name)
 
     def apply(self, *, timeout_seconds: float = 120.0, progress=None):
-        safe_progress = None
-        if progress is not None:
-            safe_progress = lambda message: progress(_redact(message, self._token))
         try:
-            value = self._manager.apply(
+            return self._manager.apply(
                 timeout_seconds=timeout_seconds,
-                progress=safe_progress,
+                progress=progress,
             )
         except Exception as exc:
-            detail = str(_redact(str(exc), self._token))
-            raise infrastructure_error(detail) from exc
-        return _redact(value, self._token)
+            raise infrastructure_error(str(exc) or exc.__class__.__name__) from exc
 
     def status(self):
-        return _redact(self._manager.status(), self._token)
+        return self._manager.status()
 
     def doctor(self):
         base = self._manager.doctor()
-        catalog = self._catalog_check()
-        report = doctor_report(checks=tuple(base.checks) + (catalog,))
-        return _redact(report, self._token)
+        admission = doctor_check(
+            "integration:github_mcp_discovery",
+            True,
+            "static deployment is intentionally unadmitted; exact MCP catalog is "
+            "verified after per-run credential admission",
+        )
+        return doctor_report(checks=tuple(base.checks) + (admission,))
 
     def up(self, *, timeout_seconds: float = 120.0) -> None:
         self._manager.up(timeout_seconds=timeout_seconds)
@@ -253,52 +321,98 @@ class _redacting_workspace_manager:
     def down(self) -> None:
         self._manager.down()
 
-    def _catalog_check(self) -> doctor_check:
-        if not self.docker.container_running():
-            return doctor_check(
-                "integration:github_mcp_discovery",
-                False,
-                "runtime is stopped; native MCP discovery was not attempted",
-            )
+    def runtime_admit(self, token: str) -> None:
+        self._set_runtime_token(token)
+        ok, detail = self._catalog_check(token)
+        if ok:
+            return
+        try:
+            self._set_runtime_token(_UNADMITTED_TOKEN)
+        except Exception:
+            pass
+        raise infrastructure_error(
+            "GitHub MCP runtime admission catalog verification failed: "
+            + str(_redact(detail, token))
+        )
 
+    def runtime_revoke(self, token: str) -> None:
+        self._set_runtime_token(_UNADMITTED_TOKEN)
+
+    def _set_runtime_token(self, token: str) -> None:
+        if self._infrastructure_subject == "hermes":
+            key = f"mcp_servers.{self._settings.server_id}"
+            value = _hermes_server_value(self._settings, token)
+            result = self.docker.exec(
+                ["hermes", "config", "set", key, value, "--force"]
+            )
+            if not result.succeeded:
+                detail = (result.stderr or result.stdout or "").strip()
+                raise infrastructure_error(
+                    "Hermes runtime MCP credential update failed: "
+                    + str(_redact(detail, token))
+                )
+            return
+        if self._infrastructure_subject == "open-webui":
+            api = getattr(self._manager, "api")
+            session = api.authenticate_no_auth_admin()
+            admin_token = _required_text(session, "token", "Open WebUI admin session")
+            api.import_config(
+                admin_token,
+                {
+                    "tool_server.connections": [
+                        _open_webui_connection(self._settings, token)
+                    ]
+                },
+            )
+            return
+        if self._infrastructure_subject == "agent-zero":
+            api = getattr(self._manager, "api")
+            observed = api.get_settings()
+            settings = observed.get("settings")
+            if not isinstance(settings, dict):
+                raise infrastructure_error(
+                    "Agent Zero settings response did not contain a settings object."
+                )
+            desired = dict(settings)
+            desired["mcp_servers"] = _agent_zero_servers(self._settings, token)
+            updated = api.update_settings(desired)
+            updated_settings = updated.get("settings")
+            if (
+                not isinstance(updated_settings, dict)
+                or updated_settings.get("mcp_servers") != desired["mcp_servers"]
+            ):
+                raise infrastructure_error(
+                    "Agent Zero runtime MCP credential update was not persisted."
+                )
+            return
+        raise infrastructure_error(
+            "Unsupported infrastructure subject for GitHub MCP runtime admission: "
+            + self._infrastructure_subject
+        )
+
+    def _catalog_check(self, token: str) -> tuple[bool, str]:
         try:
             if self._infrastructure_subject == "hermes":
-                ok, detail = self._probe_hermes()
-            elif self._infrastructure_subject == "open-webui":
-                ok, detail = self._probe_open_webui()
-            elif self._infrastructure_subject == "agent-zero":
-                ok, detail = self._probe_agent_zero()
-            else:
-                ok = False
-                detail = (
-                    "unsupported infrastructure subject: "
-                    + self._infrastructure_subject
-                )
+                return self._probe_hermes()
+            if self._infrastructure_subject == "open-webui":
+                return self._probe_open_webui(token)
+            if self._infrastructure_subject == "agent-zero":
+                return self._probe_agent_zero()
+            return False, "unsupported infrastructure subject"
         except Exception as exc:
-            ok = False
-            detail = f"native discovery probe failed: {exc}"
-
-        return doctor_check(
-            "integration:github_mcp_discovery",
-            ok,
-            str(_redact(detail, self._token)),
-        )
+            return False, str(_redact(str(exc) or exc.__class__.__name__, token))
 
     def _probe_hermes(self) -> tuple[bool, str]:
-        result = self.docker.exec(
-            ["hermes", "mcp", "test", self._settings.server_id]
-        )
+        result = self.docker.exec(["hermes", "mcp", "test", self._settings.server_id])
         detail = (result.stdout or result.stderr or "").strip()
         if not detail:
             return False, "Hermes MCP test returned no diagnostic output."
         if not result.succeeded:
             return False, detail
-
         plain = _strip_ansi(detail)
         count_match = re.search(r"Tools discovered:\s*(\d+)", plain)
         if count_match is None:
             return False, "Hermes MCP test did not report a discovered-tool count."
-
         expected = set(self._settings.expected_tools)
         observed = {
             tool
@@ -307,46 +421,57 @@ class _redacting_workspace_manager:
         }
         discovered_count = int(count_match.group(1))
         if discovered_count != len(expected) or observed != expected:
-            return (
-                False,
+            return False, (
                 "Hermes discovered MCP tools "
                 f"{sorted(observed)!r} with reported count {discovered_count}; "
-                f"expected {sorted(expected)!r}.",
+                f"expected {sorted(expected)!r}."
             )
-        return (
-            True,
+        return True, (
             f"discovered exactly {len(observed)} expected GitHub MCP tools "
-            f"(catalog sha256={_catalog_sha256(observed)})",
+            f"(catalog sha256={_catalog_sha256(observed)})"
         )
 
-    def _probe_open_webui(self) -> tuple[bool, str]:
+    def _probe_open_webui(self, token: str) -> tuple[bool, str]:
         api = getattr(self._manager, "api")
         session = api.authenticate_no_auth_admin()
-        token = _required_text(session, "token", "Open WebUI admin session")
+        admin_token = _required_text(session, "token", "Open WebUI admin session")
         request = getattr(api, "_request_json")
         result = request(
             "POST",
             "/api/v1/configs/tool_servers/verify",
-            payload=_open_webui_connection(self._settings, self._token),
-            token=token,
+            payload=_open_webui_connection(self._settings, token),
+            token=admin_token,
         )
         if result.get("status") is not True:
             return False, "Open WebUI MCP verification did not return status=true."
         observed = _open_webui_tool_names(result.get("specs"))
         expected = set(self._settings.expected_tools)
         if observed != expected:
-            return (
-                False,
+            return False, (
                 "Open WebUI discovered MCP tools "
-                f"{sorted(observed)!r}; expected {sorted(expected)!r}.",
+                f"{sorted(observed)!r}; expected {sorted(expected)!r}."
             )
-        return (
-            True,
+        return True, (
             f"discovered exactly {len(observed)} expected GitHub MCP tools "
-            f"(catalog sha256={_catalog_sha256(observed)})",
+            f"(catalog sha256={_catalog_sha256(observed)})"
         )
 
     def _probe_agent_zero(self) -> tuple[bool, str]:
+        last_detail = "Agent Zero MCP catalog did not become ready."
+        for delay in _AGENT_ZERO_CATALOG_RETRY_DELAYS:
+            if delay > 0:
+                time.sleep(delay)
+            try:
+                ok, detail = self._probe_agent_zero_once()
+            except Exception as exc:
+                ok = False
+                detail = str(exc) or exc.__class__.__name__
+            if ok:
+                return True, detail
+            last_detail = detail
+        return False, last_detail
+
+    def _probe_agent_zero_once(self) -> tuple[bool, str]:
         api = getattr(self._manager, "api")
         request = getattr(api, "_request_json")
         result = request(
@@ -359,7 +484,6 @@ class _redacting_workspace_manager:
         detail = result.get("detail")
         if not isinstance(detail, Mapping):
             return False, "Agent Zero MCP detail probe returned no detail mapping."
-
         observed = _agent_zero_tool_names(detail)
         expected = set(self._settings.expected_tools)
         error = detail.get("error")
@@ -369,16 +493,114 @@ class _redacting_workspace_manager:
         if connected is False:
             return False, "Agent Zero MCP server is not connected."
         if observed != expected:
-            return (
-                False,
+            return False, (
                 "Agent Zero discovered MCP tools "
-                f"{sorted(observed)!r}; expected {sorted(expected)!r}.",
+                f"{sorted(observed)!r}; expected {sorted(expected)!r}."
             )
-        return (
-            True,
+        return True, (
             f"discovered exactly {len(observed)} expected GitHub MCP tools "
-            f"(catalog sha256={_catalog_sha256(observed)})",
+            f"(catalog sha256={_catalog_sha256(observed)})"
         )
+
+
+def _hermes_server_value(settings: "_integration_settings", token: str) -> str:
+    return json.dumps(
+        {
+            "url": settings.endpoint,
+            "headers": _headers(token),
+            "enabled": True,
+            "timeout": 120,
+            "connect_timeout": 30,
+            "supports_parallel_tool_calls": False,
+            "tools": {"resources": False, "prompts": False},
+        },
+        separators=(",", ":"),
+    )
+
+
+def _agent_zero_servers(settings: "_integration_settings", token: str) -> str:
+    return json.dumps(
+        {
+            "mcpServers": {
+                settings.server_id: {
+                    "type": "streamable-http",
+                    "url": settings.endpoint,
+                    "headers": _headers(token),
+                    "init_timeout": 60,
+                    "tool_timeout": 120,
+                    "verify": True,
+                }
+            }
+        },
+        separators=(",", ":"),
+    )
+
+
+def _required_payload_text(payload: Mapping[str, Any], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"Runtime GitHub MCP admission field '{key}' is invalid.")
+    return value.strip()
+
+
+def _revoke_installation_token(api_base: str, token: str) -> None:
+    request = Request(
+        api_base.rstrip("/") + "/installation/token",
+        method="DELETE",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2026-03-10",
+            "User-Agent": "acmm-github-mcp-runtime-admission",
+        },
+    )
+    try:
+        with urlopen(request, timeout=30.0) as response:
+            status = response.status
+            body = response.read()
+    except HTTPError as exc:
+        status = exc.code
+        body = exc.read()
+    except URLError as exc:
+        raise RuntimeError(
+            f"GitHub installation-token revocation failed: {exc.reason}"
+        ) from exc
+    if status != 204:
+        detail = body.decode("utf-8", errors="replace")[:500]
+        raise RuntimeError(
+            f"GitHub installation-token revocation returned HTTP {status}: {detail}"
+        )
+
+
+def _update_resource_ledger(
+    ledger_path: str,
+    repository_id: int,
+    **changes: Any,
+) -> None:
+    path = Path(ledger_path)
+    value = json.loads(path.read_text(encoding="utf-8"))
+    repositories = value.get("repositories")
+    if not isinstance(repositories, list):
+        raise RuntimeError("GitHub runtime resource ledger is invalid.")
+    for item in repositories:
+        if not isinstance(item, dict) or item.get("repository_id") != repository_id:
+            continue
+        for key, change in changes.items():
+            if key not in item:
+                raise RuntimeError(
+                    f"GitHub runtime resource ledger field '{key}' is unavailable."
+                )
+            item[key] = change
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        with temporary.open("wb") as handle:
+            handle.write((json.dumps(value, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+        return
+    raise RuntimeError(
+        f"GitHub runtime resource ledger does not contain repository id {repository_id}."
+    )
 
 
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -398,6 +620,7 @@ class _integration_settings:
         excluded_tools: tuple[str, ...],
         expected_tools: tuple[str, ...],
         expected_catalog_sha256: str,
+        github_api_base: str,
         image: str,
         expected_repo_digest: str,
         container_name: str,
@@ -409,6 +632,7 @@ class _integration_settings:
         self.excluded_tools = excluded_tools
         self.expected_tools = expected_tools
         self.expected_catalog_sha256 = expected_catalog_sha256
+        self.github_api_base = github_api_base
         self.image = image
         self.expected_repo_digest = expected_repo_digest
         self.container_name = container_name
@@ -436,6 +660,9 @@ def _settings(configuration: Mapping[str, Any]) -> _integration_settings:
             "expected_tools catalog digest does not match expected_catalog_sha256: "
             f"observed={observed_catalog_sha256}, expected={expected_catalog_sha256}."
         )
+    github_api_base = _required_configuration_text(configuration, "github_api_base")
+    if not github_api_base.startswith("https://"):
+        raise ValueError("github_api_base must use HTTPS.")
     service = configuration.get("local_service")
     if not isinstance(service, Mapping):
         raise ValueError("local_service must be a mapping.")
@@ -458,6 +685,7 @@ def _settings(configuration: Mapping[str, Any]) -> _integration_settings:
         excluded_tools=excluded_tools,
         expected_tools=expected_tools,
         expected_catalog_sha256=expected_catalog_sha256,
+        github_api_base=github_api_base,
         image=image,
         expected_repo_digest=expected_repo_digest,
         container_name=container_name,

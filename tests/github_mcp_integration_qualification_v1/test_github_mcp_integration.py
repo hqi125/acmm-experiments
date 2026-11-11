@@ -29,7 +29,50 @@ ROOT = (
 )
 EXPERIMENT_ID = "github_mcp_integration_qualification_v1"
 TOKEN = "qualification-" + "secret-" + "value"
-EXPECTED_TOOLS = ("issue_read", "issue_write", "add_issue_comment")
+EXPECTED_TOOLS = (
+    "actions_get",
+    "actions_list",
+    "add_comment_to_pending_review",
+    "add_issue_comment",
+    "add_reply_to_pull_request_comment",
+    "create_branch",
+    "create_or_update_file",
+    "create_pull_request",
+    "delete_file",
+    "get_commit",
+    "get_file_contents",
+    "get_job_logs",
+    "get_label",
+    "get_latest_release",
+    "get_release_by_tag",
+    "get_repository_tree",
+    "get_tag",
+    "issue_read",
+    "issue_write",
+    "label_write",
+    "list_branches",
+    "list_commits",
+    "list_issues",
+    "list_label",
+    "list_pull_requests",
+    "list_releases",
+    "list_repository_collaborators",
+    "list_tags",
+    "merge_pull_request",
+    "pull_request_read",
+    "pull_request_review_write",
+    "push_files",
+    "search_code",
+    "search_commits",
+    "search_issues",
+    "search_pull_requests",
+    "search_repositories",
+    "search_users",
+    "sub_issue_write",
+    "update_issue_comment",
+    "update_pull_request",
+    "update_pull_request_branch",
+)
 
 
 def _install_copy(tmp_path: Path):
@@ -226,10 +269,8 @@ def test_manager_wrapper_verifies_hermes_exact_tool_catalog(
     output = (
         "Testing 'github'...\n"
         "Connected (12ms)\n"
-        "Tools discovered: 3\n\n"
-        "  issue_read  Read issue\n"
-        "  issue_write  Write issue\n"
-        "  add_issue_comment  Add comment\n"
+        f"Tools discovered: {len(EXPECTED_TOOLS)}\n\n"
+        + "".join(f"  {tool}  Tool\n" for tool in EXPECTED_TOOLS)
     )
     manager = _fake_manager(
         docker=_fake_docker(
@@ -251,7 +292,7 @@ def test_manager_wrapper_verifies_hermes_exact_tool_catalog(
     assert report.is_ready is True
     assert report.checks[-1].name == "integration:github_mcp_discovery"
     assert report.checks[-1].ok is True
-    assert "exactly 3 expected" in report.checks[-1].detail
+    assert "exactly 42 expected" in report.checks[-1].detail
 
 
 def test_manager_wrapper_rejects_hermes_wrong_tool_catalog(
@@ -260,12 +301,12 @@ def test_manager_wrapper_rejects_hermes_wrong_tool_catalog(
 ) -> None:
     _bind_token(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
+    missing = EXPECTED_TOOLS[:-1]
     output = (
         "Testing 'github'...\n"
         "Connected (12ms)\n"
-        "Tools discovered: 2\n\n"
-        "  issue_read  Read issue\n"
-        "  issue_write  Write issue\n"
+        f"Tools discovered: {len(missing)}\n\n"
+        + "".join(f"  {tool}  Tool\n" for tool in missing)
     )
     manager = _fake_manager(
         docker=_fake_docker(
@@ -286,7 +327,7 @@ def test_manager_wrapper_rejects_hermes_wrong_tool_catalog(
 
     assert report.is_ready is False
     assert report.checks[-1].ok is False
-    assert "reported count 2" in report.checks[-1].detail
+    assert "reported count 41" in report.checks[-1].detail
 
 
 
@@ -517,12 +558,17 @@ def test_trusted_fixture_materializes_and_restores_canonical_issue(
             self.next_comment_id = 10
 
         def request(self, method, path, payload=None):
-            if method == "GET" and path == "/user":
-                return {"login": "arena-user"}
-            if method == "GET" and path == "/repos/arena-user/acmm-mcp-arena-experiment-2":
+            if method == "GET" and path == "/installation/repositories?per_page=100":
                 return {
-                    "full_name": "arena-user/acmm-mcp-arena-experiment-2",
-                    "has_issues": True,
+                    "total_count": 1,
+                    "repositories": [
+                        {
+                            "name": "qualification-repo",
+                            "full_name": "arena-user/qualification-repo",
+                            "owner": {"login": "arena-user"},
+                            "has_issues": True,
+                        }
+                    ],
                 }
             if method == "GET" and path.endswith("/issues?state=all&per_page=100"):
                 return [] if self.issue is None else [dict(self.issue)]
@@ -564,7 +610,9 @@ def test_trusted_fixture_materializes_and_restores_canonical_issue(
     assert prepared.provenance == {
         "fixture": "github_issue_behavior_qualification_v1",
         "configuration": {
-            "repository_name": "acmm-mcp-arena-experiment-2",
+            "repository_full_name": "arena-user/qualification-repo",
+            "credential_model": "github_app_installation_token",
+            "visible_repository_count": 1,
         },
     }
     initial = json.loads(prepared.evidence[0].content)
@@ -613,7 +661,7 @@ def test_verified_report_requires_authoritative_post_state(
     state = {
         "authoritative_source": "github_rest_api",
         "api_version": "2026-03-10",
-        "repository": "arena-user/acmm-mcp-arena-experiment-2",
+        "repository": "arena-user/qualification-repo",
         "issue": {
             "number": 1,
             "title": "[ACMM] GitHub MCP behavior qualification arena",

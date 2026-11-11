@@ -1,9 +1,8 @@
 # GitHub MCP Project Workspace Baseline
 
-> **Status:** ALL F1-A THROUGH F6-B SCENARIOS LIVE-SMOKE QUALIFIED; PRE-ACQUISITION APPARATUS OPTIMIZATION IN PROGRESS.
-> F1-A/F1-B through F3-A/F3-B are scientifically runnable and live-smoke qualified on the one-private-repository-per-run typed lifecycle.
-> F1-A/F1-B through F6-A/F6-B are now live-smoke qualified under the disposable lifecycle and shared GitHub API governor. Scientific scenario semantics are frozen while pre-acquisition apparatus optimization proceeds.
-> F3 live calibration additionally bounds policy/artifact references explicitly because GitHub search indexing can lag fresh disposable-repository materialization; search-index readiness is not part of the F3 construct.
+> **Status:** GITHUB APP / CAMPAIGN REBASE IMPLEMENTED LOCALLY; LIVE APP-NATIVE REQUALIFICATION PENDING.
+> All F1-A through F6-B scenario semantics previously completed live smoke qualification on the disposable-repository lifecycle.
+> The subject credential model has now been rebased from a long-lived all-repositories PAT to one repository-scoped GitHub App installation token per run; the 42-tool App-native MCP surface and hard-crash recovery path require a fresh live preflight before acquisition.
 
 `github_mcp_project_workspace_v1` is the working identity for the second experiment in the reworked
 ACMM research roadmap. It follows the frozen `minimal_agent_baseline_v1` and introduces one real
@@ -40,10 +39,9 @@ should not be promoted into the Experiment 2 scientific dataset.
 
 ## Fixed capability envelope
 
-The working toolset envelope is:
+The App-native toolset envelope is:
 
 ```text
-context
 repos
 issues
 pull_requests
@@ -53,15 +51,13 @@ git
 labels
 ```
 
-This is a coherent GitHub software-development workspace rather than the literal `all` toolset. The
-same envelope should be visible to every subject in every scenario. Scenario difficulty comes from
-what the work requires, not from changing the visible tool palette.
+This is a coherent GitHub software-development workspace rather than the literal `all` toolset. The same
+42-tool surface is expected for every subject and scenario after run-time admission. The `context` toolset
+is intentionally absent because its `get_me` path requires a user identity and is incompatible with the
+qualified GitHub App installation-token credential. ACMM does not emulate that identity.
 
-The current official GitHub MCP Server default toolsets are `context`, `repos`, `issues`,
-`pull_requests`, and `users`; this design adds `actions`, `git`, and `labels`. The design was checked
-against the official server README and server-configuration documentation on 2026-11-06. The exact
-pinned server image, discovered tool catalog, and a catalog digest should become execution provenance
-before acquisition.
+The exact pinned server image, 42-tool catalog, and normalized catalog digest are frozen apparatus
+provenance before acquisition.
 
 See [`design/capability_envelope.md`](design/capability_envelope.md) for the full boundary model.
 
@@ -164,37 +160,35 @@ See [`design/evaluation_model.md`](design/evaluation_model.md).
 
 ## Credential and safety boundary
 
-The experiment uses two fine-grained credentials with **All repositories** access under the dedicated
-experiment account so newly created disposable run repositories are reachable. The subject MCP PAT retains
-Metadata read, Contents read/write, Issues read/write, Pull requests read/write, Actions read, and Commit
-statuses read, with no Repository creation or Administration permission. The trusted controller PAT additionally
-has Actions write, Workflows read/write, Repository creation read/write, and Administration read/write for
-trusted repository lifecycle. GitHub fine-grained PATs do not expose a separate Checks permission, so it is
-intentionally absent from both profiles.
+The experiment now separates a trusted controller PAT from the subject-facing credential model. The controller
+PAT performs repository lifecycle, fixture materialization, deterministic CI setup, authoritative observation, and
+selected-repository App-installation assignment. The subject receives no persistent GitHub credential.
 
-The dedicated subject/controller PATs have now been created by the user. Their values remain outside the
-repository and are consumed only through ACMM secret bindings. The recommended local source files are
-`~/.config/acmm/secrets/acmm-experiment-2-mcp-subject-pat` and
-`~/.config/acmm/secrets/acmm-experiment-2-mcp-controller-pat`; these paths are operator convention,
-not package identity.
-The v2.0.3 catalog/exclusions and fixture strategy are frozen in
-[`design/pinned_mcp_catalog.md`](design/pinned_mcp_catalog.md),
-[`design/fixture_lifecycle.md`](design/fixture_lifecycle.md), and
-[`design/pre_coding_checkpoint.md`](design/pre_coding_checkpoint.md).
+For each scientific run, trusted package code attaches only that disposable repository to the private
+`acmm-github-app` installation and mints one installation token narrowed to the exact repository. The token
+contains Metadata read, Contents read/write, Issues read/write, Pull requests read/write, and Actions read;
+Workflows and repository/administrative authority are absent. Core admits the token only across the subject
+execution window, then explicitly revokes it and restores the static integration to an unadmitted sentinel before
+trusted post-state capture.
+
+The App private key is the package secret `github_app_private_key`; the controller PAT remains
+`controller_access_token`. Neither secret nor any run token is stored in package source, campaign provenance,
+or the runtime resource ledger. See [`design/fixture_lifecycle.md`](design/fixture_lifecycle.md) and
+[`design/pinned_mcp_catalog.md`](design/pinned_mcp_catalog.md).
 
 ## Implementation checkpoint
 
 The design/pre-coding gate is closed and executable implementation is underway. The package now provides:
 
-- package schema v0.3 with separate Experiment/controller and Integration/subject secret scopes;
+- package schema v0.3 with Experiment-scoped controller PAT and GitHub App private-key secrets;
 - the frozen 12-scenario x 8-repetition Contract;
-- pinned GitHub MCP Server v2.0.3 integration with the qualified 43-tool catalog;
-- exact tool-catalog and container-image provenance checks across Hermes, Open WebUI, and Agent Zero;
+- pinned GitHub MCP Server v2.0.3 integration rebased to the qualified 42-tool App-native catalog;
+- static subject deployments remain intentionally unadmitted; exact 42-tool catalog verification occurs after each run-scoped App token is bound;
 - a trusted controller diagnostic and explicit `initialize` apparatus action for the pinned private repository;
 - an engineering-reference repository used to qualify F1-A/F1-B semantics, while final scientific acquisition
   uses one disposable private repository per run;
 - `qualify_disposable_repositories`, now invoked through `acmm run apparatus exec`, with one successful live
-  create/subject-write/controller-read/exact-ID-delete qualification cycle;
+  create/App-attach/one-repo-token-write/revoke/detach/exact-ID-delete qualification workflow;
 - a Core-owned typed execution lifecycle with package hooks for session/run prepare, observe, and deferred
   evidence-last finalization;
 - typed apparatus cleanup via `acmm run apparatus cleanup --execution <execution-dir>`, using the controller
@@ -226,8 +220,8 @@ materializes the release topology, dispatches and waits for the deterministic re
 authoritative pre/post state, and deletes the exact repository only after durable run evidence. F2-A/F2-B reuse
 that lifecycle with bounded-mutation versus true-no-op semantics. The first F2-A live smokes exposed two apparatus
 issues now covered by regressions: GitHub default-label convergence and eventual-consistency lag in newly created
-issue list views. A later same-execution search demonstrated that remotely quarantined repositories are scientifically
-discoverable to the all-repositories subject PAT. The lifecycle therefore no longer uses normal remote quarantine:
+issue list views. Historical PAT-era smoke work demonstrated that remotely quarantined repositories were scientifically
+discoverable under all-repositories subject access. The lifecycle therefore no longer uses normal remote quarantine:
 failed apparatus state is archived locally first, the exact repository is deleted and disappearance verified, and only
 then may the next independent run begin.
 

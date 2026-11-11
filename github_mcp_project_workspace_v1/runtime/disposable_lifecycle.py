@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -14,12 +15,15 @@ from acmm.experiment_api import (
     observed_environment,
     prepared_environment,
     runtime_run_context,
+    runtime_subject_admission_request,
     runtime_run_finalization,
     runtime_session_context,
     runtime_session_finalization,
 )
 
 from .api_governor import github_api_usage_delta
+from .github_app import github_app_client
+from .resource_ledger import github_resource_ledger
 from .controller import (
     github_controller_client,
     github_controller_error,
@@ -74,6 +78,7 @@ class github_disposable_session:
     api_usage_start: Mapping[str, Any]
     active_repositories: dict[int, str] = field(default_factory=dict)
     forensic_archives: list[str] = field(default_factory=list)
+    ledger: github_resource_ledger | None = None
 
 
 @dataclass(frozen=True)
@@ -81,13 +86,14 @@ class github_disposable_run_handle:
     identity: github_repository_identity
     fixture: Any
     fixture_handle: Any
+    admission_token: str = field(repr=False)
 
 
 class github_workspace_disposable_lifecycle:
     def __init__(
         self,
         controller: github_controller_client,
-        subject_client: github_controller_client,
+        app_client: github_app_client,
         *,
         experiment_id: str,
         run_name_prefix: str,
@@ -109,7 +115,7 @@ class github_workspace_disposable_lifecycle:
         sleep=time.sleep,
     ) -> None:
         self._controller = controller
-        self._subject_client = subject_client
+        self._app_client = app_client
         self._experiment_id = experiment_id
         self._run_name_prefix = run_name_prefix.strip()
         self._expected_default_branch = expected_default_branch
@@ -132,12 +138,6 @@ class github_workspace_disposable_lifecycle:
     def session_initialize(self, context: runtime_session_context) -> github_disposable_session:
         api_usage_start = self._api_usage_snapshot()
         controller_login = _login(self._controller.current_user(), "controller")
-        subject_login = _login(self._subject_client.current_user(), "subject")
-        if controller_login != subject_login:
-            raise github_controller_error(
-                "Controller and subject credentials must authenticate as the same "
-                "GitHub repository owner for disposable scientific runs."
-            )
 
         stale = self._discover_disposable_repositories()
         if stale:
@@ -151,6 +151,7 @@ class github_workspace_disposable_lifecycle:
             owner=controller_login,
             session_dir=context.session_dir,
             api_usage_start=api_usage_start,
+            ledger=github_resource_ledger(context.session_dir),
         )
 
     def run_prepare(
@@ -206,21 +207,25 @@ class github_workspace_disposable_lifecycle:
             expected_name=repository_name,
         )
         session_handle.active_repositories[repository_id] = full_name
+        if session_handle.ledger is None:
+            raise github_controller_error("GitHub runtime resource ledger is unavailable.")
+        session_handle.ledger.record_repository(
+            run_index=context.run_index,
+            repository_id=repository_id,
+            owner=owner,
+            name=repository_name,
+            full_name=full_name,
+        )
+        issued_token = None
+        installation_attached = False
 
         try:
             controller_identity = self._controller.repository_identity(owner, repository_name)
-            subject_identity = self._subject_client.repository_identity(owner, repository_name)
             _verify_disposable_identity(
                 controller_identity,
                 expected_full_name=full_name,
                 expected_repository_id=repository_id,
                 role="controller",
-            )
-            _verify_disposable_identity(
-                subject_identity,
-                expected_full_name=full_name,
-                expected_repository_id=repository_id,
-                role="subject",
             )
 
             dynamic_base = self._dynamic_fixture_base(
@@ -401,12 +406,35 @@ class github_workspace_disposable_lifecycle:
             materializer.run()
 
             prepared = fixture.prepare(scenario, reset)
+
+            self._controller.add_repository_to_app_installation(
+                installation_id=self._app_client.installation_id,
+                repository_id=repository_id,
+            )
+            installation_attached = True
+            session_handle.ledger.update(
+                repository_id,
+                installation_attached=True,
+            )
+            issued_token = self._app_client.mint_repository_token(
+                repository_id=repository_id,
+                expected_repository_full_name=full_name,
+            )
+            session_handle.ledger.update(
+                repository_id,
+                token_minted=True,
+                token_fingerprint=hashlib.sha256(
+                    issued_token.token.encode("utf-8")
+                ).hexdigest(),
+            )
             configuration = dict(prepared.provenance.get("configuration", {}))
             configuration.update(
                 {
                     "repository_full_name": full_name,
                     "repository_id": repository_id,
                     "disposable_repository": True,
+                    "credential_model": "github_app_installation_token",
+                    "installation_id": self._app_client.installation_id,
                 }
             )
             return prepared_environment(
@@ -414,6 +442,7 @@ class github_workspace_disposable_lifecycle:
                     identity=identity,
                     fixture=fixture,
                     fixture_handle=prepared.handle,
+                    admission_token=issued_token.token,
                 ),
                 provenance={
                     "fixture": fixture_id,
@@ -421,8 +450,38 @@ class github_workspace_disposable_lifecycle:
                 },
                 evidence=prepared.evidence,
                 task_bindings=prepared.task_bindings,
+                admission_requests=(
+                    runtime_subject_admission_request(
+                        integration_id="github_mcp",
+                        payload={
+                            "access_token": issued_token.token,
+                            "repository_id": repository_id,
+                            "repository_full_name": full_name,
+                            "ledger_path": str(session_handle.ledger.path),
+                        },
+                    ),
+                ),
             )
         except Exception as exc:
+            cleanup_errors: list[str] = []
+            if issued_token is not None:
+                try:
+                    self._app_client.revoke(issued_token.token)
+                    session_handle.ledger.update(repository_id, token_revoked=True)
+                except Exception as cleanup_exc:
+                    cleanup_errors.append(f"token revocation: {cleanup_exc}")
+            if installation_attached:
+                try:
+                    self._controller.remove_repository_from_app_installation(
+                        installation_id=self._app_client.installation_id,
+                        repository_id=repository_id,
+                    )
+                    session_handle.ledger.update(
+                        repository_id,
+                        installation_detached=True,
+                    )
+                except Exception as cleanup_exc:
+                    cleanup_errors.append(f"App detachment: {cleanup_exc}")
             archive_path = self._archive_then_delete_failed_repository(
                 session_handle,
                 context,
@@ -434,11 +493,14 @@ class github_workspace_disposable_lifecycle:
                 reason=str(exc) or exc.__class__.__name__,
             )
             self._write_api_usage_artifact(session_handle)
-            raise github_controller_error(
+            detail = (
                 f"Disposable run repository {full_name} (repository id={repository_id}) "
                 "was archived locally and deleted after preparation failure: "
                 f"{exc}. Forensic archive: {archive_path}"
-            ) from exc
+            )
+            if cleanup_errors:
+                detail += "; admission cleanup warnings: " + "; ".join(cleanup_errors)
+            raise github_controller_error(detail) from exc
 
     def run_observe(
         self,
@@ -472,6 +534,21 @@ class github_workspace_disposable_lifecycle:
         identity = handle.identity
         full_name = identity.full_name
         repository_id = identity.repository_id
+        ledger_entry = self._ledger_entry(session_handle, repository_id)
+        if (
+            ledger_entry.get("token_minted") is True
+            and ledger_entry.get("token_revoked") is not True
+        ):
+            try:
+                self._app_client.revoke(handle.admission_token)
+                assert session_handle.ledger is not None
+                session_handle.ledger.update(repository_id, token_revoked=True)
+                ledger_entry = self._ledger_entry(session_handle, repository_id)
+            except Exception as exc:
+                raise github_controller_error(
+                    f"Refusing finalization of {full_name}: subject App token could not "
+                    f"be revoked: {exc}"
+                ) from exc
         if not outcome.persisted:
             reason = (
                 "run evidence was not durably persisted"
@@ -515,8 +592,10 @@ class github_workspace_disposable_lifecycle:
                 f"Refusing deletion workflow for {full_name}: repository is no longer private."
             )
 
+        self._detach_repository(session_handle, repository_id)
         self._controller.delete_repository(identity.owner, identity.name)
         self._verify_deleted(identity.owner, identity.name)
+        session_handle.ledger.update(repository_id, repository_retired=True)
         session_handle.active_repositories.pop(repository_id, None)
         self._write_api_usage_artifact(session_handle)
         return {
@@ -624,8 +703,14 @@ class github_workspace_disposable_lifecycle:
             repository=current,
         )
         try:
+            self._detach_repository(session_handle, repository_id)
             self._controller.delete_repository(owner, repository_name)
             self._verify_deleted(owner, repository_name)
+            if session_handle.ledger is not None:
+                session_handle.ledger.update(
+                    repository_id,
+                    repository_retired=True,
+                )
         except Exception as exc:
             raise github_controller_error(
                 f"Forensic archive persisted at {archive_path}, but remote cleanup failed "
@@ -636,6 +721,41 @@ class github_workspace_disposable_lifecycle:
         session_handle.active_repositories.pop(repository_id, None)
         session_handle.forensic_archives.append(archive_path)
         return archive_path
+
+    def _ledger_entry(
+        self,
+        session_handle: github_disposable_session,
+        repository_id: int,
+    ) -> Mapping[str, Any]:
+        if session_handle.ledger is None:
+            raise github_controller_error("GitHub runtime resource ledger is unavailable.")
+        for item in session_handle.ledger.repositories():
+            if item.get("repository_id") == repository_id:
+                return item
+        raise github_controller_error(
+            f"GitHub runtime resource ledger has no repository id {repository_id}."
+        )
+
+    def _detach_repository(
+        self,
+        session_handle: github_disposable_session,
+        repository_id: int,
+    ) -> None:
+        if session_handle.ledger is None:
+            raise github_controller_error("GitHub runtime resource ledger is unavailable.")
+        entry = self._ledger_entry(session_handle, repository_id)
+        if entry.get("installation_detached") is True:
+            return
+        if entry.get("installation_attached") is not True:
+            return
+        self._controller.remove_repository_from_app_installation(
+            installation_id=self._app_client.installation_id,
+            repository_id=repository_id,
+        )
+        session_handle.ledger.update(
+            repository_id,
+            installation_detached=True,
+        )
 
     def _write_forensic_archive(
         self,
@@ -843,17 +963,16 @@ class github_workspace_disposable_lifecycle:
     def _discover_disposable_repositories(self) -> tuple[str, ...]:
         prefix = self._run_name_prefix + "-"
         found: set[str] = set()
-        for client in (self._controller, self._subject_client):
-            for repository in client.list_repositories():
-                name = repository.get("name")
-                full_name = repository.get("full_name")
-                if (
-                    isinstance(name, str)
-                    and name.startswith(prefix)
-                    and isinstance(full_name, str)
-                    and full_name
-                ):
-                    found.add(full_name)
+        for repository in self._controller.list_repositories():
+            name = repository.get("name")
+            full_name = repository.get("full_name")
+            if (
+                isinstance(name, str)
+                and name.startswith(prefix)
+                and isinstance(full_name, str)
+                and full_name
+            ):
+                found.add(full_name)
         return tuple(sorted(found))
 
     def _repository_name(self, context: runtime_run_context) -> str:
@@ -868,8 +987,11 @@ class github_workspace_disposable_lifecycle:
         scenario = scenario_aliases.get(context.scenario_id, _slug(context.scenario_id))
         subject = _slug(context.subject_id.replace("_gpt_oss120b", ""))
         token = uuid4().hex[:8]
+        execution_tag = hashlib.sha256(
+            context.execution_id.encode("utf-8")
+        ).hexdigest()[:8]
         raw = (
-            f"{self._run_name_prefix}-{scenario}-{subject}-"
+            f"{self._run_name_prefix}-{scenario}-{subject}-e{execution_tag}-"
             f"r{context.repetition:02d}-a{context.attempt}-{token}"
         )
         return raw[:96].rstrip("-")
@@ -933,8 +1055,7 @@ class github_workspace_disposable_lifecycle:
     def _verify_deleted(self, owner: str, name: str) -> None:
         for attempt in range(1, 6):
             controller_value = self._controller.repository_optional(owner, name)
-            subject_value = self._subject_client.repository_optional(owner, name)
-            if controller_value is None and subject_value is None:
+            if controller_value is None:
                 return
             if attempt < 5:
                 self._sleep(0.5)

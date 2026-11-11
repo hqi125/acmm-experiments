@@ -1,5 +1,7 @@
 # Pre-Coding Checkpoint
 
+> **Historical checkpoint:** this document records the earlier PAT/43-tool apparatus state. The current package uses per-run repository-scoped GitHub App installation tokens and the 42-tool App-native catalog; see `fixture_lifecycle.md` and `pinned_mcp_catalog.md`.
+
 ## Status
 
 **Pre-coding gate closed on 2026-11-07; executable implementation has started.**

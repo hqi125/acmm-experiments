@@ -15,14 +15,13 @@ from acmm.secret_bindings import (
     bind_secret_file,
     experiment_secret_binding_key,
     initialize_secret_store,
-    secret_binding_key,
 )
 
 
 ROOT = Path(__file__).resolve().parents[2] / "github_mcp_project_workspace_v1"
 EXPERIMENT_ID = "github_mcp_project_workspace_v1"
 CONTROLLER_TOKEN = "controller-secret-value"
-SUBJECT_TOKEN = "subject-secret-value"
+APP_PRIVATE_KEY = "test-private-key-pem"
 
 
 def _write_secret(path: Path, value: str) -> Path:
@@ -55,8 +54,8 @@ def _load_runtime_types(
         _write_secret(tmp_path / "controller-token", CONTROLLER_TOKEN),
     )
     bind_secret_file(
-        secret_binding_key(EXPERIMENT_ID, "github_mcp", "access_token"),
-        _write_secret(tmp_path / "subject-token", SUBJECT_TOKEN),
+        experiment_secret_binding_key(EXPERIMENT_ID, "github_app_private_key"),
+        _write_secret(tmp_path / "github-app-private-key", "test-private-key-pem"),
     )
 
     package = install_experiment_package(source, tmp_path / "runtime-root")

@@ -12,6 +12,7 @@ import yaml
 from acmm.experiment_api import apparatus_action_progress, apparatus_action_result
 
 from .api_governor import github_api_governor
+from .github_app import github_app_client
 from .controller import (
     github_api_error,
     github_controller_client,
@@ -509,16 +510,16 @@ def _safe_yaml_mapping(path: Path) -> Mapping[str, object]:
 
 class github_disposable_repository_lifecycle_qualifier:
     description = (
-        "Qualify private disposable repository create/access/write/delete behavior."
+        "Qualify disposable repository GitHub App attach/token/write/revoke/delete behavior."
     )
     mutates_external_state = True
 
     def __init__(
         self,
         controller_client: github_controller_client,
-        subject_client: github_controller_client,
+        app_client: github_app_client,
         *,
-        credentials_distinct: bool,
+        api_base: str,
         experiment_id: str,
         probe_name_prefix: str,
         marker_path: str = ".acmm/lifecycle-probe.json",
@@ -527,8 +528,8 @@ class github_disposable_repository_lifecycle_qualifier:
         if not probe_name_prefix.strip():
             raise ValueError("Disposable repository probe prefix must not be empty.")
         self._client = controller_client
-        self._subject_client = subject_client
-        self._credentials_distinct = credentials_distinct
+        self._app_client = app_client
+        self._api_base = api_base
         self._experiment_id = experiment_id
         self._probe_name_prefix = probe_name_prefix.strip()
         self._marker_path = marker_path
@@ -550,26 +551,16 @@ class github_disposable_repository_lifecycle_qualifier:
         self,
         report: Callable[[apparatus_action_progress], None] | None,
     ) -> apparatus_action_result:
-        total = 7
-        _emit(report, 1, total, "verifying controller/subject credential identities")
-        if not self._credentials_distinct:
-            raise github_controller_error(
-                "Controller and subject credentials must remain distinct for the "
-                "disposable-repository lifecycle probe."
-            )
+        total = 9
+        _emit(report, 1, total, "verifying controller identity")
         controller_login = _login(self._client.current_user(), "controller")
-        subject_login = _login(self._subject_client.current_user(), "subject")
-        if controller_login != subject_login:
-            raise github_controller_error(
-                "Controller and subject credentials authenticate as different GitHub "
-                "accounts; disposable run repositories require one shared owner."
-            )
-
         repository_name = self._name_factory()
         description = (
             f"ACMM disposable repository lifecycle probe for {self._experiment_id}"
         )
         created: tuple[str, str, int] | None = None
+        token: str | None = None
+        attached = False
         deletion_started = False
         try:
             _emit(report, 2, total, f"creating private probe repository '{repository_name}'")
@@ -587,44 +578,57 @@ class github_disposable_repository_lifecycle_qualifier:
             )
             created = (owner, repository_name, repository_id)
 
-            _emit(report, 3, total, "verifying controller and subject access to the new repository")
-            controller_identity = self._client.repository_identity(owner, repository_name)
-            subject_identity = self._subject_client.repository_identity(owner, repository_name)
-            _verify_probe_identity(
-                controller_identity,
-                expected_full_name=full_name,
-                expected_repository_id=repository_id,
-                role="controller",
+            _emit(report, 3, total, "attaching repository to the selected GitHub App installation")
+            self._client.add_repository_to_app_installation(
+                installation_id=self._app_client.installation_id,
+                repository_id=repository_id,
             )
+            attached = True
+
+            _emit(report, 4, total, "minting one-repository GitHub App installation token")
+            issued = self._app_client.mint_repository_token(
+                repository_id=repository_id,
+                expected_repository_full_name=full_name,
+            )
+            token = issued.token
+            subject_client = github_controller_client(
+                token,
+                api_base=self._api_base,
+                transport=self._client._transport,
+                mutation_interval_seconds=0.0,
+            )
+            subject_identity = subject_client.repository_identity(owner, repository_name)
             _verify_probe_identity(
                 subject_identity,
                 expected_full_name=full_name,
                 expected_repository_id=repository_id,
-                role="subject",
+                role="subject App token",
+                require_push_access=False,
             )
 
             marker = json.dumps(
                 {
-                    "schema_version": "0.1",
+                    "schema_version": "0.2",
                     "kind": "disposable_repository_lifecycle_probe",
                     "experiment_id": self._experiment_id,
                     "repository_full_name": full_name,
                     "repository_id": repository_id,
+                    "credential_model": "github_app_installation_token",
                 },
                 indent=2,
                 sort_keys=True,
             ) + "\n"
-            _emit(report, 4, total, "writing the first marker commit with the subject credential")
-            self._subject_client.create_or_update_file(
+            _emit(report, 5, total, "writing the first marker commit with the App installation token")
+            subject_client.create_or_update_file(
                 owner,
                 repository_name,
                 self._marker_path,
-                message="ACMM: qualify disposable repository subject access",
+                message="ACMM: qualify disposable repository App access",
                 content=marker,
                 branch=None,
             )
 
-            _emit(report, 5, total, "reading the subject-written marker with the controller credential")
+            _emit(report, 6, total, "reading the subject-written marker with the controller credential")
             refreshed = self._client.repository_identity(owner, repository_name)
             _verify_probe_identity(
                 refreshed,
@@ -643,39 +647,64 @@ class github_disposable_repository_lifecycle_qualifier:
                     "Disposable repository lifecycle marker did not round-trip exactly."
                 )
 
-            _emit(report, 6, total, "deleting the exact probe repository with the controller credential")
+            _emit(report, 7, total, "revoking the one-repository installation token")
+            self._app_client.revoke(token)
+            token = None
+
+            _emit(report, 8, total, "detaching and deleting the exact probe repository")
+            self._client.remove_repository_from_app_installation(
+                installation_id=self._app_client.installation_id,
+                repository_id=repository_id,
+            )
+            attached = False
             deletion_started = True
             self._delete_exact(owner, repository_name, repository_id)
 
-            _emit(report, 7, total, "verifying repository deletion from both credentials")
+            _emit(report, 9, total, "verifying repository deletion")
             self._verify_deleted(owner, repository_name)
             return apparatus_action_result(
                 changed=True,
                 detail=(
-                    "qualified disposable repository create/access/write/delete lifecycle"
+                    "qualified disposable repository create/App-attach/token/write/"
+                    "revoke/detach/delete lifecycle"
                 ),
                 observations={
                     "controller_login": controller_login,
-                    "subject_login": subject_login,
+                    "credential_model": "github_app_installation_token",
                     "repository": full_name,
                     "repository_id": repository_id,
-                    "subject_push_access": subject_identity.push_allowed,
+                    "subject_contents_write": issued.permissions.get("contents") == "write",
+                    "subject_write_verified": True,
                     "marker_path": self._marker_path,
+                    "token_revoked": True,
+                    "installation_detached": True,
                     "deleted": True,
                 },
             )
         except Exception as exc:
-            cleanup_error: Exception | None = None
+            cleanup_errors: list[str] = []
+            if token is not None:
+                try:
+                    self._app_client.revoke(token)
+                except Exception as cleanup_exc:
+                    cleanup_errors.append(f"token revocation: {cleanup_exc}")
+            if created is not None and attached:
+                try:
+                    self._client.remove_repository_from_app_installation(
+                        installation_id=self._app_client.installation_id,
+                        repository_id=created[2],
+                    )
+                except Exception as cleanup_exc:
+                    cleanup_errors.append(f"App detachment: {cleanup_exc}")
             if created is not None and not deletion_started:
                 try:
                     self._delete_exact(*created)
                     self._verify_deleted(created[0], created[1])
                 except Exception as cleanup_exc:
-                    cleanup_error = cleanup_exc
-            if cleanup_error is not None:
+                    cleanup_errors.append(f"repository cleanup: {cleanup_exc}")
+            if cleanup_errors:
                 raise github_controller_error(
-                    f"{exc} Safe cleanup of the created probe repository also failed: "
-                    f"{cleanup_error}"
+                    f"{exc} Safe cleanup also failed: " + "; ".join(cleanup_errors)
                 ) from exc
             raise
 
@@ -698,9 +727,7 @@ class github_disposable_repository_lifecycle_qualifier:
 
     def _verify_deleted(self, owner: str, name: str) -> None:
         for attempt in range(1, 6):
-            controller_value = self._client.repository_optional(owner, name)
-            subject_value = self._subject_client.repository_optional(owner, name)
-            if controller_value is None and subject_value is None:
+            if self._client.repository_optional(owner, name) is None:
                 return
             if attempt < 5:
                 self._sleep(0.5)
@@ -741,6 +768,7 @@ def _verify_probe_identity(
     expected_full_name: str,
     expected_repository_id: int,
     role: str,
+    require_push_access: bool = True,
 ) -> None:
     if (
         identity.full_name != expected_full_name
@@ -757,7 +785,7 @@ def _verify_probe_identity(
         raise github_controller_error(
             f"Disposable repository has Issues disabled for the {role} credential."
         )
-    if not identity.push_allowed:
+    if require_push_access and not identity.push_allowed:
         raise github_controller_error(
             f"{role.capitalize()} credential does not have push access to the "
             "disposable repository."

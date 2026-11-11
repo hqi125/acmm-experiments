@@ -76,8 +76,6 @@ scenarios:
       comments to verify the mutation.
     environment:
       fixture: github_issue_behavior_qualification_v1
-      configuration:
-        repository_name: acmm-mcp-arena-experiment-2
     task:
       prompt: >-
         Work only in GitHub repository {{repo_owner}}/{{repo_name}} on issue #{{issue_number}}.

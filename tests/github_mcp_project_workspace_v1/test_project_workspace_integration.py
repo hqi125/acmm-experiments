@@ -39,7 +39,6 @@ from acmm.secret_bindings import (
     bind_secret_file,
     experiment_secret_binding_key,
     initialize_secret_store,
-    secret_binding_key,
 )
 from acmm_infra.common import doctor_check, doctor_report
 from acmm_infra.profiles.common import default_repo_root
@@ -50,17 +49,16 @@ from acmm_infra.subjects.open_webui.profile import load_open_webui_profile
 
 ROOT = Path(__file__).resolve().parents[2] / "github_mcp_project_workspace_v1"
 EXPERIMENT_ID = "github_mcp_project_workspace_v1"
-SUBJECT_TOKEN = "subject-secret-value"
+APP_PRIVATE_KEY = "test-private-key-pem"
 CONTROLLER_TOKEN = "controller-secret-value"
 EXPECTED_CATALOG_SHA256 = (
-    "d1474fb4709fc2d4d18821711f098582e30a712a08f718ee89487309ba6a818d"
+    "0b6d56cef0521915db11229a7d6a3e180bdfded83a5956d81347b5e11a547e33"
 )
 EXPECTED_REPO_DIGEST = (
     "ghcr.io/github/github-mcp-server@sha256:"
     "250bc6ce70788207608ef74cef4397230ff2e8481218da74d6093e4bd9101132"
 )
 EXPECTED_TOOLSETS = (
-    "context",
     "repos",
     "issues",
     "pull_requests",
@@ -95,7 +93,6 @@ EXPECTED_TOOLS = (
     "get_job_logs",
     "get_label",
     "get_latest_release",
-    "get_me",
     "get_release_by_tag",
     "get_repository_tree",
     "get_tag",
@@ -174,8 +171,8 @@ def _bind_secrets(
         )
     if subject:
         bind_secret_file(
-            secret_binding_key(EXPERIMENT_ID, "github_mcp", "access_token"),
-            _write_secret(tmp_path / "subject-token", SUBJECT_TOKEN),
+            experiment_secret_binding_key(EXPERIMENT_ID, "github_app_private_key"),
+            _write_secret(tmp_path / "github-app-private-key", APP_PRIVATE_KEY),
         )
 
 
@@ -210,11 +207,12 @@ def test_package_declares_frozen_scientific_shape(tmp_path: Path) -> None:
     assert package.runtime.api_version == "0.1"
     assert [(item.secret_id, item.required) for item in package.secrets] == [
         ("controller_access_token", True),
+        ("github_app_private_key", True),
     ]
 
     integration = package.integrations[0]
     assert integration.integration_id == "github_mcp"
-    assert tuple(item.secret_id for item in integration.secrets) == ("access_token",)
+    assert tuple(item.secret_id for item in integration.secrets) == ()
     assert tuple(integration.configuration["toolsets"]) == EXPECTED_TOOLSETS
     assert tuple(integration.configuration["excluded_tools"]) == EXPECTED_EXCLUSIONS
     assert tuple(integration.configuration["expected_tools"]) == EXPECTED_TOOLS
@@ -270,7 +268,7 @@ def test_github_mcp_integration_interprets_provider_plain_text_failures(
     )
 
 
-def test_staged_integration_composes_same_43_tool_surface_for_all_subjects(
+def test_staged_integration_composes_unadmitted_42_tool_surface_for_all_subjects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -282,7 +280,7 @@ def test_staged_integration_composes_same_43_tool_surface_for_all_subjects(
     assert key == "mcp_servers.github"
     server = json.loads(value)
     assert server["url"] == "http://host.docker.internal:8083"
-    assert server["headers"]["Authorization"] == f"Bearer {SUBJECT_TOKEN}"
+    assert server["headers"]["Authorization"] == "Bearer acmm-runtime-admission-required"
     assert "include" not in server["tools"]
     assert server["tools"]["resources"] is False
     assert server["tools"]["prompts"] is False
@@ -295,7 +293,7 @@ def test_staged_integration_composes_same_43_tool_surface_for_all_subjects(
     )
     assert len(connections) == 1
     assert connections[0]["url"] == "http://host.docker.internal:8083"
-    assert connections[0]["key"] == SUBJECT_TOKEN
+    assert connections[0]["key"] == "acmm-runtime-admission-required"
 
     agent_zero = _compose_profile(package, "agent-zero")
     assert agent_zero.experiment_isolation.mcp_tool_default == "allow"
@@ -324,7 +322,7 @@ def test_local_resource_uses_toolsets_and_exclusions_not_tool_allowlist(
         package_root=package.root,
         runtime_root=tmp_path / "runtime-root",
         state_root=tmp_path / "resource-state",
-        secret_ids=("access_token",),
+        secret_ids=(),
     )
 
     status = resource.apply(context)
@@ -332,7 +330,7 @@ def test_local_resource_uses_toolsets_and_exclusions_not_tool_allowlist(
     assert "ACMM_GITHUB_MCP_TOOLSETS=" + ",".join(EXPECTED_TOOLSETS) in env
     assert "ACMM_GITHUB_MCP_EXCLUDE_TOOLS=" + ",".join(EXPECTED_EXCLUSIONS) in env
     assert "ACMM_GITHUB_MCP_TOOLS=" not in env
-    assert SUBJECT_TOKEN not in env
+    assert "subject-secret-value" not in env
     assert status["expected_catalog_sha256"] == EXPECTED_CATALOG_SHA256
     assert status["expected_repo_digest"] == EXPECTED_REPO_DIGEST
 
@@ -357,7 +355,7 @@ def test_local_resource_apply_rejects_unqualified_image_digest(
         package_root=package.root,
         runtime_root=tmp_path / "runtime-root",
         state_root=tmp_path / "resource-state",
-        secret_ids=("access_token",),
+        secret_ids=(),
     )
 
     with pytest.raises(ValueError, match="image digest mismatch"):
@@ -385,7 +383,7 @@ def test_shared_resource_doctor_enforces_qualified_image_digest(
         package_root=package.root,
         runtime_root=tmp_path / "runtime-root",
         state_root=tmp_path / "resource-state",
-        secret_ids=("access_token",),
+        secret_ids=(),
     )
 
     report = resource.doctor(context)
@@ -406,7 +404,7 @@ def test_manager_discovery_accepts_exact_agent_zero_catalog(
     package = _install_copy(tmp_path)
     manager = _fake_manager(
         docker=_fake_docker(running=True),
-        token=SUBJECT_TOKEN,
+        token="app-token-test",
         api=_fake_agent_zero_api(EXPECTED_TOOLS),
     )
     wrapped = compose_staged_experiment_manager_integrations(
@@ -422,8 +420,72 @@ def test_manager_discovery_accepts_exact_agent_zero_catalog(
     assert report.is_ready is True
     assert check.name == "integration:github_mcp_discovery"
     assert check.ok is True
-    assert "exactly 43 expected" in check.detail
-    assert EXPECTED_CATALOG_SHA256 in check.detail
+    assert "intentionally unadmitted" in check.detail
+    assert "per-run credential admission" in check.detail
+
+
+
+def test_agent_zero_runtime_admission_binds_42_tool_token_then_restores_sentinel(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    api = _fake_agent_zero_api(EXPECTED_TOOLS)
+    manager = _fake_manager(
+        docker=_fake_docker(running=True),
+        token="unused-static-token",
+        api=api,
+    )
+    wrapped = compose_staged_experiment_manager_integrations(
+        package,
+        "agent-zero",
+        "gpt_oss_120b_cloud_v1",
+        manager,
+        loaded_integrations=load_staged_experiment_integrations(package),
+    )
+
+    wrapped.runtime_admit("run-scoped-app-token")
+    admitted = json.loads(api.settings["mcp_servers"])
+    server = admitted["mcpServers"]["github"]
+    assert server["headers"]["Authorization"] == "Bearer run-scoped-app-token"
+
+    wrapped.runtime_revoke("run-scoped-app-token")
+    revoked = json.loads(api.settings["mcp_servers"])
+    server = revoked["mcpServers"]["github"]
+    assert server["headers"]["Authorization"] == (
+        "Bearer acmm-runtime-admission-required"
+    )
+
+
+def test_agent_zero_runtime_admission_waits_for_async_catalog_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    api = _fake_agent_zero_api(EXPECTED_TOOLS, stale_catalog_reads=1)
+    manager = _fake_manager(
+        docker=_fake_docker(running=True),
+        token="unused-static-token",
+        api=api,
+    )
+    wrapped = compose_staged_experiment_manager_integrations(
+        package,
+        "agent-zero",
+        "gpt_oss_120b_cloud_v1",
+        manager,
+        loaded_integrations=load_staged_experiment_integrations(package),
+    )
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    wrapped.runtime_admit("run-scoped-app-token")
+
+    assert api.detail_requests == 2
+    admitted = json.loads(api.settings["mcp_servers"])
+    assert admitted["mcpServers"]["github"]["headers"]["Authorization"] == (
+        "Bearer run-scoped-app-token"
+    )
 
 
 def test_package_source_never_contains_bound_secret_values(
@@ -441,7 +503,7 @@ def test_package_source_never_contains_bound_secret_values(
             content = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        assert SUBJECT_TOKEN not in content
+        assert "subject-secret-value" not in content
         assert CONTROLLER_TOKEN not in content
 
 
@@ -530,8 +592,23 @@ class _fake_docker:
 
 
 class _fake_agent_zero_api:
-    def __init__(self, tools: tuple[str, ...]) -> None:
+    def __init__(
+        self,
+        tools: tuple[str, ...],
+        *,
+        stale_catalog_reads: int = 0,
+    ) -> None:
         self._tools = tools
+        self._stale_catalog_reads = stale_catalog_reads
+        self.detail_requests = 0
+        self.settings = {"mcp_servers": ""}
+
+    def get_settings(self):
+        return {"settings": dict(self.settings)}
+
+    def update_settings(self, settings):
+        self.settings = dict(settings)
+        return {"settings": dict(self.settings)}
 
     def _request_json(self, method: str, path: str, *, payload):
         assert (method, path, payload) == (
@@ -539,11 +616,15 @@ class _fake_agent_zero_api:
             "/api/mcp_server_get_detail",
             {"server_name": "github"},
         )
+        self.detail_requests += 1
+        tools = self._tools
+        if self.detail_requests <= self._stale_catalog_reads:
+            tools = ()
         return {
             "success": True,
             "detail": {
                 "connected": True,
-                "tools": [{"name": tool} for tool in self._tools],
+                "tools": [{"name": tool} for tool in tools],
             },
         }
 
@@ -1489,7 +1570,7 @@ class _fake_disposable_repository_transport:
     def __call__(self, method, url, headers, payload):
         from urllib.parse import urlparse
 
-        del headers
+        authorization = headers.get("Authorization", "")
         parsed = urlparse(url)
         path = parsed.path
         self.calls.append((method, path))
@@ -1506,11 +1587,43 @@ class _fake_disposable_repository_transport:
             self.exists = True
             return 201, {}, json.dumps(self._repository()).encode("utf-8")
 
+        installation_repo = (
+            f"/user/installations/180917216/repositories/{self.repository_id}"
+        )
+        if method == "PUT" and path == installation_repo:
+            return 204, {}, b""
+        if method == "DELETE" and path == installation_repo:
+            return 204, {}, b""
+
+        if method == "POST" and path == "/app/installations/180917216/access_tokens":
+            request = json.loads(payload.decode("utf-8"))
+            assert request["repository_ids"] == [self.repository_id]
+            return 201, {}, json.dumps(
+                {
+                    "token": "qualification-app-token",
+                    "expires_at": "2026-11-11T19:00:00Z",
+                    "repositories": [self._repository()],
+                    "permissions": {
+                        "actions": "read",
+                        "contents": "write",
+                        "issues": "write",
+                        "metadata": "read",
+                        "pull_requests": "write",
+                    },
+                }
+            ).encode("utf-8")
+        if method == "DELETE" and path == "/installation/token":
+            return 204, {}, b""
+
         expected_repo = f"/repos/Dufferin125/{self.repository_name}"
         if path == expected_repo and method == "GET":
             if not self.exists:
                 return 404, {}, json.dumps({"message": "Not Found"}).encode("utf-8")
-            return 200, {}, json.dumps(self._repository()).encode("utf-8")
+            return 200, {}, json.dumps(
+                self._repository(
+                    push_allowed="qualification-app-token" not in authorization,
+                )
+            ).encode("utf-8")
 
         if path == expected_repo and method == "DELETE":
             assert self.exists
@@ -1545,7 +1658,7 @@ class _fake_disposable_repository_transport:
 
         raise AssertionError(f"unexpected request: {method} {url}")
 
-    def _repository(self):
+    def _repository(self, *, push_allowed: bool = True):
         return {
             "id": self.repository_id,
             "name": self.repository_name,
@@ -1554,11 +1667,11 @@ class _fake_disposable_repository_transport:
             "default_branch": "main",
             "has_issues": True,
             "owner": {"login": "Dufferin125"},
-            "permissions": {"push": True},
+            "permissions": {"push": push_allowed},
         }
 
 
-def test_disposable_repository_lifecycle_probe_qualifies_both_credentials_and_deletes(
+def test_disposable_repository_lifecycle_probe_qualifies_app_token_and_deletes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1569,8 +1682,8 @@ def test_disposable_repository_lifecycle_probe_qualifies_both_credentials_and_de
     transport = _fake_disposable_repository_transport()
     action._client._transport = transport
     action._client._mutation_interval_seconds = 0.0
-    action._subject_client._transport = transport
-    action._subject_client._mutation_interval_seconds = 0.0
+    action._app_client._transport = transport
+    action._app_client._signer = lambda _message, _key: b"signature"
     action._name_factory = lambda: "acmm-e2-lifecycle-probe-test1234"
     action._sleep = lambda _seconds: None
     progress = []
@@ -1579,19 +1692,23 @@ def test_disposable_repository_lifecycle_probe_qualifies_both_credentials_and_de
 
     assert result.changed is True
     assert result.detail == (
-        "qualified disposable repository create/access/write/delete lifecycle"
+        "qualified disposable repository create/App-attach/token/write/"
+        "revoke/detach/delete lifecycle"
     )
     assert result.observations == {
         "controller_login": "Dufferin125",
-        "subject_login": "Dufferin125",
+        "credential_model": "github_app_installation_token",
         "repository": "Dufferin125/acmm-e2-lifecycle-probe-test1234",
         "repository_id": 1550000123,
-        "subject_push_access": True,
+        "subject_contents_write": True,
+        "subject_write_verified": True,
         "marker_path": ".acmm/lifecycle-probe.json",
+        "token_revoked": True,
+        "installation_detached": True,
         "deleted": True,
     }
-    assert [item.step for item in progress] == list(range(1, 8))
-    assert all(item.total == 7 for item in progress)
+    assert [item.step for item in progress] == list(range(1, 10))
+    assert all(item.total == 9 for item in progress)
     assert transport.exists is False
     assert ("POST", "/user/repos") in transport.calls
     assert (
@@ -1612,8 +1729,8 @@ def test_disposable_repository_lifecycle_probe_refuses_delete_after_identity_cha
     transport = _fake_disposable_repository_transport()
     action._client._transport = transport
     action._client._mutation_interval_seconds = 0.0
-    action._subject_client._transport = transport
-    action._subject_client._mutation_interval_seconds = 0.0
+    action._app_client._transport = transport
+    action._app_client._signer = lambda _message, _key: b"signature"
     action._name_factory = lambda: "acmm-e2-lifecycle-probe-safety"
     action._sleep = lambda _seconds: None
 
@@ -1708,6 +1825,40 @@ def test_fixture_namespace_is_execution_scoped_and_stable(
     )
 
 
+class _fake_app_client:
+    installation_id = 180917216
+    api_base = "https://api.github.com"
+
+    def __init__(self) -> None:
+        self.revoked_tokens: list[str] = []
+
+    def mint_repository_token(
+        self,
+        *,
+        repository_id: int,
+        expected_repository_full_name: str,
+    ):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            token=f"app-token-{repository_id}",
+            expires_at="2026-11-11T19:00:00Z",
+            repository_id=repository_id,
+            repository_full_name=expected_repository_full_name,
+            permissions={
+                "actions": "read",
+                "contents": "write",
+                "issues": "write",
+                "metadata": "read",
+                "pull_requests": "write",
+            },
+        )
+
+    def revoke(self, token: str) -> None:
+        self.revoked_tokens.append(token)
+
+
+
 class _fake_f1_a_client:
     def __init__(self, *, partial: bool = False, empty: bool = False) -> None:
         from types import SimpleNamespace
@@ -1723,6 +1874,8 @@ class _fake_f1_a_client:
             push_allowed=True,
         )
         self._counter = 0
+        self._repository_sequence = 0
+        self.app_installation_repository_ids: set[int] = set()
         self.exists = True
         if empty:
             self.branches = {}
@@ -1810,7 +1963,8 @@ class _fake_f1_a_client:
         self.exists = True
         self._identity.name = name
         self._identity.full_name = f"{self._identity.owner}/{name}"
-        self._identity.repository_id = 1550000999
+        self._identity.repository_id = 1550000999 + self._repository_sequence
+        self._repository_sequence += 1
         self.branches = {}
         self.commit_parents = {}
         self.commit_messages = {}
@@ -1855,6 +2009,24 @@ class _fake_f1_a_client:
             "owner": {"login": self._identity.owner},
             "permissions": {"push": True},
         }
+
+    def add_repository_to_app_installation(
+        self,
+        *,
+        installation_id: int,
+        repository_id: int,
+    ) -> None:
+        assert installation_id == 180917216
+        self.app_installation_repository_ids.add(repository_id)
+
+    def remove_repository_from_app_installation(
+        self,
+        *,
+        installation_id: int,
+        repository_id: int,
+    ) -> None:
+        assert installation_id == 180917216
+        self.app_installation_repository_ids.discard(repository_id)
 
     def delete_repository(self, owner: str, name: str):
         assert (owner, name) == (self._identity.owner, self._identity.name)
@@ -3545,7 +3717,7 @@ def test_f1_a_disposable_runtime_creates_private_repo_and_deletes_after_persiste
 
     client = _fake_f1_a_client(empty=True)
     lifecycle._controller = client
-    lifecycle._subject_client = client
+    lifecycle._app_client = _fake_app_client()
     lifecycle._sleep = lambda _seconds: None
 
     session_context = runtime_session_context(
@@ -3626,7 +3798,7 @@ def test_f1_b_disposable_runtime_materializes_actions_state_and_deletes(
 
     client = _fake_f1_a_client(empty=True)
     lifecycle._controller = client
-    lifecycle._subject_client = client
+    lifecycle._app_client = _fake_app_client()
     lifecycle._sleep = lambda _seconds: None
     lifecycle._f1_b_spec = loaded.runtime.fixtures["github_workspace_f1_b"]._spec
 
@@ -3635,7 +3807,7 @@ def test_f1_b_disposable_runtime_materializes_actions_state_and_deletes(
             experiment_id=EXPERIMENT_ID,
             execution_id="execution-f1-b",
             selected_run_indices=(0,),
-            session_dir="/tmp/acmm-test-session",
+            session_dir=str(tmp_path / "acmm-test-session"),
         )
     )
     scenario = next(
@@ -3704,7 +3876,7 @@ def test_f1_a_disposable_runtime_archives_then_deletes_unpersisted_run(
     assert lifecycle is not None
     client = _fake_f1_a_client(empty=True)
     lifecycle._controller = client
-    lifecycle._subject_client = client
+    lifecycle._app_client = _fake_app_client()
     lifecycle._sleep = lambda _seconds: None
 
     session_dir = tmp_path / "execution-test"
@@ -3780,7 +3952,7 @@ def test_disposable_session_refuses_stale_run_repository_visibility(
         private=True,
     )
     lifecycle._controller = client
-    lifecycle._subject_client = client
+    lifecycle._app_client = _fake_app_client()
 
     context = runtime_session_context(
         experiment_id=EXPERIMENT_ID,
@@ -3803,7 +3975,7 @@ def test_preparation_failure_archives_deletes_and_does_not_block_later_run(
     assert lifecycle is not None
     client = _fake_f1_a_client(empty=True)
     lifecycle._controller = client
-    lifecycle._subject_client = client
+    lifecycle._app_client = _fake_app_client()
     lifecycle._sleep = lambda _seconds: None
 
     session_dir = tmp_path / "execution-archive-delete"
@@ -4527,7 +4699,7 @@ def test_f2_disposable_runtime_materializes_observes_and_deletes_exact_run_repos
 
     client = _fake_f1_a_client(empty=True)
     lifecycle._controller = client
-    lifecycle._subject_client = client
+    lifecycle._app_client = _fake_app_client()
     lifecycle._sleep = lambda _seconds: None
 
     session = lifecycle.session_initialize(
@@ -4535,7 +4707,7 @@ def test_f2_disposable_runtime_materializes_observes_and_deletes_exact_run_repos
             experiment_id=EXPERIMENT_ID,
             execution_id=f"execution-{scenario_id}",
             selected_run_indices=(0,),
-            session_dir="/tmp/acmm-test-session",
+            session_dir=str(tmp_path / "acmm-test-session"),
         )
     )
     scenario = next(
@@ -5133,7 +5305,7 @@ def test_f3_disposable_runtime_materializes_and_deletes_exact_run_repository(
 
     client = _fake_f1_a_client(empty=True)
     lifecycle._controller = client
-    lifecycle._subject_client = client
+    lifecycle._app_client = _fake_app_client()
     lifecycle._sleep = lambda _seconds: None
 
     session = lifecycle.session_initialize(
@@ -5141,7 +5313,7 @@ def test_f3_disposable_runtime_materializes_and_deletes_exact_run_repository(
             experiment_id=EXPERIMENT_ID,
             execution_id=f"execution-{scenario_id}",
             selected_run_indices=(0,),
-            session_dir="/tmp/acmm-test-session",
+            session_dir=str(tmp_path / "acmm-test-session"),
         )
     )
     scenario = next(
@@ -5517,7 +5689,7 @@ def test_f4_disposable_runtime_materializes_and_deletes_exact_run_repository(
 
     client = _fake_f1_a_client(empty=True)
     lifecycle._controller = client
-    lifecycle._subject_client = client
+    lifecycle._app_client = _fake_app_client()
     lifecycle._sleep = lambda _seconds: None
 
     session = lifecycle.session_initialize(
@@ -5837,7 +6009,7 @@ def test_f5_disposable_runtime_materializes_and_deletes_exact_run_repository(
 
     client = _fake_f1_a_client(empty=True)
     lifecycle._controller = client
-    lifecycle._subject_client = client
+    lifecycle._app_client = _fake_app_client()
     lifecycle._sleep = lambda _seconds: None
 
     session = lifecycle.session_initialize(
@@ -6325,7 +6497,7 @@ def test_f6_disposable_runtime_materializes_and_deletes_exact_run_repository(
 
     client = _fake_f1_a_client(empty=True)
     lifecycle._controller = client
-    lifecycle._subject_client = client
+    lifecycle._app_client = _fake_app_client()
     lifecycle._sleep = lambda _seconds: None
 
     session = lifecycle.session_initialize(
@@ -6372,3 +6544,141 @@ def test_f6_disposable_runtime_materializes_and_deletes_exact_run_repository(
     assert finalized["deleted"] is True
     assert finalized["quarantined"] is False
     assert client.exists is False
+
+
+def test_github_app_client_mints_one_repository_token_and_revokes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+    app = lifecycle._app_client
+    app._signer = lambda _message, _key: b"signature"
+    calls = []
+
+    def transport(method, url, headers, payload):
+        from urllib.parse import urlparse
+
+        path = urlparse(url).path
+        calls.append((method, path, headers, payload))
+        if method == "POST" and path == "/app/installations/180917216/access_tokens":
+            body = json.loads(payload.decode("utf-8"))
+            assert body == {
+                "repository_ids": [1550000999],
+                "permissions": {
+                    "actions": "read",
+                    "contents": "write",
+                    "issues": "write",
+                    "metadata": "read",
+                    "pull_requests": "write",
+                },
+            }
+            return 201, {}, json.dumps(
+                {
+                    "token": "app-installation-token",
+                    "expires_at": "2026-11-11T19:00:00Z",
+                    "repositories": [
+                        {
+                            "id": 1550000999,
+                            "full_name": "Dufferin125/acmm-e2-run-test",
+                        }
+                    ],
+                    "permissions": body["permissions"],
+                }
+            ).encode("utf-8")
+        if method == "DELETE" and path == "/installation/token":
+            assert headers["Authorization"] == "Bearer app-installation-token"
+            return 204, {}, b""
+        raise AssertionError((method, path))
+
+    app._transport = transport
+    issued = app.mint_repository_token(
+        repository_id=1550000999,
+        expected_repository_full_name="Dufferin125/acmm-e2-run-test",
+    )
+    assert issued.token == "app-installation-token"
+    assert "app-installation-token" not in repr(issued)
+    assert issued.repository_id == 1550000999
+    assert issued.permissions["contents"] == "write"
+    assert "workflows" not in issued.permissions
+
+    app.revoke(issued.token)
+    assert [item[:2] for item in calls] == [
+        ("POST", "/app/installations/180917216/access_tokens"),
+        ("DELETE", "/installation/token"),
+    ]
+
+
+def test_runtime_recovery_detaches_and_retires_interrupted_execution_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hashlib
+    import sys
+
+    from acmm.experiment_api import runtime_execution_recovery_context
+
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = load_staged_experiment_runtime(package)
+    recovery = loaded.runtime.recovery
+    assert recovery is not None
+
+    client = _fake_f1_a_client(empty=True)
+    recovery._controller = client
+    recovery._app_client = _fake_app_client()
+
+    execution_id = "campaign-execution-recovery-test"
+    execution_tag = hashlib.sha256(execution_id.encode("utf-8")).hexdigest()[:8]
+    repository_name = f"acmm-e2-run-f1-a-hermes-e{execution_tag}-r01-a1-deadbeef"
+    created = client.create_repository(
+        name=repository_name,
+        description="test",
+        private=True,
+        has_issues=True,
+        auto_init=False,
+    )
+    repository_id = created["id"]
+    client.add_repository_to_app_installation(
+        installation_id=180917216,
+        repository_id=repository_id,
+    )
+
+    recovery_module = sys.modules[type(recovery).__module__]
+    ledger = recovery_module.github_resource_ledger(tmp_path / "session")
+    ledger.record_repository(
+        run_index=0,
+        repository_id=repository_id,
+        owner="Dufferin125",
+        name=repository_name,
+        full_name=f"Dufferin125/{repository_name}",
+    )
+    ledger.update(
+        repository_id,
+        installation_attached=True,
+        token_minted=True,
+        token_fingerprint="0" * 64,
+    )
+
+    result = recovery.reconcile(
+        runtime_execution_recovery_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id=execution_id,
+            selected_run_indices=(0,),
+            session_dir=str(tmp_path / "session"),
+        )
+    )
+
+    assert result.safe_to_continue is True
+    assert result.changed is True
+    assert client.exists is False
+    row = ledger.repositories()[0]
+    assert row["installation_detached"] is True
+    assert row["repository_retired"] is True
+    assert row["token_revoked"] is False
+    assert result.observations["retired_repositories"] == (
+        f"Dufferin125/{repository_name}",
+    )

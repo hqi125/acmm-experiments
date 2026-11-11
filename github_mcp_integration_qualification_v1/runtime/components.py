@@ -23,7 +23,6 @@ from acmm.experiment_api import (
 
 _API_ROOT = "https://api.github.com"
 _API_VERSION = "2026-03-10"
-_REPOSITORY_NAME = "acmm-mcp-arena-experiment-2"
 _ISSUE_TITLE = "[ACMM] GitHub MCP behavior qualification arena"
 _ISSUE_BODY = (
     "This issue is managed by ACMM as canonical state for GitHub MCP behavior "
@@ -93,21 +92,37 @@ class github_issue_fixture:
         reset: dict[str, Any],
     ) -> prepared_environment:
         del reset
-        configuration = scenario.get("environment", {}).get("configuration", {})
-        repository_name = configuration.get("repository_name", _REPOSITORY_NAME)
-        if not isinstance(repository_name, str) or not repository_name:
-            raise ValueError("GitHub qualification repository_name must be non-empty text.")
-
-        user = self._client.request("GET", "/user")
-        owner = _required_string(user, "login", "authenticated GitHub login")
-        repository = self._client.request(
+        del scenario
+        repositories = self._client.request(
             "GET",
-            f"/repos/{quote(owner)}/{quote(repository_name)}",
+            "/installation/repositories?per_page=100",
         )
+        if not isinstance(repositories, dict):
+            raise github_rest_error(
+                "GitHub installation repository listing did not return an object."
+            )
+        visible = repositories.get("repositories")
+        total_count = repositories.get("total_count")
+        if (
+            not isinstance(total_count, int)
+            or isinstance(total_count, bool)
+            or total_count != 1
+            or not isinstance(visible, list)
+            or len(visible) != 1
+            or not isinstance(visible[0], dict)
+        ):
+            raise github_rest_error(
+                "GitHub App qualification requires the installation token to expose "
+                "exactly one repository."
+            )
+        repository = visible[0]
         full_name = _required_string(repository, "full_name", "GitHub repository full_name")
+        owner_value = repository.get("owner")
+        owner = _required_string(owner_value, "login", "GitHub repository owner")
+        repository_name = _required_string(repository, "name", "GitHub repository name")
         if full_name.casefold() != f"{owner}/{repository_name}".casefold():
             raise github_rest_error(
-                "The configured GitHub repository does not belong to the authenticated user."
+                "GitHub installation repository identity is internally inconsistent."
             )
         if repository.get("has_issues") is not True:
             raise github_rest_error("GitHub Issues are disabled for the qualification repository.")
@@ -132,7 +147,9 @@ class github_issue_fixture:
             provenance={
                 "fixture": "github_issue_behavior_qualification_v1",
                 "configuration": {
-                    "repository_name": repository_name,
+                    "repository_full_name": full_name,
+                    "credential_model": "github_app_installation_token",
+                    "visible_repository_count": 1,
                 },
             },
             evidence=(

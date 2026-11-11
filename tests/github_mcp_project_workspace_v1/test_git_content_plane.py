@@ -12,7 +12,6 @@ from acmm.secret_bindings import (
     bind_secret_file,
     experiment_secret_binding_key,
     initialize_secret_store,
-    secret_binding_key,
 )
 
 
@@ -39,8 +38,8 @@ def _load_types(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         _write_secret(tmp_path / "controller-token", "controller-secret-value"),
     )
     bind_secret_file(
-        secret_binding_key(EXPERIMENT_ID, "github_mcp", "access_token"),
-        _write_secret(tmp_path / "subject-token", "subject-secret-value"),
+        experiment_secret_binding_key(EXPERIMENT_ID, "github_app_private_key"),
+        _write_secret(tmp_path / "github-app-private-key", "test-private-key-pem"),
     )
     package = install_experiment_package(source, tmp_path / "runtime-root")
     loaded = load_staged_experiment_runtime(package)

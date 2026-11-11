@@ -20,6 +20,8 @@ from .api_governor import (
     github_api_governor,
     github_api_governor_policy,
 )
+from .github_app import github_app_client
+from .recovery import github_workspace_runtime_recovery
 from .controller import (
     github_controller_client,
     github_controller_diagnostic,
@@ -88,7 +90,14 @@ _FIXTURE_IDS = (
 def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
     configuration = _load_controller_configuration(context)
     controller_token = context.resolve_package_secret("controller_access_token")
-    subject_token = context.resolve_integration_secret("github_mcp", "access_token")
+    github_app_private_key = context.resolve_package_secret("github_app_private_key")
+    github_app_configuration = configuration["github_app"]
+    app_client = github_app_client(
+        app_id=github_app_configuration["app_id"],
+        installation_id=github_app_configuration["installation_id"],
+        private_key_pem=github_app_private_key,
+        api_base=configuration["api_base"],
+    )
 
     repository_owner = str(configuration["repository_full_name"]).split("/", 1)[0]
     governor_scope = f"{configuration['api_base']}|{repository_owner.casefold()}"
@@ -112,14 +121,7 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         api_base=configuration["api_base"],
         governor=governor,
     )
-    subject_probe_client = github_controller_client(
-        subject_token,
-        api_base=configuration["api_base"],
-        governor=governor,
-    )
-    credentials_distinct = (
-        _fingerprint(controller_token) != _fingerprint(subject_token)
-    )
+    credentials_distinct = True
     diagnostic = github_controller_diagnostic(
         controller,
         repository_name=configuration["repository_name"],
@@ -128,6 +130,10 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         expected_default_branch=configuration["expected_default_branch"],
         require_private=configuration["require_private"],
         credentials_distinct=credentials_distinct,
+        credential_separation_detail=(
+            "controller PAT and per-run GitHub App installation token use separate "
+            "credential domains"
+        ),
         fixture_base_version=configuration["fixture_base_version"],
         fixture_base_files=configuration["fixture_base_files"],
     )
@@ -144,8 +150,8 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
 
     lifecycle_qualifier = github_disposable_repository_lifecycle_qualifier(
         controller,
-        subject_probe_client,
-        credentials_distinct=credentials_distinct,
+        app_client,
+        api_base=configuration["api_base"],
         experiment_id="github_mcp_project_workspace_v1",
         probe_name_prefix=configuration["disposable_probe_name_prefix"],
     )
@@ -170,7 +176,7 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
     f6_b_spec = _load_f6_b_configuration(context)
     disposable_lifecycle = github_workspace_disposable_lifecycle(
         controller,
-        subject_probe_client,
+        app_client,
         experiment_id="github_mcp_project_workspace_v1",
         run_name_prefix=configuration["disposable_run_name_prefix"],
         expected_default_branch=configuration["expected_default_branch"],
@@ -390,6 +396,11 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         ),
         lifecycle=disposable_lifecycle,
         apparatus_cleanup=quarantine_cleanup,
+        recovery=github_workspace_runtime_recovery(
+            controller,
+            app_client,
+            run_name_prefix=configuration["disposable_run_name_prefix"],
+        ),
         fixtures=fixtures,
         evaluators={"github_workspace": github_workspace_evaluator()},
         diagnostics={"github_fixture_controller": diagnostic},
@@ -441,6 +452,24 @@ def _load_controller_configuration(
             raise ValueError(
                 f"Controller configuration field '{key}' is invalid."
             )
+
+    github_app = value.get("github_app")
+    if not isinstance(github_app, dict):
+        raise ValueError("Controller configuration github_app is invalid.")
+    app_id = github_app.get("app_id")
+    installation_id = github_app.get("installation_id")
+    app_slug = github_app.get("slug")
+    if (
+        not isinstance(app_id, int)
+        or isinstance(app_id, bool)
+        or app_id <= 0
+        or not isinstance(installation_id, int)
+        or isinstance(installation_id, bool)
+        or installation_id <= 0
+        or not isinstance(app_slug, str)
+        or not app_slug.strip()
+    ):
+        raise ValueError("Controller configuration github_app identity is invalid.")
 
     disposable = value.get("disposable_repositories")
     if not isinstance(disposable, dict):

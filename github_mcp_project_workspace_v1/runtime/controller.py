@@ -255,6 +255,34 @@ class github_controller_client:
         if self._git_content_plane is not None:
             self._git_content_plane.discard_repository(owner, name)
 
+    def add_repository_to_app_installation(
+        self,
+        *,
+        installation_id: int,
+        repository_id: int,
+    ) -> None:
+        if installation_id <= 0 or repository_id <= 0:
+            raise ValueError("GitHub App installation and repository ids must be positive.")
+        self._json(
+            "PUT",
+            f"/user/installations/{installation_id}/repositories/{repository_id}",
+            expected=(204,),
+        )
+
+    def remove_repository_from_app_installation(
+        self,
+        *,
+        installation_id: int,
+        repository_id: int,
+    ) -> None:
+        if installation_id <= 0 or repository_id <= 0:
+            raise ValueError("GitHub App installation and repository ids must be positive.")
+        self._json(
+            "DELETE",
+            f"/user/installations/{installation_id}/repositories/{repository_id}",
+            expected=(204, 404),
+        )
+
     def repository_archive(
         self,
         owner: str,
@@ -1296,6 +1324,7 @@ class github_controller_diagnostic:
         expected_default_branch: str,
         require_private: bool,
         credentials_distinct: bool,
+        credential_separation_detail: str | None = None,
         fixture_base_version: str,
         fixture_base_files: tuple[github_fixture_base_file, ...],
     ) -> None:
@@ -1306,6 +1335,7 @@ class github_controller_diagnostic:
         self._expected_default_branch = expected_default_branch
         self._require_private = require_private
         self._credentials_distinct = credentials_distinct
+        self._credential_separation_detail = credential_separation_detail
         self._fixture_base_version = fixture_base_version
         self._fixture_base_files = tuple(fixture_base_files)
 
@@ -1315,9 +1345,13 @@ class github_controller_diagnostic:
                 name="credential_separation",
                 ok=self._credentials_distinct,
                 detail=(
-                    "controller and subject credentials are distinct"
-                    if self._credentials_distinct
-                    else "controller and subject credentials resolve to the same value"
+                    self._credential_separation_detail
+                    if self._credential_separation_detail is not None
+                    else (
+                        "controller and subject credentials are distinct"
+                        if self._credentials_distinct
+                        else "controller and subject credentials resolve to the same value"
+                    )
                 ),
             )
         ]

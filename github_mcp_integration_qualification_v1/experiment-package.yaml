@@ -20,9 +20,48 @@ integrations:
       endpoint: http://host.docker.internal:8082
       server_id: github
       tools:
+        - actions_get
+        - actions_list
+        - add_comment_to_pending_review
+        - add_issue_comment
+        - add_reply_to_pull_request_comment
+        - create_branch
+        - create_or_update_file
+        - create_pull_request
+        - delete_file
+        - get_commit
+        - get_file_contents
+        - get_job_logs
+        - get_label
+        - get_latest_release
+        - get_release_by_tag
+        - get_repository_tree
+        - get_tag
         - issue_read
         - issue_write
-        - add_issue_comment
+        - label_write
+        - list_branches
+        - list_commits
+        - list_issues
+        - list_label
+        - list_pull_requests
+        - list_releases
+        - list_repository_collaborators
+        - list_tags
+        - merge_pull_request
+        - pull_request_read
+        - pull_request_review_write
+        - push_files
+        - search_code
+        - search_commits
+        - search_issues
+        - search_pull_requests
+        - search_repositories
+        - search_users
+        - sub_issue_write
+        - update_issue_comment
+        - update_pull_request
+        - update_pull_request_branch
       local_service:
         image: ghcr.io/github/github-mcp-server:v2.0.3
         container_name: acmm-github-mcp

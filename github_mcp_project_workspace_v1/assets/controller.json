@@ -38,5 +38,10 @@
     ],
     "primary_remaining_floor": 1000,
     "primary_reset_grace_seconds": 2.0
+  },
+  "github_app": {
+    "app_id": 5713970,
+    "installation_id": 180917216,
+    "slug": "acmm-github-app"
   }
 }

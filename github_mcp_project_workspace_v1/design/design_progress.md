@@ -156,7 +156,7 @@ semantic validation rather than runner timing as the scientific correctness orac
 
 ## Phase D - pre-coding gate
 
-**Closed on 2026-11-07.**
+**Closed on 2026-11-07. Historical PAT-era baseline.**
 
 - [x] Pin GitHub MCP Server v2.0.3 and qualified image digest.
 - [x] Capture/freeze the 43-tool effective catalog and normalized digest.
@@ -169,6 +169,10 @@ semantic validation rather than runner timing as the scientific correctness orac
 - [x] Explicitly announce transition to executable implementation.
 
 ## Phase E - executable apparatus implementation
+
+> This checklist records the apparatus/scenario implementation checkpoint before the GitHub App / Campaign rebase.
+> Items such as the 43-tool PAT surface remain historical evidence; Phase F below defines the current acquisition model.
+
 
 - [x] Generalize Core secret bindings to Core / Experiment / Integration scopes.
 - [x] Retire `--ollama-api-key-file`; provider telemetry now resolves only `core:ollama_api_key`.
@@ -197,3 +201,23 @@ semantic validation rather than runner timing as the scientific correctness orac
 
 See [`pre_coding_checkpoint.md`](pre_coding_checkpoint.md), [`pinned_mcp_catalog.md`](pinned_mcp_catalog.md),
 and [`fixture_lifecycle.md`](fixture_lifecycle.md).
+
+## Phase F - Campaign + GitHub App rebase
+
+**Implemented locally on 2026-11-11; fresh live qualification is pending before acquisition.**
+
+- [x] Introduce generic Core subject-admission orchestration so run environment preparation precedes ephemeral credential binding.
+- [x] Keep static GitHub MCP subject profiles unadmitted between runs.
+- [x] Replace the persistent subject PAT with one repository-scoped GitHub App installation token per logical run.
+- [x] Freeze the App-native seven-toolset / 42-tool catalog and exclude `context/get_me`.
+- [x] Preserve the pinned GitHub MCP Server v2.0.3 image/digest.
+- [x] Attach only the prepared disposable repository to the selected-repository App installation before minting the run token.
+- [x] Revoke the installation token and restore the unadmitted subject profile before trusted post-run observation.
+- [x] Detach and retire the exact disposable repository after observation.
+- [x] Add a durable non-secret runtime resource ledger for repository/admission lifecycle state.
+- [x] Add package-owned hard-crash recovery using execution-tag discovery plus ledger reconciliation.
+- [x] Ensure lost token bytes are never persisted; recovery removes their sole repository authority by detaching/deleting the exact run repository.
+- [x] Add App-token mint/revoke, runtime admission, and crash-recovery regression coverage.
+- [ ] Bind/validate the package `github_app_private_key` in the live secret registry for the rebased package revision.
+- [ ] Run fresh live package apply/doctor and App-native 42-tool admission preflight across Hermes, Open WebUI, and Agent Zero.
+- [ ] Re-run disposable-repository/App-token lifecycle qualification and remaining scenario smoke runs before scientific acquisition.

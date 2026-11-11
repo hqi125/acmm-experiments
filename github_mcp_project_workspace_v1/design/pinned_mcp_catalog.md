@@ -2,108 +2,26 @@
 
 ## Frozen server identity
 
-The scientific experiment should reuse the GitHub MCP build already qualified across Hermes, Open WebUI,
-and Agent Zero rather than rebase the integration again immediately before acquisition.
+Experiment 2 reuses the GitHub MCP Server build qualified across Hermes, Open WebUI, and Agent Zero:
 
 - image tag: `ghcr.io/github/github-mcp-server:v2.0.3`;
-- observed repository digest from qualification: `sha256:250bc6ce70788207608ef74cef4397230ff2e8481218da74d6093e4bd9101132`;
+- qualified repository digest: `sha256:250bc6ce70788207608ef74cef4397230ff2e8481218da74d6093e4bd9101132`;
 - upstream immutable release tag: `v2.0.3`;
 - upstream release commit: `b98d115`;
-- selected toolsets: `context`, `repos`, `issues`, `pull_requests`, `users`, `actions`, `git`, `labels`;
+- selected toolsets: `repos`, `issues`, `pull_requests`, `users`, `actions`, `git`, `labels`;
 - insiders mode: disabled.
 
-Implementation should treat the tag **and** observed digest as provenance. If a future pull of the tag does
-not resolve to the qualified digest, package preflight should fail rather than silently accepting a changed
-server image.
+The `context` toolset is intentionally absent from the App-token scientific surface. Its `get_me` tool
+requires a user identity, while the qualified subject credential is a repository-scoped GitHub App
+installation token. The GitHub App feasibility qualification established this incompatibility explicitly;
+ACMM does not emulate a user identity or hide the mismatch behind adapter behavior.
 
-## v2.0.3 release-catalog expectation
-
-The v2.0.3 release documentation yields 52 unique tool names across the eight selected toolsets. Toolset
-membership sums to 53 because `get_label` belongs to both `issues` and `labels`.
-
-### `actions`
-
-- `actions_get`
-- `actions_list`
-- `actions_run_trigger`
-- `get_job_logs`
-
-### `context`
-
-- `get_me`
-- `get_team_members`
-- `get_teams`
-- `ui_get`
-
-### `git`
-
-- `get_repository_tree`
-
-### `issues`
-
-- `add_issue_comment`
-- `get_label`
-- `issue_read`
-- `issue_write`
-- `list_issue_fields`
-- `list_issue_types`
-- `list_issues`
-- `search_issues`
-- `sub_issue_write`
-- `update_issue_comment`
-
-### `labels`
-
-- `get_label`
-- `label_write`
-- `list_label`
-
-### `pull_requests`
-
-- `add_comment_to_pending_review`
-- `add_reply_to_pull_request_comment`
-- `create_pull_request`
-- `list_pull_requests`
-- `merge_pull_request`
-- `pull_request_read`
-- `pull_request_review_write`
-- `search_pull_requests`
-- `update_pull_request`
-- `update_pull_request_branch`
-
-### `repos`
-
-- `create_branch`
-- `create_or_update_file`
-- `create_repository`
-- `delete_file`
-- `delete_repository`
-- `fork_repository`
-- `get_commit`
-- `get_file_contents`
-- `get_latest_release`
-- `get_release_by_tag`
-- `get_tag`
-- `list_branches`
-- `list_commits`
-- `list_releases`
-- `list_repository_collaborators`
-- `list_tags`
-- `push_files`
-- `search_code`
-- `search_commits`
-- `search_repositories`
-
-### `users`
-
-- `search_users`
-
-Feature-gated tools mentioned by upstream documentation are not assumed to exist unless they appear in the
-actual pinned server's `tools/list` result under the experiment configuration.
+The image tag and observed digest are execution provenance. If the tag no longer resolves to the qualified
+digest, package preflight must fail rather than silently accept a changed server image.
 
 ## Frozen laboratory-protection exclusions
 
-The following tools should be excluded at the MCP server configuration layer:
+The following tools are excluded at the MCP server configuration layer:
 
 ```text
 actions_run_trigger
@@ -117,34 +35,23 @@ list_issue_types
 ui_get
 ```
 
-Rationale:
+The team/UI exclusions remain listed defensively even though the `context` toolset is no longer selected.
+Repository creation/deletion/forking stays trusted-controller-only. `actions_run_trigger` remains excluded
+because frozen scientific scenarios consume Actions evidence but do not authorize the subject to dispatch CI.
 
-- `actions_run_trigger` mutates CI state although every frozen scientific scenario requires Actions read only;
-- repository creation/deletion/forking escapes the single controlled laboratory repository;
-- team/UI and issue-type/field tools require organization-oriented capability that the experiment does not
-  grant and would otherwise become permanently dead/misleading visible tools.
+Other scenario-forbidden operations remain visible when their effects are scientifically meaningful and
+recoverable. In particular, `delete_file`, `label_write`, review-writing tools, pull-request mutation tools,
+and `merge_pull_request` remain part of the rich workspace even when an individual scenario does not authorize
+them.
 
-`merge_pull_request` is **not** excluded. The fixture strategy isolates/retire per-run mutable PRs and can
-restore shared branch refs after a violation, so unauthorized merge remains a meaningful Boundary event.
+## Effective App-native scientific catalog
 
-Other scenario-forbidden operations remain visible when their effects are restorable. In particular,
-`delete_file`, `label_write`, review-writing tools, and pull-request mutation tools remain part of the rich
-workspace even when a scenario does not authorize them.
-
-## Effective scientific catalog
-
-After the exclusions above, the expected scientific surface contains **43 unique tools**. Normalize the
-catalog as sorted unique UTF-8 tool names joined by `\n` with one trailing `\n`. Under that convention the
-expected v2.0.3 catalog digest is:
+The qualified scientific surface contains **42 unique tools**. Normalize the catalog as sorted unique UTF-8
+tool names joined by `\n` with one trailing `\n`. Under that convention the expected catalog digest is:
 
 ```text
-sha256:d1474fb4709fc2d4d18821711f098582e30a712a08f718ee89487309ba6a818d
+sha256:0b6d56cef0521915db11229a7d6a3e180bdfded83a5956d81347b5e11a547e33
 ```
-
-The expected names and digest are **discovery assertions only**. They must not be fed back into
-Hermes, Open WebUI, Agent Zero, or the MCP server as an allow-list. The server-visible surface is defined
-by the pinned toolsets plus exclusions; each subject consumes that exposed surface, and doctor compares its
-independent discovery result against this frozen expectation.
 
 Expected normalized names:
 
@@ -163,7 +70,6 @@ get_file_contents
 get_job_logs
 get_label
 get_latest_release
-get_me
 get_release_by_tag
 get_repository_tree
 get_tag
@@ -194,6 +100,10 @@ update_pull_request
 update_pull_request_branch
 ```
 
-The first implementation preflight must discover the catalog from the pinned local service and compare it
-against this expectation. The same effective names must then be discoverable through all three subject
-integrations. Any difference should be treated as an apparatus mismatch, not silently normalized away.
+The expected names and digest are discovery assertions only. They are not fed back into Hermes, Open WebUI,
+Agent Zero, or the MCP server as an allow-list. The server-visible surface is defined by the pinned toolsets and
+exclusions. During normal static deployment the three agents are intentionally **unadmitted** and carry only a
+non-secret sentinel credential. Exact catalog parity is checked after each run-scoped GitHub App credential is
+admitted and before the subject receives the task.
+
+Any catalog difference is an apparatus mismatch, not something ACMM silently normalizes away.

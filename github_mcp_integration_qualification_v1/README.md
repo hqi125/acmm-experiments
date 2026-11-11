@@ -7,22 +7,26 @@ the final research dataset.
 The package has two qualification layers:
 
 1. `acmm env doctor --start-if-needed` verifies that Hermes, Open WebUI, and Agent Zero each
-   discover exactly `issue_read`, `issue_write`, and `add_issue_comment` through their native MCP
-   client.
-2. The single package run uses a trusted GitHub REST fixture to establish canonical issue state,
-   lets the subject perform `issue_read -> add_issue_comment -> issue_read`, captures authoritative
-   post-state, and restores the issue by deleting the qualification comment.
+   discover the full 42-tool App-native scientific GitHub MCP catalog through their native MCP
+   client. The `context` toolset is intentionally absent because `get_me` requires a user identity
+   and is incompatible with GitHub App installation tokens.
+2. The single package run uses the same repository-scoped installation token for trusted GitHub
+   REST fixture setup/observation and for subject MCP access, then exercises a small
+   `issue_read -> add_issue_comment -> issue_read` workflow and restores the qualification comment.
 
-The target repository is `acmm-mcp-arena-experiment-2` under the GitHub account authenticated by
-the package's `github_mcp:access_token` secret binding. The account login is resolved at run time;
-it is not stored in the Contract.
+The `github_mcp:access_token` binding must contain a fresh GitHub App installation token narrowed
+to exactly one private qualification repository. The fixture discovers that sole visible repository
+through `GET /installation/repositories`; no GitHub user identity or repository name is stored in
+the Contract.
 
 The local MCP service remains pinned to `ghcr.io/github/github-mcp-server:v2.0.3`. Its container is
 ephemeral; the image is cached locally and the GitHub repository remains the authoritative state.
 
-A fine-grained GitHub token should be restricted to the dedicated qualification repository and
-must provide GitHub Issues read/write access. The token remains in the local secret source file and
-is never stored in this package.
+The installation token must provide the App-native experiment permission envelope: Actions read,
+Contents read/write, Issues read/write, Pull requests read/write, and Metadata read, with Workflows
+access disabled. The token remains in the local secret source file and is never stored in this
+package. Installation tokens are short-lived, so mint and bind a fresh token immediately before
+qualification.
 
 Typical qualification flow from the Core repository is:
 

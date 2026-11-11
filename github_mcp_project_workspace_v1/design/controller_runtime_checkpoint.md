@@ -1,5 +1,7 @@
 # Trusted Controller Runtime Checkpoint
 
+> **Historical checkpoint:** this document records the earlier PAT/43-tool apparatus state. The current package uses per-run repository-scoped GitHub App installation tokens and the 42-tool App-native catalog; see `fixture_lifecycle.md` and `pinned_mcp_catalog.md`.
+
 ## Status
 
 The trusted controller foundation and explicit fixture-base initialization are implemented. F1-A is
