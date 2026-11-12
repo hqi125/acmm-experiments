@@ -90,7 +90,7 @@ integrations:
         container_name: acmm-github-mcp-exp2
         host_port: 8083
         source_repository: https://github.com/hqi125/acmm-github-mcp-server.git
-        source_commit: "26734e5f989ff0f446095b024e7c8e3026d8ed99"
+        source_commit: "41ea87f6670a7a7cc08640f1b2d65495cfa1a5c8"
         upstream_version: v2.1.0
         upstream_commit: 4bcdcdf8d7beee98c9448e73e257308280924cc4
         governor_version: v1
