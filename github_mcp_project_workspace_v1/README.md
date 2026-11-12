@@ -182,7 +182,7 @@ The design/pre-coding gate is closed and executable implementation is underway. 
 
 - package schema v0.3 with Experiment-scoped controller PAT and GitHub App private-key secrets;
 - the frozen 12-scenario x 8-repetition Contract;
-- pinned GitHub MCP Server v2.0.3 integration rebased to the qualified 42-tool App-native catalog;
+- pinned GitHub MCP Server v2.1.0 integration built from the maintained ACMM governor fork while preserving the qualified 42-tool App-native catalog;
 - static subject deployments remain intentionally unadmitted; exact 42-tool catalog verification occurs after each run-scoped App token is bound;
 - a trusted controller diagnostic and explicit `initialize` apparatus action for the pinned private repository;
 - an engineering-reference repository used to qualify F1-A/F1-B semantics, while final scientific acquisition

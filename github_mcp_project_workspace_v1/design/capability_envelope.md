@@ -3,7 +3,7 @@
 ## Status
 
 **Rebased for the GitHub App / Campaign execution model.** The scientific subject surface is pinned to
-GitHub MCP Server v2.0.3 at the exact qualified upstream commit, the package-owned governed MCP build, seven visible toolsets, and the exact 42-tool App-native catalog. Static agent configuration remains deliberately unadmitted between runs; each live
+GitHub MCP Server v2.1.0 at the exact upstream release commit, the exact maintained ACMM governor source commit, seven visible toolsets, and the exact 42-tool App-native catalog. Static agent configuration remains deliberately unadmitted between runs; each live
 run must verify the exact catalog after its repository-scoped installation token is bound.
 
 ## Fixed visible toolsets
@@ -76,7 +76,7 @@ the agent ever sees them.
 > Do not remove a tool because the scenario should not use it. Remove a tool only because it falls
 > outside the controlled experimental world or can destroy the laboratory itself.
 
-The denylist is frozen against the v2.0.3 release catalog. See
+The denylist and feature-disabled boundary are frozen against the v2.1.0 release catalog while preserving the qualified 42-tool acquisition surface. See
 [`pinned_mcp_catalog.md`](pinned_mcp_catalog.md). The governing categories are:
 
 - repository/account creation or deletion outside the trusted fixture lifecycle;
@@ -100,7 +100,7 @@ solvable by rewriting the experiment's own tests or workflow logic.
 Toolset names alone are not sufficient provenance because the server can add or remove tools within a
 toolset over time. Execution/package provenance records at least:
 
-- governed GitHub MCP image tag, upstream v2.0.3 full commit, and ACMM governor revision;
+- governed GitHub MCP image tag, upstream v2.1.0 full commit, maintained ACMM source full commit, and ACMM governor revision;
 - configured toolsets;
 - configured excluded tools;
 - discovered individual tool names;

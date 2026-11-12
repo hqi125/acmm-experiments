@@ -9,7 +9,7 @@ disposable scientific runtimes; later families remain design-frozen until implem
 
 - [`capability_envelope.md`](capability_envelope.md) - fixed GitHub MCP toolset envelope, the
   capability/credential/scenario boundary distinction, laboratory protection, and provenance rules.
-- [`pinned_mcp_catalog.md`](pinned_mcp_catalog.md) - frozen v2.0.3 image/digest, exact selected-toolset
+- [`pinned_mcp_catalog.md`](pinned_mcp_catalog.md) - frozen v2.1.0 upstream + maintained ACMM source identity, exact selected-toolset
   catalog expectation, laboratory exclusions, and effective-catalog digest.
 - [`controller_runtime_checkpoint.md`](controller_runtime_checkpoint.md) - implemented trusted-controller
   runtime/doctor foundation and the repository-identity pinning gate before mutation;

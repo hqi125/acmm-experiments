@@ -603,9 +603,8 @@ class _integration_settings:
         image: str,
         container_name: str,
         host_port: int,
-        build_context: str,
-        build_dockerfile: str,
-        upstream_repository: str,
+        source_repository: str,
+        source_commit: str,
         upstream_version: str,
         upstream_commit: str,
         governor_version: str,
@@ -625,9 +624,8 @@ class _integration_settings:
         self.image = image
         self.container_name = container_name
         self.host_port = host_port
-        self.build_context = build_context
-        self.build_dockerfile = build_dockerfile
-        self.upstream_repository = upstream_repository
+        self.source_repository = source_repository
+        self.source_commit = source_commit
         self.upstream_version = upstream_version
         self.upstream_commit = upstream_commit
         self.governor_version = governor_version
@@ -667,9 +665,12 @@ def _settings(configuration: Mapping[str, Any]) -> _integration_settings:
         raise ValueError("local_service must be a mapping.")
     image = _required_configuration_text(service, "image")
     container_name = _required_configuration_text(service, "container_name")
-    build_context = _required_configuration_text(service, "build_context")
-    build_dockerfile = _required_configuration_text(service, "build_dockerfile")
-    upstream_repository = _required_configuration_text(service, "upstream_repository")
+    source_repository = _required_configuration_text(service, "source_repository")
+    if not source_repository.startswith("https://"):
+        raise ValueError("local_service.source_repository must use HTTPS.")
+    source_commit = _required_configuration_text(service, "source_commit").lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        raise ValueError("local_service.source_commit must be a full lowercase SHA-1.")
     upstream_version = _required_configuration_text(service, "upstream_version")
     upstream_commit = _required_configuration_text(service, "upstream_commit").lower()
     if not re.fullmatch(r"[0-9a-f]{40}", upstream_commit):
@@ -698,9 +699,8 @@ def _settings(configuration: Mapping[str, Any]) -> _integration_settings:
         image=image,
         container_name=container_name,
         host_port=host_port,
-        build_context=build_context,
-        build_dockerfile=build_dockerfile,
-        upstream_repository=upstream_repository,
+        source_repository=source_repository,
+        source_commit=source_commit,
         upstream_version=upstream_version,
         upstream_commit=upstream_commit,
         governor_version=governor_version,
@@ -733,6 +733,7 @@ def _catalog_sha256(tools: tuple[str, ...] | set[str]) -> str:
 class _local_github_mcp_resource:
     _UPSTREAM_VERSION_LABEL = "io.acmm.github-mcp.upstream-version"
     _UPSTREAM_COMMIT_LABEL = "io.acmm.github-mcp.upstream-commit"
+    _SOURCE_COMMIT_LABEL = "io.acmm.github-mcp.source-commit"
     _GOVERNOR_VERSION_LABEL = "io.acmm.github-mcp.governor-version"
 
     def __init__(self, settings: _integration_settings) -> None:
@@ -778,9 +779,9 @@ class _local_github_mcp_resource:
         else:
             if progress is not None:
                 progress(
-                    "image: building governed GitHub MCP server from "
-                    f"{self._settings.upstream_version} "
-                    f"({self._settings.upstream_commit[:12]})..."
+                    "image: building governed GitHub MCP server from ACMM source "
+                    f"{self._settings.source_commit[:12]} "
+                    f"(upstream {self._settings.upstream_version})..."
                 )
             self._build_image(
                 context,
@@ -835,6 +836,7 @@ class _local_github_mcp_resource:
                 "image identity: "
                 f"upstream={self._settings.upstream_version}@"
                 f"{self._settings.upstream_commit[:12]}, "
+                f"source={self._settings.source_commit[:12]}, "
                 f"governor={self._settings.governor_version}"
             )
             if status.get("running"):
@@ -879,6 +881,8 @@ class _local_github_mcp_resource:
             "excluded_tools": list(self._settings.excluded_tools),
             "expected_tools": list(self._settings.expected_tools),
             "expected_catalog_sha256": self._settings.expected_catalog_sha256,
+            "source_repository": self._settings.source_repository,
+            "source_commit": self._settings.source_commit,
             "upstream_version": self._settings.upstream_version,
             "upstream_commit": self._settings.upstream_commit,
             "governor_version": self._settings.governor_version,
@@ -925,6 +929,11 @@ class _local_github_mcp_resource:
                     "Docker CLI available",
                 ),
                 integration_check(
+                    "git",
+                    self._runner.run(["git", "--version"], timeout_seconds=15).succeeded,
+                    "Git CLI available for pinned source checkout",
+                ),
+                integration_check(
                     "container_running",
                     status.get("running") is True,
                     f"container={self._settings.container_name}",
@@ -940,6 +949,7 @@ class _local_github_mcp_resource:
                     (
                         f"upstream={labels.get(self._UPSTREAM_VERSION_LABEL)!r}@"
                         f"{labels.get(self._UPSTREAM_COMMIT_LABEL)!r}, "
+                        f"source={labels.get(self._SOURCE_COMMIT_LABEL)!r}, "
                         f"governor={labels.get(self._GOVERNOR_VERSION_LABEL)!r}"
                     ),
                 ),
@@ -1022,6 +1032,7 @@ class _local_github_mcp_resource:
         return (
             labels.get(self._UPSTREAM_VERSION_LABEL) == self._settings.upstream_version
             and labels.get(self._UPSTREAM_COMMIT_LABEL) == self._settings.upstream_commit
+            and labels.get(self._SOURCE_COMMIT_LABEL) == self._settings.source_commit
             and labels.get(self._GOVERNOR_VERSION_LABEL) == self._settings.governor_version
         )
 
@@ -1034,35 +1045,33 @@ class _local_github_mcp_resource:
         *,
         timeout_seconds: float,
     ) -> None:
-        build_context = (context.package_root / self._settings.build_context).resolve()
-        dockerfile = (context.package_root / self._settings.build_dockerfile).resolve()
-        package_root = context.package_root.resolve()
-        if package_root not in build_context.parents:
-            raise ValueError("GitHub MCP build context escapes the Experiment Package root.")
-        if package_root not in dockerfile.parents:
-            raise ValueError("GitHub MCP Dockerfile escapes the Experiment Package root.")
-        if not build_context.is_dir() or not dockerfile.is_file():
-            raise ValueError("Governed GitHub MCP build payload is incomplete.")
+        source_root = self._prepare_source_checkout(
+            context,
+            timeout_seconds=timeout_seconds,
+        )
+        dockerfile = source_root / "Dockerfile"
+        if not dockerfile.is_file():
+            raise ValueError(
+                "Pinned ACMM GitHub MCP source does not contain the expected Dockerfile."
+            )
         result = self._runner.run(
             [
                 "docker",
                 "build",
                 "--pull",
                 "--build-arg",
-                "UPSTREAM_REPOSITORY=" + self._settings.upstream_repository,
+                "ACMM_SOURCE_COMMIT=" + self._settings.source_commit,
                 "--build-arg",
-                "UPSTREAM_VERSION=" + self._settings.upstream_version,
+                "ACMM_UPSTREAM_VERSION=" + self._settings.upstream_version,
                 "--build-arg",
-                "UPSTREAM_COMMIT=" + self._settings.upstream_commit,
+                "ACMM_UPSTREAM_COMMIT=" + self._settings.upstream_commit,
                 "--build-arg",
-                "GOVERNOR_VERSION=" + self._settings.governor_version,
+                "ACMM_GOVERNOR_VERSION=" + self._settings.governor_version,
                 "-t",
                 self._settings.image,
-                "-f",
-                str(dockerfile),
-                str(build_context),
+                str(source_root),
             ],
-            cwd=context.package_root,
+            cwd=source_root,
             timeout_seconds=timeout_seconds,
         )
         if not result.succeeded:
@@ -1071,6 +1080,80 @@ class _local_github_mcp_resource:
                 or result.stdout.strip()
                 or "governed GitHub MCP image build failed"
             )
+
+    def _prepare_source_checkout(
+        self,
+        context: shared_integration_context,
+        *,
+        timeout_seconds: float,
+    ) -> Path:
+        source_root = context.state_root / "mcp-source"
+        if source_root.exists():
+            shutil.rmtree(source_root)
+        source_root.mkdir(parents=True, exist_ok=True)
+
+        commands = (
+            ["git", "init", "--quiet", str(source_root)],
+            [
+                "git",
+                "-C",
+                str(source_root),
+                "remote",
+                "add",
+                "origin",
+                self._settings.source_repository,
+            ],
+            [
+                "git",
+                "-C",
+                str(source_root),
+                "fetch",
+                "--depth",
+                "1",
+                "origin",
+                self._settings.source_commit,
+            ],
+            [
+                "git",
+                "-C",
+                str(source_root),
+                "checkout",
+                "--quiet",
+                "--detach",
+                "FETCH_HEAD",
+            ],
+        )
+        for command in commands:
+            result = self._runner.run(
+                command,
+                cwd=context.state_root,
+                timeout_seconds=timeout_seconds,
+            )
+            if not result.succeeded:
+                raise ValueError(
+                    result.stderr.strip()
+                    or result.stdout.strip()
+                    or "pinned ACMM GitHub MCP source checkout failed"
+                )
+
+        resolved = self._runner.run(
+            ["git", "-C", str(source_root), "rev-parse", "HEAD"],
+            cwd=context.state_root,
+            timeout_seconds=30.0,
+        )
+        if not resolved.succeeded:
+            raise ValueError(
+                resolved.stderr.strip()
+                or resolved.stdout.strip()
+                or "unable to verify pinned ACMM GitHub MCP source commit"
+            )
+        observed = resolved.stdout.strip().lower()
+        if observed != self._settings.source_commit:
+            raise ValueError(
+                "Pinned ACMM GitHub MCP source identity mismatch: "
+                f"observed={observed!r}, expected={self._settings.source_commit!r}."
+            )
+        return source_root
 
     def _governor_state(self, context: shared_integration_context) -> Mapping[str, Any]:
         path = context.state_root / "mcp-governor-state/governor.json"

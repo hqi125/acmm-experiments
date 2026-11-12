@@ -18,7 +18,7 @@ moved into Core merely because several scenarios use it.
 
 ## Shared request governor
 
-The package now has two complementary provider-governor boundaries. The trusted controller runtime owns a provider-scoped governor shared by controller REST, GitHub App lifecycle requests, and trusted remote Git operations. Separately, the package-owned GitHub MCP v2.0.3 build wraps the MCP server's outbound GitHub HTTP transport so subject-originated REST/GraphQL traffic is serialized and paced below the unchanged 42-tool MCP surface. No GitHub-specific behavior is added to ACMM Core.
+The package now has two complementary provider-governor boundaries. The trusted controller runtime owns a provider-scoped governor shared by controller REST, GitHub App lifecycle requests, and trusted remote Git operations. Separately, the maintained ACMM GitHub MCP v2.1.0 fork governs the server's outbound GitHub HTTP transports so subject-originated REST/GraphQL traffic is serialized and paced below the unchanged 42-tool MCP surface. No GitHub-specific behavior is added to ACMM Core.
 
 GitHub rate limiting is provider-authoritative. ACMM no longer treats its own rolling minute/hour
 content counters or a fixed primary-rate reserve as gating thresholds for GitHub. Those counters remain
@@ -51,7 +51,7 @@ undisclosed constraints.
 
 ## Subject MCP provider governor
 
-The subject-side boundary is package-owned and preserves the scientific MCP surface. The Experiment Package builds `acmm/github-mcp-server:v2.0.3-acmm-governed-v1` from upstream release commit `b98d115bbb080e9555466a96656ec4df605aea21` and injects one `http.RoundTripper` wrapper at the two upstream REST/GraphQL client-construction seams. Package apply/doctor verifies image labels for the exact upstream version/commit and governor revision.
+The subject-side boundary is integration-owned and preserves the scientific MCP surface. The Experiment Package fetches the exact `local_service.source_commit` from the maintained `hqi125/acmm-github-mcp-server` fork, verifies the checkout, and builds `acmm/github-mcp-server:v2.1.0-acmm-governed-v1` using that source tree's committed Dockerfile. The fork is based on upstream v2.1.0 commit `4bcdcdf8d7beee98c9448e73e257308280924cc4`; package apply/doctor verifies image labels for the exact upstream version/commit, ACMM source commit, and governor revision.
 
 The subject transport is deliberately conservative because it is the last infrastructure boundary before GitHub:
 

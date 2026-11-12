@@ -86,14 +86,13 @@ integrations:
         - update_pull_request_branch
       expected_catalog_sha256: 0b6d56cef0521915db11229a7d6a3e180bdfded83a5956d81347b5e11a547e33
       local_service:
-        image: acmm/github-mcp-server:v2.0.3-acmm-governed-v1
+        image: acmm/github-mcp-server:v2.1.0-acmm-governed-v1
         container_name: acmm-github-mcp-exp2
         host_port: 8083
-        build_context: integration/github_mcp/payloads/governed-mcp
-        build_dockerfile: integration/github_mcp/payloads/governed-mcp/Dockerfile
-        upstream_repository: https://github.com/github/github-mcp-server.git
-        upstream_version: v2.0.3
-        upstream_commit: b98d115bbb080e9555466a96656ec4df605aea21
+        source_repository: https://github.com/hqi125/acmm-github-mcp-server.git
+        source_commit: "26734e5f989ff0f446095b024e7c8e3026d8ed99"
+        upstream_version: v2.1.0
+        upstream_commit: 4bcdcdf8d7beee98c9448e73e257308280924cc4
         governor_version: v1
         request_interval: 500ms
         mutation_interval: 2s

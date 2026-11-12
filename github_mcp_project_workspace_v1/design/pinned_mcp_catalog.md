@@ -2,22 +2,27 @@
 
 ## Frozen server identity
 
-Experiment 2 preserves the GitHub MCP Server v2.0.3 scientific surface while using a package-owned governed build for subject-side provider etiquette:
+Experiment 2 preserves the qualified 42-tool scientific surface while rebasing the server implementation to GitHub MCP Server v2.1.0 plus the maintained ACMM governor fork:
 
-- local image tag: `acmm/github-mcp-server:v2.0.3-acmm-governed-v1`;
-- upstream immutable release tag: `v2.0.3`;
-- upstream release commit: `b98d115bbb080e9555466a96656ec4df605aea21`;
+- local image tag: `acmm/github-mcp-server:v2.1.0-acmm-governed-v1`;
+- ACMM source repository: `https://github.com/hqi125/acmm-github-mcp-server.git`;
+- ACMM source commit: the exact full SHA-1 pinned by `local_service.source_commit` in `experiment-package.yaml`;
+- upstream immutable release tag: `v2.1.0`;
+- upstream release commit: `4bcdcdf8d7beee98c9448e73e257308280924cc4`;
 - ACMM subject-transport governor revision: `v1`;
-- build recipe: exact upstream commit plus `integration/github_mcp/payloads/governed-mcp/acmm_governor.go`;
+- build recipe: fetch the exact maintained-fork source commit, verify `HEAD`, and build that source tree's committed Dockerfile with explicit upstream/source/governor provenance arguments;
 - selected toolsets: `repos`, `issues`, `pull_requests`, `users`, `actions`, `git`, `labels`;
-- insiders mode: disabled.
+- feature flags: explicitly empty;
+- insiders mode: explicitly disabled.
 
 The `context` toolset is intentionally absent from the App-token scientific surface. Its `get_me` tool
 requires a user identity, while the qualified subject credential is a repository-scoped GitHub App
 installation token. The GitHub App feasibility qualification established this incompatibility explicitly;
 ACMM does not emulate a user identity or hide the mismatch behind adapter behavior.
 
-Package apply builds the governed image locally from the exact upstream commit. Runtime qualification verifies image labels for the upstream version, full commit, and ACMM governor revision before the service is accepted. The Campaign package snapshot separately pins the complete build recipe and governor source. A stale or differently built local image is rebuilt rather than silently accepted.
+The v2.1.0 source adds capabilities outside the frozen surface, including a separate `stargazers` toolset and feature-gated repository/issue/pull-request additions. They do not enter Experiment 2 because the selected toolset set is unchanged, `GITHUB_FEATURES` is empty, and insiders mode is disabled. The expected normalized 42-tool names and digest therefore remain the scientific acquisition assertion rather than being silently expanded during the rebase.
+
+Package apply fetches the exact ACMM source commit from the maintained fork and verifies the checkout before building. Runtime qualification verifies image labels for the upstream version, upstream full commit, ACMM source full commit, and governor revision before the service is accepted. The Campaign package snapshot pins the complete integration configuration. A stale or differently built local image is rebuilt rather than silently accepted.
 
 ## Frozen laboratory-protection exclusions
 

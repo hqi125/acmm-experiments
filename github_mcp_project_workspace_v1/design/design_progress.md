@@ -256,3 +256,12 @@ A fresh live re-profile is required before resuming the 36-run whole-package qua
 - [x] Persist non-secret subject cooldown/backoff state across MCP container restarts.
 - [x] Verify local image upstream/governor identity during package apply and doctor.
 - [x] Keep all GitHub-specific subject-governor implementation inside the Experiment Package; Core remains generic.
+
+## Maintained MCP governor source rebase checkpoint (2026-11-12)
+
+- [x] Fork the official GitHub MCP Server into `hqi125/acmm-github-mcp-server` and anchor `acmm/governor-v1` at upstream v2.1.0 commit `4bcdcdf8d7beee98c9448e73e257308280924cc4`.
+- [x] Move the ACMM subject traffic governor into ordinary maintained Go source with focused governor tests and a full upstream regression pass.
+- [x] Preserve process-wide pacing, provider-directed cooldowns, persisted non-secret telemetry, local sentinel rejection, cancellation semantics, and no automatic mutation replay.
+- [x] Replace the Experiment Package's source-rewriting Docker build with an exact maintained-fork source checkout and source-commit image identity.
+- [x] Keep the seven selected toolsets and the normalized 42-tool acquisition assertion unchanged; explicitly disable feature flags and insiders mode for v2.1.0.
+- [x] Preserve the earlier v2.0.3 package-owned governor milestones above as historical implementation checkpoints rather than rewriting them as if they had never occurred.

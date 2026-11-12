@@ -54,12 +54,29 @@ CONTROLLER_TOKEN = "controller-secret-value"
 EXPECTED_CATALOG_SHA256 = (
     "0b6d56cef0521915db11229a7d6a3e180bdfded83a5956d81347b5e11a547e33"
 )
-EXPECTED_GOVERNED_IMAGE = "acmm/github-mcp-server:v2.0.3-acmm-governed-v1"
-EXPECTED_UPSTREAM_COMMIT = "b98d115bbb080e9555466a96656ec4df605aea21"
+EXPECTED_GOVERNED_IMAGE = "acmm/github-mcp-server:v2.1.0-acmm-governed-v1"
+EXPECTED_SOURCE_REPOSITORY = "https://github.com/hqi125/acmm-github-mcp-server.git"
+EXPECTED_UPSTREAM_COMMIT = "4bcdcdf8d7beee98c9448e73e257308280924cc4"
 EXPECTED_GOVERNOR_VERSION = "v1"
+
+
+def _pinned_source_commit() -> str:
+    marker = "source_commit:"
+    for line in (ROOT / "experiment-package.yaml").read_text(encoding="utf-8").splitlines():
+        if line.strip().startswith(marker):
+            value = line.split(marker, 1)[1].strip().strip('"').strip("'")
+            if len(value) != 40:
+                raise AssertionError("experiment-package.yaml source_commit is not pinned")
+            int(value, 16)
+            return value.lower()
+    raise AssertionError("experiment-package.yaml is missing local_service.source_commit")
+
+
+EXPECTED_SOURCE_COMMIT = _pinned_source_commit()
 EXPECTED_IMAGE_LABELS = {
-    "io.acmm.github-mcp.upstream-version": "v2.0.3",
+    "io.acmm.github-mcp.upstream-version": "v2.1.0",
     "io.acmm.github-mcp.upstream-commit": EXPECTED_UPSTREAM_COMMIT,
+    "io.acmm.github-mcp.source-commit": EXPECTED_SOURCE_COMMIT,
     "io.acmm.github-mcp.governor-version": EXPECTED_GOVERNOR_VERSION,
 }
 EXPECTED_TOOLSETS = (
@@ -247,7 +264,9 @@ def test_package_declares_frozen_scientific_shape(tmp_path: Path) -> None:
     assert integration.configuration["expected_catalog_sha256"] == EXPECTED_CATALOG_SHA256
     service = integration.configuration["local_service"]
     assert service["image"] == EXPECTED_GOVERNED_IMAGE
-    assert service["upstream_version"] == "v2.0.3"
+    assert service["source_repository"] == EXPECTED_SOURCE_REPOSITORY
+    assert service["source_commit"] == EXPECTED_SOURCE_COMMIT
+    assert service["upstream_version"] == "v2.1.0"
     assert service["upstream_commit"] == EXPECTED_UPSTREAM_COMMIT
     assert service["governor_version"] == EXPECTED_GOVERNOR_VERSION
     assert service["request_interval"] == "500ms"
@@ -401,6 +420,15 @@ def test_local_resource_apply_builds_unqualified_governed_image(
 
     status = resource.apply(context)
     assert runner.build_calls == 1
+    assert any(
+        call[-2:] == ("origin", EXPECTED_SOURCE_COMMIT)
+        for call in runner.git_calls
+        if "fetch" in call
+    )
+    assert runner.build_command is not None
+    assert "ACMM_SOURCE_COMMIT=" + EXPECTED_SOURCE_COMMIT in runner.build_command
+    assert "ACMM_UPSTREAM_VERSION=v2.1.0" in runner.build_command
+    assert "ACMM_UPSTREAM_COMMIT=" + EXPECTED_UPSTREAM_COMMIT in runner.build_command
     assert status["image_identity_ok"] is True
     assert runner.image_labels == EXPECTED_IMAGE_LABELS
 
@@ -441,22 +469,23 @@ def test_shared_resource_doctor_enforces_governed_image_identity(
     assert next(item for item in report.checks if item.name == "image_identity").ok is True
 
 
-def test_governed_mcp_build_recipe_pins_upstream_and_transport_patch() -> None:
-    dockerfile = (ROOT / "integration/github_mcp/payloads/governed-mcp/Dockerfile").read_text(
-        encoding="utf-8"
-    )
-    governor = (ROOT / "integration/github_mcp/payloads/governed-mcp/acmm_governor.go").read_text(
-        encoding="utf-8"
-    )
+def test_governed_mcp_build_recipe_pins_maintained_source_and_freezes_features() -> None:
     compose = (ROOT / "integration/github_mcp/payloads/compose.yaml").read_text(
         encoding="utf-8"
     )
-    assert EXPECTED_UPSTREAM_COMMIT in dockerfile
-    assert "alpine/git:2.49.1@sha256:" in dockerfile
-    assert dockerfile.count("@sha256:") >= 4
-    assert "transport.NewACMMGovernedTransport(http.DefaultTransport)" in dockerfile
-    assert "NewACMMGovernedTransport" in governor
-    assert "acmmDefaultMutationInterval = 2 * time.Second" in governor
+    integration_source = (ROOT / "integration/github_mcp/integration.py").read_text(
+        encoding="utf-8"
+    )
+    assert not (ROOT / "integration/github_mcp/payloads/governed-mcp").exists()
+    assert EXPECTED_SOURCE_REPOSITORY in (ROOT / "experiment-package.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "ACMM_SOURCE_COMMIT=" in integration_source
+    assert "ACMM_UPSTREAM_VERSION=" in integration_source
+    assert "ACMM_UPSTREAM_COMMIT=" in integration_source
+    assert "ACMM_GOVERNOR_VERSION=" in integration_source
+    assert 'GITHUB_FEATURES: ""' in compose
+    assert 'GITHUB_INSIDERS: "false"' in compose
     assert "ACMM_GITHUB_MCP_GOVERNOR_STATE_FILE" in compose
     assert "ACMM_GITHUB_MCP_UNADMITTED_TOKEN" in compose
     assert "./mcp-governor-state:/var/lib/acmm-github-mcp" in compose
@@ -657,6 +686,8 @@ class _fake_resource_runner:
         self.running = False
         self.image_labels = {"io.acmm.github-mcp.upstream-version": "wrong"}
         self.build_calls = 0
+        self.git_calls = []
+        self.build_command = None
 
     def run(self, args, **kwargs):
         del kwargs
@@ -682,6 +713,7 @@ class _fake_resource_runner:
             return _fake_command_result(stdout="{}")
         if call[:2] == ("docker", "build"):
             self.build_calls += 1
+            self.build_command = call
             self.image_present = True
             self.image_labels = dict(EXPECTED_IMAGE_LABELS)
             return _fake_command_result(stdout="built")
@@ -689,6 +721,17 @@ class _fake_resource_runner:
             return _fake_command_result()
         if call[:2] == ("docker", "--version"):
             return _fake_command_result(stdout="Docker version test")
+        if call[:2] == ("git", "--version"):
+            return _fake_command_result(stdout="git version test")
+        if call and call[0] == "git":
+            self.git_calls.append(call)
+            if "checkout" in call and len(call) >= 3 and call[1] == "-C":
+                source_root = Path(call[2])
+                source_root.mkdir(parents=True, exist_ok=True)
+                (source_root / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+            if "rev-parse" in call:
+                return _fake_command_result(stdout=EXPECTED_SOURCE_COMMIT + "\n")
+            return _fake_command_result()
         raise AssertionError(f"unexpected command: {call!r}")
 
 
