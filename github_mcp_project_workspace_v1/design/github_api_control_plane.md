@@ -18,28 +18,54 @@ moved into Core merely because several scenarios use it.
 
 ## Shared request governor
 
-One controller runtime now owns one provider-scoped governor shared by the controller and trusted
-subject-visibility probe clients. The governor coordinates all scientific runs in an execution instead
-of allowing each endpoint/run to rediscover the same provider block independently.
+The package now has two complementary provider-governor boundaries. The trusted controller runtime owns a provider-scoped governor shared by controller REST, GitHub App lifecycle requests, and trusted remote Git operations. Separately, the package-owned GitHub MCP v2.0.3 build wraps the MCP server's outbound GitHub HTTP transport so subject-originated REST/GraphQL traffic is serialized and paced below the unchanged 42-tool MCP surface. No GitHub-specific behavior is added to ACMM Core.
 
-The default ACMM safety policy is intentionally below GitHub's documented generic secondary content
-creation ceilings:
+GitHub rate limiting is provider-authoritative. ACMM no longer treats its own rolling minute/hour
+content counters or a fixed primary-rate reserve as gating thresholds for GitHub. Those counters remain
+telemetry and a dormant static-fallback policy only; the production GitHub path waits because GitHub
+reported a limit, not because ACMM guessed one. The active policy is:
 
-- at least 1 second between mutative REST requests;
-- at most 60 locally reserved content-changing trusted-controller requests in a rolling minute;
-- at most 360 locally reserved content-changing trusted-controller requests in a rolling hour;
-- preserve at least 1,000 requests of the latest observed shared primary REST quota for subject MCP traffic;
-- wait through the provider reset window plus a small grace period before the controller consumes that reserve;
-- explicit secondary-limit responses create a shared provider cooldown;
-- fallback secondary backoff is 60, 120, 240, 480, then 600 seconds;
-- a request may retry a provider-declared secondary limit up to five times;
-- ambiguous transport failures are still fail-closed and are not mutation-retried.
+- serialize every trusted REST/App request and conservatively keep at least 250 ms between request starts;
+- keep at least two seconds between trusted `POST`/`PATCH`/`PUT`/`DELETE` requests, deliberately stricter
+  than GitHub's published one-second minimum;
+- continuously record `X-RateLimit-*` headers separately for controller/App/installation credential domains;
+- when GitHub reports primary exhaustion (`X-RateLimit-Remaining: 0`), wait until the provider's
+  `X-RateLimit-Reset` time plus a small clock/propagation grace period;
+- when GitHub reports a secondary limit, pause the entire trusted GitHub plane, honor `Retry-After` plus a
+  small three-second boundary grace when present, and otherwise use GitHub's documented minimum one-minute
+  wait with bounded exponential fallback delays of 1/2/4/8/16 minutes;
+- persist the provider cooldown across executions so a new process cannot forget an active GitHub block;
+- retry the same trusted operation after provider-directed waits up to the configured bounded recovery
+  count; if GitHub is still limiting the operation, preserve the provider cooldown and fail preparation
+  before subject exposure so Campaign can leave that logical run retryable rather than fabricating agent data;
+- ambiguous transport failures and unrelated authorization/validation errors remain fail-closed and are
+  never mutation-retried merely because the request was mutative.
 
-The minute/hour budgets are ACMM safety budgets, not assertions that GitHub's unpublished or mutable
-provider thresholds are exactly those values. Capacity is reserved before a content-generating request
-is sent, so failed responses and process interruption cannot make the local ledger under-count traffic.
-The budgets deliberately reserve capacity for subject-originated GitHub MCP activity, which is outside
-the trusted controller's direct request ledger.
+The legacy `60/minute`, `360/hour`, and `1,000` primary-headroom settings remain serialized in the package
+policy for compatibility and fallback-mode testing, but are not proactive quota gates while
+`provider_authoritative_rate_limits=true`. The bounded secondary-retry count remains active because GitHub's
+best-practice guidance explicitly requires clients to stop retrying after a finite recovery sequence. This is
+necessary because GitHub explicitly notes
+that content-creation limits can be endpoint-specific, can change without notice, and can include
+undisclosed constraints.
+
+## Subject MCP provider governor
+
+The subject-side boundary is package-owned and preserves the scientific MCP surface. The Experiment Package builds `acmm/github-mcp-server:v2.0.3-acmm-governed-v1` from upstream release commit `b98d115bbb080e9555466a96656ec4df605aea21` and injects one `http.RoundTripper` wrapper at the two upstream REST/GraphQL client-construction seams. Package apply/doctor verifies image labels for the exact upstream version/commit and governor revision.
+
+The subject transport is deliberately conservative because it is the last infrastructure boundary before GitHub:
+
+- serialize all outbound GitHub HTTP requests process-wide;
+- keep at least 500 ms between all request starts;
+- keep at least two seconds between `POST`/`PATCH`/`PUT`/`DELETE` requests (GraphQL POSTs therefore receive the stricter treatment even when logically read-only);
+- honor `Retry-After` plus three seconds and primary reset timestamps plus three seconds;
+- use bounded 1/2/4/8/16-minute fallback cooldowns for secondary limits that provide no usable timing signal;
+- persist only non-secret cooldown/backoff and aggregate traffic counters (request/mutation counts, method counts, and primary/secondary-limit event counts) to the integration resource volume so an MCP restart cannot forget an active provider block and later qualification can measure subject-plane load;
+- reject the package's non-secret unadmitted sentinel locally before it can generate any GitHub network request, eliminating background reconnect traffic between scientific runs;
+- allow request-context cancellation to end a waiting MCP call without issuing another GitHub request; and
+- never persist the admitted installation token in governor state.
+
+The wrapper does not change tool names, schemas, prompts, or agent-visible tool-selection freedom. Inefficient agent tool choices remain observable behavior; the transport only prevents those choices from becoming uncontrolled provider traffic.
 
 ## Cross-execution ledger
 
@@ -51,9 +77,9 @@ The filename is derived from a hash of the GitHub API base + repository-owner sc
 only timestamps, cooldown/backoff state, and a scope hash. It never stores PATs, request payloads, or
 response bodies.
 
-This persistence matters because repeated smoke executions share the same GitHub account and therefore
-the same provider-side rolling windows. A new `acmm run` should not behave as though the previous run's
-content-generation traffic never happened.
+This persistence matters because repeated smoke/campaign executions target the same provider environment
+and therefore must not behave as though the previous invocation's rolling content/cooldown state never
+happened. Primary REST snapshots are stored separately by credential domain rather than being merged.
 
 The state root can be overridden for isolated testing with `ACMM_GITHUB_PROVIDER_STATE_ROOT`.
 
@@ -72,13 +98,9 @@ inside the execution directory. The artifact contains:
 - accumulated pacing/cooldown wait time;
 - coarse endpoint-family counts;
 - rolling content-window state at the end of the observation;
-- the latest primary-rate-limit headers observed from GitHub, when present.
+- the latest primary-rate-limit headers observed from GitHub, separated by credential domain when present.
 
-This telemetry covers the trusted controller and trusted subject-visibility probe. Live subject MCP
-traffic is not intercepted or counted by ACMM. Controller and subject credentials intentionally
-authenticate as the same GitHub owner, so their user-authenticated REST traffic shares one primary
-quota. The primary-rate reserve therefore protects subject execution as well as leaving ordinary
-provider headroom.
+This telemetry artifact covers the trusted controller plus App-token mint/revoke lifecycle calls. Subject MCP traffic is governed inside the MCP service and keeps its own non-secret cooldown/backoff state in the integration resource state directory; it is intentionally not merged into the controller's request counters because the two planes use different credential domains and transport stacks. Both planes honor provider rate-limit responses independently, and both stop issuing GitHub requests while their own provider cooldown is active.
 
 The artifact is refreshed after each normal finalization and after archive-then-delete failure handling,
 so useful request-volume evidence survives later interruption.
@@ -99,13 +121,20 @@ The GitHub controller currently owns these provider-specific rules:
 2. exact head-SHA PR merge requests plus mergeability convergence and transient base-race handling;
 3. immutable-SHA content verification after branch-changing fixture operations;
 4. convergence of GitHub-created default labels into package-owned definitions before subject exposure;
-5. bounded eventual-consistency waits for package-owned list/discovery surfaces;
+5. bounded eventual-consistency waits for package-owned list/discovery surfaces, routed through one poll
+   scheduler with a two-second local floor and provider `X-Poll-Interval` support;
 6. non-redirecting Actions-log/archive API hops followed by credential-free signed-URL downloads;
 7. archive-then-delete invalid-run cleanup with exact repository-ID verification;
-8. shared secondary-rate-limit cooldown and proactive local content budgets;
+8. provider-authoritative primary/secondary rate-limit interpretation with persistent cooldown state;
 9. session-level provider request telemetry with route-family breakdowns;
-10. a shared-primary-rate reserve that stops trusted controller traffic before it can starve the
-    subject credential.
+10. credential-domain primary-rate snapshots, so controller/App primary state is never conflated;
+11. App-token mint/revoke pacing and telemetry under the same provider-scoped mutation/cooldown state;
+12. authenticated conditional GETs (`ETag`/`Last-Modified`) for repeated REST reads within one controller
+   lifetime, so unchanged polling responses can use GitHub's conditional-request path;
+13. a provider-clear gate shared with remote Git fetch/`ls-remote`/push operations so a REST secondary block
+   stops all trusted GitHub traffic, not only REST;
+14. package-config hard floors that reject mutation spacing weaker than one second, push pacing above six
+   pushes/minute/repository, or remote Git-read pacing above fifteen operations/second/repository.
 
 These should be treated as one control plane. New GitHub API behavior should be added here rather than
 as scenario-local sleeps or string checks.
@@ -118,9 +147,11 @@ The repository content/history plane is therefore separated from GitHub-native c
 Implemented controller behavior:
 
 1. **Git transport owns repository file writes and ref-addressed file reads.** The private disposable
-   repository is still created through REST at the start of its run, but package-owned file commits are
-   created in a local authenticated Git workspace and pushed without using the Contents REST endpoint.
-   Ref- or commit-addressed controller reads are fetched/read through Git as well. The existing
+   repository is still created through REST at the start of its run, but package-owned commit graphs are
+   built locally in an authenticated Git workspace and pushed without using the Contents REST endpoint.
+   Multiple package-owned commits are batched and published in one push whenever no intermediate remote
+   state is scientifically meaningful; the individual commits and commit messages remain intact. Ref- or
+   commit-addressed controller reads are fetched/read through Git as well. The existing
    `create_or_update_file()` controller contract is preserved, so scenario materializers do not encode
    transport choice. Fake/custom controller transports retain the REST path for deterministic tests.
 2. **Credentials stay out of URLs and process arguments.** Git HTTPS authentication uses an ephemeral
@@ -128,22 +159,42 @@ Implemented controller behavior:
    process environment.
 3. **REST remains the GitHub collaboration/control plane.** Repository create/delete, issues, labels,
    pull requests, comments, reviews, Actions metadata, and lifecycle transitions remain API-managed.
-4. **Git transport is separately observable.** Execution telemetry now carries Git command, fetch, push,
-   commit, file-read/write, and ref-fingerprint counters alongside REST route-family telemetry.
+4. **Git transport is separately observable and provider-paced.** Execution telemetry carries Git command,
+   fetch, push, commit, file-read/write, ref-fingerprint, and wait counters alongside REST telemetry. Pushes
+   are spaced at least twelve seconds apart per repository (at most five/minute, stricter than GitHub's six),
+   and remote Git reads are spaced at least 100 ms apart per repository (at most ten/second, stricter than
+   GitHub's fifteen).
 5. **Keep remote prefetch forbidden.** Lower request volume must not reintroduce future-run repositories
    while an active subject can discover them.
 
 Still pending before stable full acquisition:
 
-- live re-profile the implemented Git content plane and compare it with the F4/F6 REST-heavy baselines;
-- use the canonical Git `ref -> SHA` fingerprint as the content/history change sentinel;
-- add conditional ETag sentinels for scenario-relevant GitHub-native REST surfaces where this materially
-  reduces post-run reads without weakening authoritative evidence;
-- review workflow dispatches only if the measured remaining content budget makes that optimization useful;
-- run one whole-package one-repetition qualification across all 12 scenarios and all three subjects.
+- re-run a small live qualification to measure the post-batching push/fetch reduction and verify the stricter
+  provider pacing against real GitHub behavior;
+- then run one whole-package one-repetition Campaign qualification across all 12 scenarios and all three
+  subjects before freezing the stable 288-run acquisition;
+- use the canonical Git `ref -> SHA` fingerprint and the now-active conditional GET cache as measured
+  fast-paths; escalate to further surface-specific optimization only when telemetry shows it is justified.
 
 The target is not merely fewer API calls. It is a reproducible provider control plane whose traffic,
 waiting, retries, and failure semantics are all explicit evidence rather than hidden timing behavior.
+
+## Deliberate transport exceptions and external boundary
+
+Two network behaviors are intentionally not treated as ordinary authenticated REST requests:
+
+- Actions job logs and repository archives first use the fully governed, non-redirecting REST endpoint. The
+  returned signed redirect target is then downloaded without the controller credential. This second hop is one
+  continuation of the logical download and is deliberately credential-free; it does not bypass the API governor
+  to issue another authenticated GitHub REST request.
+- Live subject MCP traffic is generated inside the pinned GitHub MCP Server. ACMM governs admission, token
+  lifetime, controller/App traffic, and provider cooldown before trusted Git operations, but does not claim to
+  pace HTTP requests inside that external server. Centralizing subject HTTP pacing would require a controlled
+  proxy or a modified MCP server and is outside the Experiment 2 package boundary.
+
+The package test suite contains a static best-practice audit that rejects new direct `urllib`/HTTP clients in
+scenario modules, direct remote Git commands outside the Git content plane, and scenario-local polling sleeps.
+New provider interactions must therefore enter through the shared transport layers or fail regression tests.
 
 ## Measured F4 qualification profile
 
@@ -165,7 +216,8 @@ mutations and 33,360 trusted REST requests. The projection is intentionally only
 other scenario families have different fixtures and agents generate additional shared-user REST traffic.
 It is nevertheless sufficient to make two pre-acquisition requirements explicit:
 
-1. do not relax the 360/hour content safety budget merely to increase throughput; reduce demand;
+1. do not respond to provider pressure by raising locally guessed quotas; reduce demand and follow GitHub's
+   provider-directed cooldown/reset signals;
 2. complete the repository content/history transport migration and then re-profile before launching the
    stable 288-run acquisition.
 

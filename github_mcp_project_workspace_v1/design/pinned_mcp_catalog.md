@@ -2,12 +2,13 @@
 
 ## Frozen server identity
 
-Experiment 2 reuses the GitHub MCP Server build qualified across Hermes, Open WebUI, and Agent Zero:
+Experiment 2 preserves the GitHub MCP Server v2.0.3 scientific surface while using a package-owned governed build for subject-side provider etiquette:
 
-- image tag: `ghcr.io/github/github-mcp-server:v2.0.3`;
-- qualified repository digest: `sha256:250bc6ce70788207608ef74cef4397230ff2e8481218da74d6093e4bd9101132`;
+- local image tag: `acmm/github-mcp-server:v2.0.3-acmm-governed-v1`;
 - upstream immutable release tag: `v2.0.3`;
-- upstream release commit: `b98d115`;
+- upstream release commit: `b98d115bbb080e9555466a96656ec4df605aea21`;
+- ACMM subject-transport governor revision: `v1`;
+- build recipe: exact upstream commit plus `integration/github_mcp/payloads/governed-mcp/acmm_governor.go`;
 - selected toolsets: `repos`, `issues`, `pull_requests`, `users`, `actions`, `git`, `labels`;
 - insiders mode: disabled.
 
@@ -16,8 +17,7 @@ requires a user identity, while the qualified subject credential is a repository
 installation token. The GitHub App feasibility qualification established this incompatibility explicitly;
 ACMM does not emulate a user identity or hide the mismatch behind adapter behavior.
 
-The image tag and observed digest are execution provenance. If the tag no longer resolves to the qualified
-digest, package preflight must fail rather than silently accept a changed server image.
+Package apply builds the governed image locally from the exact upstream commit. Runtime qualification verifies image labels for the upstream version, full commit, and ACMM governor revision before the service is accepted. The Campaign package snapshot separately pins the complete build recipe and governor source. A stale or differently built local image is rebuilt rather than silently accepted.
 
 ## Frozen laboratory-protection exclusions
 

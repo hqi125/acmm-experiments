@@ -21,6 +21,7 @@ from .api_governor import (
     github_api_governor_policy,
 )
 from .github_app import github_app_client
+from .git_content_plane import github_git_content_plane
 from .recovery import github_workspace_runtime_recovery
 from .controller import (
     github_controller_client,
@@ -92,34 +93,51 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
     controller_token = context.resolve_package_secret("controller_access_token")
     github_app_private_key = context.resolve_package_secret("github_app_private_key")
     github_app_configuration = configuration["github_app"]
-    app_client = github_app_client(
-        app_id=github_app_configuration["app_id"],
-        installation_id=github_app_configuration["installation_id"],
-        private_key_pem=github_app_private_key,
-        api_base=configuration["api_base"],
-    )
-
     repository_owner = str(configuration["repository_full_name"]).split("/", 1)[0]
     governor_scope = f"{configuration['api_base']}|{repository_owner.casefold()}"
     api_policy = configuration["api_policy"]
     governor = github_api_governor(
         scope=governor_scope,
         policy=github_api_governor_policy(
+            request_interval_seconds=api_policy.get("request_interval_seconds", 0.25),
             mutation_interval_seconds=api_policy["mutation_interval_seconds"],
             content_requests_per_minute=api_policy["content_requests_per_minute"],
             content_requests_per_hour=api_policy["content_requests_per_hour"],
             primary_remaining_floor=api_policy["primary_remaining_floor"],
             primary_reset_grace_seconds=api_policy["primary_reset_grace_seconds"],
+            retry_after_grace_seconds=api_policy.get("retry_after_grace_seconds", 3.0),
             max_secondary_retries=api_policy["max_secondary_retries"],
+            provider_authoritative_rate_limits=api_policy.get(
+                "provider_authoritative_rate_limits", True
+            ),
             secondary_backoff_seconds=tuple(api_policy["secondary_backoff_seconds"]),
         ),
         state_path=default_github_api_governor_state_path(governor_scope),
     )
+    app_client = github_app_client(
+        app_id=github_app_configuration["app_id"],
+        installation_id=github_app_configuration["installation_id"],
+        private_key_pem=github_app_private_key,
+        api_base=configuration["api_base"],
+        governor=governor,
+    )
     api_governor_inspector = github_api_governor_inspector(governor)
+    git_policy = configuration.get("git_policy", {})
+    git_content_plane = github_git_content_plane(
+        controller_token,
+        push_interval_seconds=float(git_policy.get("push_interval_seconds", 12.0)),
+        remote_read_interval_seconds=float(
+            git_policy.get("remote_read_interval_seconds", 0.1)
+        ),
+        provider_context=lambda content_generating: governor.serialized_git_operation(
+            content_generating=content_generating
+        ),
+    )
     controller = github_controller_client(
         controller_token,
         api_base=configuration["api_base"],
         governor=governor,
+        git_content_plane=git_content_plane,
     )
     credentials_distinct = True
     diagnostic = github_controller_diagnostic(
@@ -489,20 +507,30 @@ def _load_controller_configuration(
     if not isinstance(api_policy, dict):
         raise ValueError("Controller configuration api_policy is invalid.")
     policy_fields = {
+        "request_interval_seconds": (int, float),
         "mutation_interval_seconds": (int, float),
         "content_requests_per_minute": int,
         "content_requests_per_hour": int,
         "primary_remaining_floor": int,
         "primary_reset_grace_seconds": (int, float),
+        "retry_after_grace_seconds": (int, float),
         "max_secondary_retries": int,
+        "provider_authoritative_rate_limits": bool,
         "secondary_backoff_seconds": list,
     }
     for key, expected_type in policy_fields.items():
         item = api_policy.get(key)
+        if isinstance(item, bool) and expected_type is not bool:
+            raise ValueError(f"Controller api_policy.{key} is invalid.")
         if not isinstance(item, expected_type):
             raise ValueError(f"Controller api_policy.{key} is invalid.")
-    if float(api_policy["mutation_interval_seconds"]) < 0:
-        raise ValueError("Controller api_policy.mutation_interval_seconds is invalid.")
+    if float(api_policy["request_interval_seconds"]) < 0:
+        raise ValueError("Controller api_policy.request_interval_seconds is invalid.")
+    if float(api_policy["mutation_interval_seconds"]) < 1.0:
+        raise ValueError(
+            "Controller api_policy.mutation_interval_seconds must be at least 1 second "
+            "for GitHub REST best-practice compliance."
+        )
     for key in ("content_requests_per_minute", "content_requests_per_hour"):
         if int(api_policy[key]) < 1:
             raise ValueError(f"Controller api_policy.{key} must be positive.")
@@ -510,6 +538,8 @@ def _load_controller_configuration(
         raise ValueError("Controller api_policy.primary_remaining_floor is invalid.")
     if float(api_policy["primary_reset_grace_seconds"]) < 0:
         raise ValueError("Controller api_policy.primary_reset_grace_seconds is invalid.")
+    if float(api_policy["retry_after_grace_seconds"]) < 0:
+        raise ValueError("Controller api_policy.retry_after_grace_seconds is invalid.")
     if int(api_policy["max_secondary_retries"]) < 0:
         raise ValueError("Controller api_policy.max_secondary_retries is invalid.")
     if (
@@ -520,6 +550,25 @@ def _load_controller_configuration(
         )
     ):
         raise ValueError("Controller api_policy.secondary_backoff_seconds is invalid.")
+
+    git_policy = value.get("git_policy")
+    if not isinstance(git_policy, dict):
+        raise ValueError("Controller configuration git_policy is invalid.")
+    for key in ("push_interval_seconds", "remote_read_interval_seconds"):
+        item = git_policy.get(key)
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
+            raise ValueError(f"Controller git_policy.{key} is invalid.")
+    # GitHub recommends no more than six pushes/minute/repository and no more
+    # than fifteen Git read operations/second/repository. Package configuration
+    # may be stricter, never weaker, than those provider floors.
+    if float(git_policy["push_interval_seconds"]) < 10.0:
+        raise ValueError(
+            "Controller git_policy.push_interval_seconds must be at least 10 seconds."
+        )
+    if float(git_policy["remote_read_interval_seconds"]) < (1.0 / 15.0):
+        raise ValueError(
+            "Controller git_policy.remote_read_interval_seconds must be at least 1/15 second."
+        )
 
     fixture_base = value.get("fixture_base")
     if not isinstance(fixture_base, dict):

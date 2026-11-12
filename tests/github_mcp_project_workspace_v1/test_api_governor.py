@@ -93,11 +93,13 @@ def test_governor_persists_content_budget_across_instances(
     state = tmp_path / "github-governor.json"
     clock = _fake_clock()
     policy = github_api_governor_policy(
+        request_interval_seconds=0.0,
         mutation_interval_seconds=0.0,
         content_requests_per_minute=10,
         content_requests_per_hour=2,
         max_secondary_retries=1,
         secondary_backoff_seconds=(5.0,),
+        provider_authoritative_rate_limits=False,
     )
 
     first = github_api_governor(
@@ -154,6 +156,7 @@ def test_controller_secondary_limit_wait_is_shared_provider_state(
     governor = github_api_governor(
         scope="https://api.github.com|octo",
         policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
             mutation_interval_seconds=0.0,
             content_requests_per_minute=60,
             content_requests_per_hour=360,
@@ -164,6 +167,8 @@ def test_controller_secondary_limit_wait_is_shared_provider_state(
         clock=clock.now,
         sleep=clock.sleep,
     )
+    messages: list[str] = []
+    governor.set_progress_reporter(messages.append)
     calls = 0
 
     def transport(method, url, headers, payload):
@@ -213,6 +218,7 @@ def test_controller_secondary_limit_wait_is_shared_provider_state(
     assert value["id"] == 7
     assert calls == 2
     assert clock.sleeps == [5.0]
+    assert messages == ["Pacing: GitHub provider cooldown, idling ~5s."]
     snapshot = governor.usage_snapshot()
     assert snapshot["metrics"]["secondary_rate_limit_events"] == 1
     assert snapshot["metrics"]["requests"] == 2
@@ -229,11 +235,13 @@ def test_governor_keeps_delete_out_of_content_generation_budget(
     governor = github_api_governor(
         scope="https://api.github.com|octo",
         policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
             mutation_interval_seconds=0.0,
             content_requests_per_minute=1,
             content_requests_per_hour=1,
             max_secondary_retries=0,
             secondary_backoff_seconds=(5.0,),
+            provider_authoritative_rate_limits=False,
         ),
         state_path=tmp_path / "state.json",
         clock=clock.now,
@@ -270,11 +278,13 @@ def test_governor_reserves_content_budget_before_response_and_tracks_primary_rat
     governor = github_api_governor(
         scope="https://api.github.com|octo",
         policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
             mutation_interval_seconds=0.0,
             content_requests_per_minute=5,
             content_requests_per_hour=5,
             max_secondary_retries=0,
             secondary_backoff_seconds=(5.0,),
+            provider_authoritative_rate_limits=False,
         ),
         state_path=state,
         clock=clock.now,
@@ -313,7 +323,7 @@ def test_governor_reserves_content_budget_before_response_and_tracks_primary_rat
     }
 
 
-def test_governor_preserves_primary_headroom_for_same_owner_subject_traffic(
+def test_governor_preserves_controller_primary_headroom(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -325,6 +335,7 @@ def test_governor_preserves_primary_headroom_for_same_owner_subject_traffic(
     governor = github_api_governor(
         scope="https://api.github.com|octo",
         policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
             mutation_interval_seconds=0.0,
             content_requests_per_minute=60,
             content_requests_per_hour=360,
@@ -332,6 +343,7 @@ def test_governor_preserves_primary_headroom_for_same_owner_subject_traffic(
             primary_reset_grace_seconds=2.0,
             max_secondary_retries=0,
             secondary_backoff_seconds=(5.0,),
+            provider_authoritative_rate_limits=False,
         ),
         state_path=state,
         clock=clock.now,
@@ -370,6 +382,389 @@ def test_governor_preserves_primary_headroom_for_same_owner_subject_traffic(
     assert snapshot["policy"]["primary_reset_grace_seconds"] == 2.0
 
 
+def test_governor_keeps_primary_rate_domains_independent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock(start=1000.0)
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+            content_requests_per_minute=60,
+            content_requests_per_hour=360,
+            primary_remaining_floor=1000,
+            primary_reset_grace_seconds=2.0,
+            max_secondary_retries=0,
+            secondary_backoff_seconds=(5.0,),
+            provider_authoritative_rate_limits=False,
+        ),
+        state_path=tmp_path / "state.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+
+    governor.before_request(
+        method="GET",
+        route="repository.read",
+        content_generating=False,
+        primary_domain="controller",
+    )
+    governor.observe_response(
+        route="repository.read",
+        status=200,
+        headers={
+            "X-RateLimit-Limit": "5000",
+            "X-RateLimit-Remaining": "950",
+            "X-RateLimit-Used": "4050",
+            "X-RateLimit-Reset": "1010",
+            "X-RateLimit-Resource": "core",
+        },
+        content_generating=False,
+        primary_domain="controller",
+    )
+
+    governor.before_request(
+        method="GET",
+        route="app.installation.read",
+        content_generating=False,
+        primary_domain="installation",
+    )
+    assert clock.sleeps == []
+
+    governor.before_request(
+        method="GET",
+        route="repository.read",
+        content_generating=False,
+        primary_domain="controller",
+    )
+    assert clock.sleeps == [12.0]
+
+
+def test_governor_migrates_v01_primary_snapshot_to_controller_domain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    state = tmp_path / "state.json"
+    state.write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1",
+                "scope": "https://api.github.com|octo",
+                "scope_hash": "legacy",
+                "last_mutation_at": 0.0,
+                "content_request_timestamps": [900.0],
+                "secondary_block_until": 0.0,
+                "secondary_block_scope": "content",
+                "secondary_backoff_level": 0,
+                "last_secondary_limit_at": 0.0,
+                "primary_rate": {
+                    "limit": "5000",
+                    "remaining": "4900",
+                    "reset": "2000",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+            max_secondary_retries=0,
+            secondary_backoff_seconds=(5.0,),
+        ),
+        state_path=state,
+        clock=lambda: 1000.0,
+        sleep=lambda _seconds: None,
+    )
+
+    snapshot = governor.usage_snapshot()
+    assert snapshot["provider_window"]["primary_rates"] == {
+        "controller": {
+            "limit": "5000",
+            "remaining": "4900",
+            "reset": "2000",
+        }
+    }
+    governor.observe_response(
+        route="repository.read",
+        status=200,
+        headers={},
+        content_generating=False,
+        primary_domain="controller",
+    )
+    persisted = json.loads(state.read_text(encoding="utf-8"))
+    assert persisted["schema_version"] == "0.3"
+    assert "primary_rate" not in persisted
+    assert persisted["primary_rates"]["controller"]["remaining"] == "4900"
+
+
+def test_provider_authoritative_mode_observes_content_without_static_budget_wait(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock()
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+            content_requests_per_minute=1,
+            content_requests_per_hour=2,
+            provider_authoritative_rate_limits=True,
+            secondary_backoff_seconds=(5.0,),
+        ),
+        state_path=tmp_path / "state.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+
+    for _ in range(3):
+        governor.before_request(
+            method="POST",
+            route="repository.create",
+            content_generating=True,
+        )
+        governor.observe_response(
+            route="repository.create",
+            status=201,
+            headers={},
+            content_generating=True,
+        )
+
+    assert clock.sleeps == []
+    snapshot = governor.usage_snapshot()
+    assert snapshot["provider_window"]["content_requests_last_hour"] == 3
+    assert snapshot["policy"]["provider_authoritative_rate_limits"] is True
+
+
+def test_provider_authoritative_mode_waits_only_when_primary_remaining_is_zero(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock(start=1000.0)
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+            primary_remaining_floor=1000,
+            primary_reset_grace_seconds=2.0,
+            provider_authoritative_rate_limits=True,
+            secondary_backoff_seconds=(5.0,),
+        ),
+        state_path=tmp_path / "state.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+
+    governor.observe_response(
+        route="repository.read",
+        status=200,
+        headers={
+            "X-RateLimit-Limit": "5000",
+            "X-RateLimit-Remaining": "950",
+            "X-RateLimit-Reset": "1010",
+        },
+        content_generating=False,
+    )
+    governor.before_request(
+        method="GET",
+        route="repository.read",
+        content_generating=False,
+    )
+    assert clock.sleeps == []
+
+    governor.observe_response(
+        route="repository.read",
+        status=403,
+        headers={
+            "X-RateLimit-Limit": "5000",
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1010",
+        },
+        content_generating=False,
+    )
+    delay = governor.rate_limit_delay(
+        status=403,
+        headers={
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1010",
+        },
+        detail="API rate limit exceeded",
+    )
+    assert delay == 12.0
+    governor.before_request(
+        method="GET",
+        route="repository.read",
+        content_generating=False,
+    )
+    assert clock.sleeps == [12.0]
+    snapshot = governor.usage_snapshot()
+    assert snapshot["metrics"]["primary_rate_limit_events"] == 1
+
+
+def test_provider_authoritative_controller_stops_after_bounded_secondary_retries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        github_api_governor,
+        github_api_governor_policy,
+        github_controller_client,
+    ) = _load_runtime_types(tmp_path, monkeypatch)
+    clock = _fake_clock()
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+            max_secondary_retries=2,
+            provider_authoritative_rate_limits=True,
+            secondary_backoff_seconds=(1.0, 2.0, 4.0),
+        ),
+        state_path=tmp_path / "state.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+    calls = 0
+
+    def transport(method, url, headers, payload):
+        nonlocal calls
+        del headers, payload
+        calls += 1
+        assert method == "POST"
+        assert url.endswith("/user/repos")
+        return (
+            403,
+            {},
+            json.dumps(
+                {
+                    "message": (
+                        "You have exceeded a secondary rate limit and have been "
+                        "temporarily blocked from content creation."
+                    )
+                }
+            ).encode("utf-8"),
+        )
+
+    client = github_controller_client(
+        "secret",
+        transport=transport,
+        redirect_transport=transport,
+        governor=governor,
+    )
+    with pytest.raises(Exception, match="rate-limit recovery exhausted"):
+        client.create_repository(name="demo", description="demo")
+
+    assert calls == 3
+    assert clock.sleeps == [1.0, 2.0]
+    snapshot = governor.usage_snapshot()
+    assert snapshot["metrics"]["secondary_rate_limit_events"] == 3
+
+
+def test_governor_applies_retry_after_grace_and_provider_wide_cooldown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock()
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+            retry_after_grace_seconds=3.0,
+            max_secondary_retries=1,
+            secondary_backoff_seconds=(60.0,),
+        ),
+        state_path=tmp_path / "state.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+    delay = governor.rate_limit_delay(
+        status=403,
+        headers={"Retry-After": "60"},
+        detail="secondary rate limit",
+    )
+    assert delay == 63.0
+    governor.before_request(
+        method="GET",
+        route="repository.read",
+        content_generating=False,
+    )
+    assert clock.sleeps == [63.0]
+
+
+def test_governor_honors_x_poll_interval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock()
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+        ),
+        state_path=tmp_path / "state.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+    governor.observe_response(
+        route="workflow_run.read",
+        status=200,
+        headers={"X-Poll-Interval": "7"},
+        content_generating=False,
+    )
+    governor.wait_for_poll(routes=("workflow_run.read",), minimum_seconds=2.0)
+    assert clock.sleeps == [7.0]
+
+
+def test_governor_applies_conservative_spacing_between_all_requests(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock()
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.25,
+            mutation_interval_seconds=0.0,
+        ),
+        state_path=tmp_path / "state.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+    governor.before_request(method="GET", route="repository.read", content_generating=False)
+    governor.observe_response(route="repository.read", status=200, headers={}, content_generating=False)
+    governor.before_request(method="GET", route="repository.read", content_generating=False)
+    assert clock.sleeps == [0.25]
+
 def test_controller_route_telemetry_splits_major_read_families(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -400,19 +795,124 @@ def test_api_usage_delta_includes_git_content_plane_metrics(
         {
             "metrics": {"requests": 10},
             "routes": {},
+            "credential_domains": {"controller": {"requests": 10}},
             "provider_window": {},
             "git_content_plane": {"metrics": {"pushes": 2, "file_reads": 4}},
         },
         {
             "metrics": {"requests": 13},
             "routes": {},
+            "credential_domains": {
+                "controller": {"requests": 12},
+                "installation": {"requests": 1},
+            },
             "provider_window": {},
             "git_content_plane": {"metrics": {"pushes": 5, "file_reads": 9}},
         },
     )
 
     assert delta["metrics"]["requests"] == 3
+    assert delta["credential_domains"] == {
+        "controller": {"requests": 2},
+        "installation": {"requests": 1},
+    }
     assert delta["git_content_plane"]["metrics"] == {
         "file_reads": 5,
         "pushes": 3,
     }
+
+
+def test_governor_serializes_provider_access_across_instances(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    state = tmp_path / "state.json"
+    policy = github_api_governor_policy(
+        request_interval_seconds=0.0,
+        mutation_interval_seconds=0.0,
+    )
+    first = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=policy,
+        state_path=state,
+    )
+    second = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=policy,
+        state_path=state,
+    )
+    acquired = threading.Event()
+
+    def enter_second() -> None:
+        with second.serialized_provider_access():
+            acquired.set()
+
+    with first.serialized_provider_access():
+        worker = threading.Thread(target=enter_second)
+        worker.start()
+        assert acquired.wait(0.05) is False
+
+    assert acquired.wait(1.0) is True
+    worker.join(timeout=1.0)
+    assert worker.is_alive() is False
+
+
+def test_controller_repeated_get_uses_authenticated_conditional_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        github_api_governor,
+        github_api_governor_policy,
+        github_controller_client,
+    ) = _load_runtime_types(tmp_path, monkeypatch)
+    clock = _fake_clock()
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+        ),
+        state_path=tmp_path / "state.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+    calls: list[dict[str, str]] = []
+    body = json.dumps(
+        {
+            "id": 7,
+            "name": "demo",
+            "full_name": "octo/demo",
+            "private": True,
+            "default_branch": "main",
+            "has_issues": True,
+            "owner": {"login": "octo"},
+            "permissions": {"push": True},
+        }
+    ).encode("utf-8")
+
+    def transport(method, url, headers, payload):
+        del url, payload
+        assert method == "GET"
+        calls.append(dict(headers))
+        if len(calls) == 1:
+            return 200, {"ETag": '"repo-v1"'}, body
+        assert headers.get("If-None-Match") == '"repo-v1"'
+        return 304, {"ETag": '"repo-v1"'}, b""
+
+    client = github_controller_client(
+        "secret",
+        transport=transport,
+        redirect_transport=transport,
+        governor=governor,
+    )
+    first = client.repository("octo", "demo")
+    second = client.repository("octo", "demo")
+
+    assert first == second
+    assert len(calls) == 2

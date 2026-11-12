@@ -204,7 +204,7 @@ and [`fixture_lifecycle.md`](fixture_lifecycle.md).
 
 ## Phase F - Campaign + GitHub App rebase
 
-**Implemented locally on 2026-11-11; fresh live qualification is pending before acquisition.**
+**Implemented and live-qualified on 2026-11-11; whole-package acquisition profiling remains pending.**
 
 - [x] Introduce generic Core subject-admission orchestration so run environment preparation precedes ephemeral credential binding.
 - [x] Keep static GitHub MCP subject profiles unadmitted between runs.
@@ -218,6 +218,41 @@ and [`fixture_lifecycle.md`](fixture_lifecycle.md).
 - [x] Add package-owned hard-crash recovery using execution-tag discovery plus ledger reconciliation.
 - [x] Ensure lost token bytes are never persisted; recovery removes their sole repository authority by detaching/deleting the exact run repository.
 - [x] Add App-token mint/revoke, runtime admission, and crash-recovery regression coverage.
-- [ ] Bind/validate the package `github_app_private_key` in the live secret registry for the rebased package revision.
-- [ ] Run fresh live package apply/doctor and App-native 42-tool admission preflight across Hermes, Open WebUI, and Agent Zero.
-- [ ] Re-run disposable-repository/App-token lifecycle qualification and remaining scenario smoke runs before scientific acquisition.
+- [x] Bind/validate the package `github_app_private_key` in the live secret registry for the rebased package revision.
+- [x] Run fresh live package apply/doctor and App-native 42-tool admission preflight across Hermes, Open WebUI, and Agent Zero.
+- [x] Re-run disposable-repository/App-token lifecycle qualification and complete a clean F1-A Campaign admission run across all three subjects.
+- [x] Confirm Campaign partial merge with three accepted observations and no blocked runs after Agent Zero admission polling correction.
+- [x] Separate controller/App primary-rate telemetry domains and bring App-token mint/revoke under shared provider pacing/secondary-cooldown telemetry.
+- [ ] Run one whole-package one-repetition Campaign qualification (12 scenarios x 3 subjects = 36 runs) and use its provider-volume profile to freeze final execution chunking.
+
+### GitHub best-practice hardening checkpoint (2026-11-12)
+
+The provider-volume qualification exposed endpoint-specific secondary limiting during disposable repository
+creation, so GitHub etiquette is now a package hard floor rather than an optional tuning layer.
+
+- Trusted REST/App requests are serialized across processes, conservatively spaced, and all mutative requests
+  are separated by at least two seconds (stricter than GitHub's one-second recommendation).
+- Provider cooldowns stop trusted REST, App, and remote Git traffic together; `Retry-After`, primary reset
+  headers, and bounded exponential secondary recovery are authoritative.
+- Repeated REST reads use authenticated conditional requests and all polling goes through the shared poll
+  scheduler with a two-second local floor plus `X-Poll-Interval` support.
+- Remote Git is separately paced at at most five pushes/minute/repository and ten read operations/second,
+  stricter than GitHub's published repository guidance.
+- Package-owned commit graphs are built locally and batched into one push whenever intermediate remote state
+  is not scientifically meaningful. Individual commits and their intended history are preserved.
+- REST-side ref mutations explicitly invalidate the Git transport's short freshness hint before subsequent
+  local writes.
+- Static regression audits reject scenario-local HTTP clients, remote Git commands, and polling sleeps.
+
+A fresh live re-profile is required before resuming the 36-run whole-package qualification.
+
+
+## Subject-side MCP provider-governor checkpoint (2026-11-12)
+
+- [x] Preserve the exact 42-tool App-native catalog and v2.0.3 upstream commit.
+- [x] Build a package-owned governed MCP image from upstream commit `b98d115bbb080e9555466a96656ec4df605aea21`.
+- [x] Inject provider-authoritative pacing below both upstream REST and GraphQL GitHub clients without changing MCP tool semantics.
+- [x] Serialize subject-originated GitHub HTTP requests and enforce conservative request/mutation spacing.
+- [x] Persist non-secret subject cooldown/backoff state across MCP container restarts.
+- [x] Verify local image upstream/governor identity during package apply and doctor.
+- [x] Keep all GitHub-specific subject-governor implementation inside the Experiment Package; Core remains generic.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import os
@@ -9,7 +10,7 @@ import stat
 import subprocess
 import tempfile
 import time
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, ContextManager, Iterator, Mapping
 
 
 class github_git_error(RuntimeError):
@@ -38,6 +39,11 @@ class github_git_content_plane:
         runner: Runner | None = None,
         root: Path | None = None,
         authentication: bool = True,
+        push_interval_seconds: float = 12.0,
+        remote_read_interval_seconds: float = 0.1,
+        sleep: Callable[[float], None] | None = None,
+        monotonic: Callable[[], float] | None = None,
+        provider_context: Callable[[bool], ContextManager[None]] | None = None,
     ) -> None:
         if not token.strip():
             raise ValueError("GitHub Git token must not be empty.")
@@ -49,10 +55,29 @@ class github_git_content_plane:
         self._runner = runner or subprocess.run
         self._root = root or Path(tempfile.mkdtemp(prefix="acmm-github-git-"))
         self._root.mkdir(parents=True, exist_ok=True)
+        if push_interval_seconds < 10.0:
+            raise ValueError(
+                "GitHub push interval must be at least 10 seconds (<= 6 pushes/minute)."
+            )
+        if remote_read_interval_seconds < (1.0 / 15.0):
+            raise ValueError(
+                "GitHub remote-read interval must be at least 1/15 second."
+            )
         self._authentication = authentication
+        self._push_interval_seconds = float(push_interval_seconds)
+        self._remote_read_interval_seconds = float(remote_read_interval_seconds)
+        self._sleep = sleep or time.sleep
+        self._monotonic = monotonic or time.monotonic
+        self._provider_context = provider_context
+        self._progress: Callable[[str], None] | None = None
         self._workspaces: dict[str, Path] = {}
         self._last_fetch_monotonic: dict[str, float] = {}
-        self._metrics: dict[str, int] = {
+        self._last_remote_read_monotonic: dict[str, float] = {}
+        self._last_push_monotonic: dict[str, float] = {}
+        self._batch_depth: dict[str, int] = {}
+        self._batch_prepared_branches: dict[str, set[str]] = {}
+        self._batch_dirty_branches: dict[str, set[str]] = {}
+        self._metrics: dict[str, int | float] = {
             "git_commands": 0,
             "fetches": 0,
             "pushes": 0,
@@ -60,21 +85,71 @@ class github_git_content_plane:
             "file_writes": 0,
             "file_reads": 0,
             "ref_fingerprints": 0,
+            "published_branches": 0,
+            "push_wait_seconds": 0.0,
+            "remote_read_wait_seconds": 0.0,
         }
 
     def usage_snapshot(self) -> Mapping[str, Any]:
         return {"schema_version": "0.1", "metrics": dict(self._metrics)}
 
+    def set_progress_reporter(
+        self,
+        progress: Callable[[str], None] | None,
+    ) -> None:
+        self._progress = progress
+
+    @contextmanager
+    def publish_batch(self, owner: str, name: str) -> Iterator[None]:
+        """Build one or more local commits, then publish dirty branches once."""
+        key = self._key(owner, name)
+        self._batch_depth[key] = self._batch_depth.get(key, 0) + 1
+        self._batch_prepared_branches.setdefault(key, set())
+        self._batch_dirty_branches.setdefault(key, set())
+        try:
+            yield
+        except BaseException:
+            self._batch_depth[key] -= 1
+            if self._batch_depth[key] <= 0:
+                self._batch_depth.pop(key, None)
+                self._batch_prepared_branches.pop(key, None)
+                self._batch_dirty_branches.pop(key, None)
+            raise
+        else:
+            self._batch_depth[key] -= 1
+            if self._batch_depth[key] <= 0:
+                self._batch_depth.pop(key, None)
+                try:
+                    self._flush_batch(owner, name)
+                finally:
+                    self._batch_prepared_branches.pop(key, None)
+                    self._batch_dirty_branches.pop(key, None)
+
+    def mark_remote_changed(self, owner: str, name: str) -> None:
+        """Invalidate the short-lived fetch freshness hint after REST-side ref changes."""
+        self._last_fetch_monotonic.pop(self._key(owner, name), None)
+
     def discard_repository(self, owner: str, name: str) -> None:
         key = self._key(owner, name)
         workspace = self._workspaces.pop(key, None)
         self._last_fetch_monotonic.pop(key, None)
+        self._last_remote_read_monotonic.pop(key, None)
+        self._last_push_monotonic.pop(key, None)
+        self._batch_depth.pop(key, None)
+        self._batch_prepared_branches.pop(key, None)
+        self._batch_dirty_branches.pop(key, None)
         if workspace is not None:
             shutil.rmtree(workspace, ignore_errors=True)
 
     def close(self) -> None:
         shutil.rmtree(self._root, ignore_errors=True)
         self._workspaces.clear()
+        self._last_fetch_monotonic.clear()
+        self._last_remote_read_monotonic.clear()
+        self._last_push_monotonic.clear()
+        self._batch_depth.clear()
+        self._batch_prepared_branches.clear()
+        self._batch_dirty_branches.clear()
 
     def write_file(
         self,
@@ -89,7 +164,15 @@ class github_git_content_plane:
     ) -> github_git_write_result:
         target_branch = branch or self._default_branch
         workspace = self._workspace(owner, name)
-        self._synchronize(workspace, target_branch)
+        key = self._key(owner, name)
+        batching = self._batch_depth.get(key, 0) > 0
+        prepared = self._batch_prepared_branches.setdefault(key, set()) if batching else set()
+        if batching and target_branch in prepared:
+            self._git(workspace, "checkout", target_branch)
+        else:
+            self._synchronize(workspace, target_branch)
+            if batching:
+                prepared.add(target_branch)
         relative = self._safe_relative_path(path)
 
         if sha is not None:
@@ -112,14 +195,16 @@ class github_git_content_plane:
             self._metrics["file_writes"] += 1
             commit_sha = self._git(workspace, "rev-parse", "HEAD").stdout.strip()
             blob_sha = self._git(workspace, "rev-parse", f"HEAD:{relative.as_posix()}").stdout.strip()
-            self._git(
-                workspace,
-                "push",
-                "origin",
-                f"HEAD:refs/heads/{target_branch}",
-            )
-            self._metrics["pushes"] += 1
-            self._last_fetch_monotonic[self._key(owner, name)] = time.monotonic()
+            if batching:
+                self._batch_dirty_branches.setdefault(key, set()).add(target_branch)
+            else:
+                self._push_refs(
+                    owner,
+                    name,
+                    workspace,
+                    (f"HEAD:refs/heads/{target_branch}",),
+                    published_branches=1,
+                )
             return github_git_write_result(
                 path=relative.as_posix(),
                 blob_sha=blob_sha,
@@ -195,7 +280,9 @@ class github_git_content_plane:
 
     def ref_fingerprint(self, owner: str, name: str) -> Mapping[str, Any]:
         remote = self._remote_url_factory(owner, name)
-        result = self._git_remote(owner, name, "ls-remote", "--heads", "--tags", remote)
+        with self._provider_scope(content_generating=False):
+            self._pace_remote_read(owner, name)
+            result = self._git_remote(owner, name, "ls-remote", "--heads", "--tags", remote)
         refs: dict[str, str] = {}
         for line in result.stdout.splitlines():
             line = line.strip()
@@ -234,7 +321,10 @@ class github_git_content_plane:
         return workspace
 
     def _synchronize(self, workspace: Path, branch: str) -> None:
-        self._fetch(workspace, force=True)
+        # A recent trusted read/push already proves this workspace is current.
+        # REST-side ref mutations call mark_remote_changed(), which clears that
+        # freshness hint and forces the next synchronize to fetch again.
+        self._fetch(workspace, force=False)
 
         remote_ref = f"refs/remotes/origin/{branch}"
         local_ref = f"refs/heads/{branch}"
@@ -279,11 +369,14 @@ class github_git_content_plane:
 
     def _fetch(self, workspace: Path, *, force: bool) -> None:
         key = next((key for key, value in self._workspaces.items() if value == workspace), str(workspace))
-        now = time.monotonic()
+        now = self._monotonic()
         last = self._last_fetch_monotonic.get(key, 0.0)
         if not force and now - last < 0.25:
             return
-        fetch = self._git(workspace, "fetch", "--prune", "origin", check=False)
+        owner, name = key.split("/", 1)
+        with self._provider_scope(content_generating=False):
+            self._pace_remote_read(owner, name)
+            fetch = self._git(workspace, "fetch", "--prune", "origin", check=False)
         self._metrics["fetches"] += 1
         if fetch.returncode != 0:
             lowered = (fetch.stderr or "").casefold()
@@ -293,7 +386,79 @@ class github_git_content_plane:
             )
             if not empty_remote:
                 raise github_git_error(self._command_error("git fetch", fetch))
+        self._last_fetch_monotonic[key] = self._monotonic()
+
+    def _flush_batch(self, owner: str, name: str) -> None:
+        key = self._key(owner, name)
+        dirty = sorted(self._batch_dirty_branches.get(key, set()))
+        if not dirty:
+            return
+        workspace = self._workspace(owner, name)
+        refspecs = tuple(
+            f"refs/heads/{branch}:refs/heads/{branch}"
+            for branch in dirty
+        )
+        self._push_refs(
+            owner,
+            name,
+            workspace,
+            refspecs,
+            published_branches=len(dirty),
+        )
+
+    def _push_refs(
+        self,
+        owner: str,
+        name: str,
+        workspace: Path,
+        refspecs: tuple[str, ...],
+        *,
+        published_branches: int,
+    ) -> None:
+        with self._provider_scope(content_generating=True):
+            self._pace_push(owner, name)
+            self._git(workspace, "push", "origin", *refspecs)
+        self._metrics["pushes"] += 1
+        self._metrics["published_branches"] += published_branches
+        key = self._key(owner, name)
+        now = self._monotonic()
+        self._last_push_monotonic[key] = now
         self._last_fetch_monotonic[key] = now
+
+    @contextmanager
+    def _provider_scope(self, *, content_generating: bool) -> Iterator[None]:
+        if self._provider_context is None:
+            yield
+            return
+        with self._provider_context(content_generating):
+            yield
+
+    def _pace_push(self, owner: str, name: str) -> None:
+        key = self._key(owner, name)
+        now = self._monotonic()
+        last = self._last_push_monotonic.get(key)
+        if last is None:
+            return
+        remaining = last + self._push_interval_seconds - now
+        if remaining <= 0:
+            return
+        self._metrics["push_wait_seconds"] += remaining
+        if self._progress is not None and remaining >= 2.0:
+            self._progress(
+                f"Pacing: GitHub Git push spacing, idling ~{int(round(remaining))}s."
+            )
+        self._sleep(remaining)
+
+    def _pace_remote_read(self, owner: str, name: str) -> None:
+        key = self._key(owner, name)
+        now = self._monotonic()
+        last = self._last_remote_read_monotonic.get(key)
+        if last is not None:
+            remaining = last + self._remote_read_interval_seconds - now
+            if remaining > 0:
+                self._metrics["remote_read_wait_seconds"] += remaining
+                self._sleep(remaining)
+        self._last_remote_read_monotonic[key] = self._monotonic()
 
     def _blob_sha_optional(self, workspace: Path, branch: str, path: PurePosixPath) -> str | None:
         del branch

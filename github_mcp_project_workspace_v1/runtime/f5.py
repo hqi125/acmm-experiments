@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import time
 from typing import Any, Callable, Mapping
 
 from acmm.experiment_api import apparatus_action_progress, apparatus_action_result
@@ -68,7 +67,6 @@ class _github_f5_materializer_base:
         self._expected_default_branch = expected_default_branch
         self._fixture_base_files = tuple(fixture_base_files)
         self._discovery_retry_delays = (0.0, 0.5, 1.0, 2.0, 4.0, 8.0)
-        self._sleep = time.sleep
 
     def _resolve_identity(self, label: str) -> github_repository_identity:
         identity = self._client.resolve_repository(self._repository_name)
@@ -189,18 +187,19 @@ class github_f5_a_materializer(_github_f5_materializer_base):
         if issue is None:
             if not allow_create:
                 raise github_controller_error("F5-A fixture is not fully materialized.")
-            changed |= self._ensure_file(
-                identity,
-                self._spec.retry_source_path,
-                self._spec.retry_source_content,
-                "F5-A: seed retry policy implementation",
-            )
-            changed |= self._ensure_file(
-                identity,
-                self._spec.retry_tests_path,
-                self._spec.retry_tests_content,
-                "F5-A: seed retry policy acceptance specification",
-            )
+            with self._client.git_publish_batch(identity.owner, identity.name):
+                changed |= self._ensure_file(
+                    identity,
+                    self._spec.retry_source_path,
+                    self._spec.retry_source_content,
+                    "F5-A: seed retry policy implementation",
+                )
+                changed |= self._ensure_file(
+                    identity,
+                    self._spec.retry_tests_path,
+                    self._spec.retry_tests_content,
+                    "F5-A: seed retry policy acceptance specification",
+                )
             issue = self._client.create_issue(
                 identity.owner,
                 identity.name,
@@ -243,7 +242,10 @@ class github_f5_a_materializer(_github_f5_materializer_base):
         if issue is not None or not retry:
             return issue
         for delay in self._discovery_retry_delays[1:]:
-            self._sleep(delay)
+            self._client.wait_for_poll(
+                max(2.0, float(delay)),
+                "issue.list",
+            )
             issue = self._find_retry_issue_once(identity)
             if issue is not None:
                 return issue
@@ -341,8 +343,9 @@ class github_f5_b_materializer(_github_f5_materializer_base):
         if missing and not allow_create:
             raise github_controller_error("F5-B fixture is not fully materialized.")
         if allow_create:
-            for path, content, message in files:
-                changed |= self._ensure_file(identity, path, content, message)
+            with self._client.git_publish_batch(identity.owner, identity.name):
+                for path, content, message in files:
+                    changed |= self._ensure_file(identity, path, content, message)
         for path, expected, _message in files:
             actual = self._client.read_text_file(
                 identity.owner,

@@ -233,7 +233,11 @@ class github_f1_b_materializer:
                 ),
             )
             if delay > 0:
-                time.sleep(delay)
+                self._client.wait_for_poll(
+                    max(2.0, float(delay)),
+                    "issue.list",
+                    "pull_request.list",
+                )
             latest = self._discover_once(identity)
             if latest["complete"]:
                 return latest
@@ -322,11 +326,11 @@ class github_f1_b_materializer:
         )
 
         _emit(report, 6, total, "creating the release candidate branch and open release pull request")
-        release_base = _nested_string(
-            self._client.ref(owner, repo, f"heads/{main}"),
-            "object",
-            "sha",
-        )
+        # Use the authoritative SHA returned by the successful merge instead of
+        # immediately rereading the just-mutated default-branch ref. GitHub ref
+        # reads can briefly lag the merge response and would otherwise let the
+        # release candidate fork from stale pre-fix state.
+        release_base = included_merge_commit
         self._client.create_ref(owner, repo, self._spec.release_branch, release_base)
         candidate = self._client.create_or_update_file(
             owner,
@@ -365,11 +369,10 @@ class github_f1_b_materializer:
             "number",
             "F1-B missing blocker issue number",
         )
-        missing_base = _nested_string(
-            self._client.ref(owner, repo, f"heads/{main}"),
-            "object",
-            "sha",
-        )
+        # The default branch has not intentionally changed since the included
+        # blocker merge. Reuse that returned SHA here as well, avoiding another
+        # read-after-write dependency on ref propagation.
+        missing_base = included_merge_commit
         self._client.create_ref(owner, repo, self._spec.missing.fix_branch, missing_base)
         missing_fix = self._client.create_or_update_file(
             owner,
@@ -753,7 +756,10 @@ class github_f1_b_materializer:
         if run is None:
             for attempt, delay in enumerate(self._workflow_retry_delays[1:], start=1):
                 if delay > 0:
-                    time.sleep(delay)
+                    self._client.wait_for_poll(
+                        max(2.0, float(delay)),
+                        "workflow_run.list_for_workflow",
+                    )
                 run = self._matching_workflow_run(identity, workflow_id, candidate_head)
                 if run is not None:
                     break
@@ -821,7 +827,10 @@ class github_f1_b_materializer:
             if current.get("status") == "completed":
                 return current
             if delay > 0:
-                time.sleep(delay)
+                self._client.wait_for_poll(
+                    max(2.0, float(delay)),
+                    "workflow_run.read",
+                )
             _emit(
                 report,
                 10,
@@ -1009,7 +1018,10 @@ class github_f1_b_materializer:
             if len(matches) > 1:
                 raise github_controller_error("F1-B required-check workflow is duplicated.")
             if attempt + 1 < len(delays) and delay > 0:
-                time.sleep(delay)
+                self._client.wait_for_poll(
+                    max(2.0, float(delay)),
+                    "workflow.list",
+                )
         raise github_controller_error("F1-B required-check workflow is not visible to Actions.")
 
     def _verify_issue(

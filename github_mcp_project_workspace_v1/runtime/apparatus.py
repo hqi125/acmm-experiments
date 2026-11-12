@@ -32,11 +32,23 @@ class github_api_governor_inspector:
     def run(self) -> apparatus_action_result:
         snapshot = self._governor.usage_snapshot()
         window = snapshot.get("provider_window", {})
+        primary_rates = (
+            window.get("primary_rates")
+            if isinstance(window.get("primary_rates"), Mapping)
+            else {}
+        )
+        primary_detail = ", ".join(
+            f"{domain}={snapshot.get('remaining', '?')}/{snapshot.get('limit', '?')}"
+            for domain, snapshot in sorted(primary_rates.items())
+            if isinstance(snapshot, Mapping)
+        )
         detail = (
             "GitHub API governor state: "
-            f"content/minute={window.get('content_requests_last_minute', 0)}, "
-            f"content/hour={window.get('content_requests_last_hour', 0)}, "
-            f"secondary_block_until={window.get('secondary_block_until', 0)}"
+            f"mode={'provider-authoritative' if snapshot.get('policy', {}).get('provider_authoritative_rate_limits') else 'static-fallback'}, "
+            f"content-observed/minute={window.get('content_requests_last_minute', 0)}, "
+            f"content-observed/hour={window.get('content_requests_last_hour', 0)}, "
+            f"secondary_block_until={window.get('secondary_block_until', 0)}, "
+            f"primary={primary_detail or 'unobserved'}"
         )
         return apparatus_action_result(
             changed=False,
@@ -88,18 +100,19 @@ class github_fixture_base_initializer:
             )
 
         self._require_clean_empty_repository(identity)
-        for index, item in enumerate(self._fixture_base_files):
-            self._client.create_or_update_file(
-                identity.owner,
-                identity.name,
-                item.path,
-                message=(
-                    f"ACMM: initialize fixture base v{self._fixture_base_version} "
-                    f"({item.path})"
-                ),
-                content=item.content,
-                branch=(None if index == 0 else self._expected_default_branch),
-            )
+        with self._client.git_publish_batch(identity.owner, identity.name):
+            for index, item in enumerate(self._fixture_base_files):
+                self._client.create_or_update_file(
+                    identity.owner,
+                    identity.name,
+                    item.path,
+                    message=(
+                        f"ACMM: initialize fixture base v{self._fixture_base_version} "
+                        f"({item.path})"
+                    ),
+                    content=item.content,
+                    branch=(None if index == 0 else self._expected_default_branch),
+                )
 
         self._verify_fixture_base(identity)
         head_sha = self._head_sha(identity)
@@ -595,7 +608,9 @@ class github_disposable_repository_lifecycle_qualifier:
                 token,
                 api_base=self._api_base,
                 transport=self._client._transport,
-                mutation_interval_seconds=0.0,
+                mutation_interval_seconds=2.0,
+                governor=self._client._governor,
+                primary_domain="installation",
             )
             subject_identity = subject_client.repository_identity(owner, repository_name)
             _verify_probe_identity(
@@ -730,7 +745,7 @@ class github_disposable_repository_lifecycle_qualifier:
             if self._client.repository_optional(owner, name) is None:
                 return
             if attempt < 5:
-                self._sleep(0.5)
+                self._client.wait_for_poll(2.0, "repository.read")
         raise github_controller_error(
             f"Deleted probe repository {owner}/{name} remains visible after bounded verification."
         )

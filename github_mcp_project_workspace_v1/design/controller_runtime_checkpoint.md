@@ -77,9 +77,11 @@ the current live doctor check.
 The production controller transport now treats GitHub API redirects as an explicit trust boundary. Endpoints such as
 Actions job logs and repository archives are first requested without automatic redirect following; the controller
 then follows the returned download URL without forwarding the GitHub PAT. Mutative REST requests are serialized with
-a minimum one-second interval, and explicit `403`/`429` secondary-rate-limit responses honor `Retry-After` when
-present (otherwise bounded one-minute exponential backoff). Generic network timeouts and unrelated authorization
-errors are never retried as mutations.
+a minimum one-second interval. GitHub rate-limit handling is provider-authoritative: primary exhaustion waits for
+the reported `X-RateLimit-Reset`, secondary `403`/`429` responses honor `Retry-After` when present, and otherwise
+use GitHub's documented one-minute/exponential fallback. Provider-declared rate-limit waits are retried without
+turning a pre-subject fixture operation into a scientific failure; generic network timeouts and unrelated
+authorization errors are never retried as mutations.
 
 ## Fixture-base initialization action
 

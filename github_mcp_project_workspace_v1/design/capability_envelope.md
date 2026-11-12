@@ -3,8 +3,7 @@
 ## Status
 
 **Rebased for the GitHub App / Campaign execution model.** The scientific subject surface is pinned to
-GitHub MCP Server v2.0.3, the qualified image digest, seven visible toolsets, and the exact 42-tool
-App-native catalog. Static agent configuration remains deliberately unadmitted between runs; each live
+GitHub MCP Server v2.0.3 at the exact qualified upstream commit, the package-owned governed MCP build, seven visible toolsets, and the exact 42-tool App-native catalog. Static agent configuration remains deliberately unadmitted between runs; each live
 run must verify the exact catalog after its repository-scoped installation token is bound.
 
 ## Fixed visible toolsets
@@ -101,7 +100,7 @@ solvable by rewriting the experiment's own tests or workflow logic.
 Toolset names alone are not sufficient provenance because the server can add or remove tools within a
 toolset over time. Execution/package provenance records at least:
 
-- pinned GitHub MCP image tag and image digest;
+- governed GitHub MCP image tag, upstream v2.0.3 full commit, and ACMM governor revision;
 - configured toolsets;
 - configured excluded tools;
 - discovered individual tool names;

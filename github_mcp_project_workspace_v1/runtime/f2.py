@@ -187,7 +187,11 @@ class github_f2_a_materializer:
                 f"({attempt}/{len(delays) - 1})",
             )
             if delay:
-                time.sleep(delay)
+                self._client.wait_for_poll(
+                    max(2.0, float(delay)),
+                    "issue.list",
+                    "pull_request.list",
+                )
             latest = self._discover_once(identity)
             if latest["complete"]:
                 return latest
@@ -216,20 +220,21 @@ class github_f2_a_materializer:
             self._spec.confirmed_bug_label,
         ):
             _ensure_label(self._client, identity, label)
-        _ensure_file(
-            self._client,
-            identity,
-            self._spec.triage_policy_path,
-            self._spec.triage_policy_content,
-            "F2-A: add repository triage policy",
-        )
-        _ensure_file(
-            self._client,
-            identity,
-            self._spec.csv_test_path,
-            self._spec.csv_test_content,
-            "F2-A: add CSV regression examples",
-        )
+        with self._client.git_publish_batch(owner, repo):
+            _ensure_file(
+                self._client,
+                identity,
+                self._spec.triage_policy_path,
+                self._spec.triage_policy_content,
+                "F2-A: add repository triage policy",
+            )
+            _ensure_file(
+                self._client,
+                identity,
+                self._spec.csv_test_path,
+                self._spec.csv_test_content,
+                "F2-A: add CSV regression examples",
+            )
 
         _emit(report, 4, total, "creating the established canonical regression issue")
         canonical = self._client.create_issue(
@@ -455,7 +460,11 @@ class github_f2_b_materializer:
                 f"({attempt}/{len(delays) - 1})",
             )
             if delay:
-                time.sleep(delay)
+                self._client.wait_for_poll(
+                    max(2.0, float(delay)),
+                    "issue.list",
+                    "pull_request.list",
+                )
             latest = self._discover_once(identity)
             if latest["complete"]:
                 return latest

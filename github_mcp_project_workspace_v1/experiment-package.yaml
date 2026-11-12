@@ -86,7 +86,17 @@ integrations:
         - update_pull_request_branch
       expected_catalog_sha256: 0b6d56cef0521915db11229a7d6a3e180bdfded83a5956d81347b5e11a547e33
       local_service:
-        image: ghcr.io/github/github-mcp-server:v2.0.3
-        expected_repo_digest: ghcr.io/github/github-mcp-server@sha256:250bc6ce70788207608ef74cef4397230ff2e8481218da74d6093e4bd9101132
+        image: acmm/github-mcp-server:v2.0.3-acmm-governed-v1
         container_name: acmm-github-mcp-exp2
         host_port: 8083
+        build_context: integration/github_mcp/payloads/governed-mcp
+        build_dockerfile: integration/github_mcp/payloads/governed-mcp/Dockerfile
+        upstream_repository: https://github.com/github/github-mcp-server.git
+        upstream_version: v2.0.3
+        upstream_commit: b98d115bbb080e9555466a96656ec4df605aea21
+        governor_version: v1
+        request_interval: 500ms
+        mutation_interval: 2s
+        retry_after_grace: 3s
+        primary_reset_grace: 3s
+        secondary_backoff: 60s,120s,240s,480s,960s

@@ -136,6 +136,9 @@ class github_workspace_disposable_lifecycle:
         self._sleep = sleep
 
     def session_initialize(self, context: runtime_session_context) -> github_disposable_session:
+        set_progress = getattr(self._controller, "set_progress_reporter", None)
+        if callable(set_progress):
+            set_progress(context.progress)
         api_usage_start = self._api_usage_snapshot()
         controller_login = _login(self._controller.current_user(), "controller")
 
@@ -458,11 +461,17 @@ class github_workspace_disposable_lifecycle:
                             "repository_id": repository_id,
                             "repository_full_name": full_name,
                             "ledger_path": str(session_handle.ledger.path),
+                            "revoke_installation_token": self._app_client.revoke,
                         },
                     ),
                 ),
             )
-        except Exception as exc:
+        except (Exception, KeyboardInterrupt) as exc:
+            # A first Ctrl+C is a graceful stop request at the Campaign layer.
+            # Clean any repository/token state created during preparation, then
+            # re-raise KeyboardInterrupt so Core records an interrupted execution
+            # rather than converting the stop into a harness error. A second
+            # Ctrl+C during cleanup still escapes immediately.
             cleanup_errors: list[str] = []
             if issued_token is not None:
                 try:
@@ -500,6 +509,8 @@ class github_workspace_disposable_lifecycle:
             )
             if cleanup_errors:
                 detail += "; admission cleanup warnings: " + "; ".join(cleanup_errors)
+            if isinstance(exc, KeyboardInterrupt):
+                raise
             raise github_controller_error(detail) from exc
 
     def run_observe(
@@ -615,6 +626,9 @@ class github_workspace_disposable_lifecycle:
         if not isinstance(session_handle, github_disposable_session):
             raise TypeError("Disposable GitHub session handle is invalid.")
         usage_path, usage = self._write_api_usage_artifact(session_handle)
+        set_progress = getattr(self._controller, "set_progress_reporter", None)
+        if callable(set_progress):
+            set_progress(None)
         return {
             "completed": outcome.completed,
             "interrupted": outcome.interrupted,
@@ -1031,15 +1045,16 @@ class github_workspace_disposable_lifecycle:
         identity: github_repository_identity,
         files: tuple[github_fixture_base_file, ...],
     ) -> None:
-        for index, item in enumerate(files):
-            self._controller.create_or_update_file(
-                identity.owner,
-                identity.name,
-                item.path,
-                message=f"ACMM: initialize disposable fixture base ({item.path})",
-                content=item.content,
-                branch=(None if index == 0 else self._expected_default_branch),
-            )
+        with self._controller.git_publish_batch(identity.owner, identity.name):
+            for index, item in enumerate(files):
+                self._controller.create_or_update_file(
+                    identity.owner,
+                    identity.name,
+                    item.path,
+                    message=f"ACMM: initialize disposable fixture base ({item.path})",
+                    content=item.content,
+                    branch=(None if index == 0 else self._expected_default_branch),
+                )
         for item in files:
             actual = self._controller.read_text_file(
                 identity.owner,
@@ -1058,7 +1073,7 @@ class github_workspace_disposable_lifecycle:
             if controller_value is None:
                 return
             if attempt < 5:
-                self._sleep(0.5)
+                self._controller.wait_for_poll(2.0, "repository.read")
         raise github_controller_error(
             f"Deleted disposable repository {owner}/{name} remains visible after "
             "bounded verification."

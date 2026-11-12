@@ -189,7 +189,11 @@ class github_f1_a_materializer:
                 ),
             )
             if delay > 0:
-                time.sleep(delay)
+                self._client.wait_for_poll(
+                    max(2.0, float(delay)),
+                    "issue.list",
+                    "pull_request.list",
+                )
             latest = self._discover_once(identity)
             if latest["complete"]:
                 return latest

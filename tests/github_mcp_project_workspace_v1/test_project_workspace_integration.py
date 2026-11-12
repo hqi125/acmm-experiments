@@ -54,10 +54,14 @@ CONTROLLER_TOKEN = "controller-secret-value"
 EXPECTED_CATALOG_SHA256 = (
     "0b6d56cef0521915db11229a7d6a3e180bdfded83a5956d81347b5e11a547e33"
 )
-EXPECTED_REPO_DIGEST = (
-    "ghcr.io/github/github-mcp-server@sha256:"
-    "250bc6ce70788207608ef74cef4397230ff2e8481218da74d6093e4bd9101132"
-)
+EXPECTED_GOVERNED_IMAGE = "acmm/github-mcp-server:v2.0.3-acmm-governed-v1"
+EXPECTED_UPSTREAM_COMMIT = "b98d115bbb080e9555466a96656ec4df605aea21"
+EXPECTED_GOVERNOR_VERSION = "v1"
+EXPECTED_IMAGE_LABELS = {
+    "io.acmm.github-mcp.upstream-version": "v2.0.3",
+    "io.acmm.github-mcp.upstream-commit": EXPECTED_UPSTREAM_COMMIT,
+    "io.acmm.github-mcp.governor-version": EXPECTED_GOVERNOR_VERSION,
+}
 EXPECTED_TOOLSETS = (
     "repos",
     "issues",
@@ -133,7 +137,6 @@ def _install_copy(tmp_path: Path):
     )
     controller_path = source / "assets" / "controller.json"
     controller = json.loads(controller_path.read_text(encoding="utf-8"))
-    controller["api_policy"]["mutation_interval_seconds"] = 0.0
     controller["api_policy"]["content_requests_per_minute"] = 10000
     controller["api_policy"]["content_requests_per_hour"] = 10000
     controller_path.write_text(
@@ -141,6 +144,31 @@ def _install_copy(tmp_path: Path):
         encoding="utf-8",
     )
     return install_experiment_package(source, tmp_path / "runtime-root")
+
+
+def _load_runtime_for_test(package):
+    loaded = load_staged_experiment_runtime(package)
+    diagnostic = loaded.runtime.diagnostics.get("github_fixture_controller")
+    if diagnostic is None:
+        return loaded
+    controller = diagnostic._client
+    current = [1000.0]
+
+    def now() -> float:
+        return current[0]
+
+    def sleep(seconds: float) -> None:
+        current[0] += max(0.0, float(seconds))
+
+    governor = getattr(controller, "_governor", None)
+    if governor is not None:
+        governor._clock = now
+        governor._sleep = sleep
+    git_plane = getattr(controller, "_git_content_plane", None)
+    if git_plane is not None:
+        git_plane._monotonic = now
+        git_plane._sleep = sleep
+    return loaded
 
 
 def _write_secret(path: Path, value: str) -> Path:
@@ -217,7 +245,13 @@ def test_package_declares_frozen_scientific_shape(tmp_path: Path) -> None:
     assert tuple(integration.configuration["excluded_tools"]) == EXPECTED_EXCLUSIONS
     assert tuple(integration.configuration["expected_tools"]) == EXPECTED_TOOLS
     assert integration.configuration["expected_catalog_sha256"] == EXPECTED_CATALOG_SHA256
-    assert integration.configuration["local_service"]["expected_repo_digest"] == EXPECTED_REPO_DIGEST
+    service = integration.configuration["local_service"]
+    assert service["image"] == EXPECTED_GOVERNED_IMAGE
+    assert service["upstream_version"] == "v2.0.3"
+    assert service["upstream_commit"] == EXPECTED_UPSTREAM_COMMIT
+    assert service["governor_version"] == EXPECTED_GOVERNOR_VERSION
+    assert service["request_interval"] == "500ms"
+    assert service["mutation_interval"] == "2s"
 
 
 def test_package_secret_validation_requires_both_scopes(
@@ -310,7 +344,7 @@ def test_local_resource_uses_toolsets_and_exclusions_not_tool_allowlist(
     resource = loaded[0].integration.shared_resource
     assert resource is not None
     runner = _fake_resource_runner()
-    runner.repo_digest = EXPECTED_REPO_DIGEST
+    runner.image_labels = dict(EXPECTED_IMAGE_LABELS)
     resource._runner = runner
     component = package.integrations[0]
     context = shared_integration_context(
@@ -331,12 +365,17 @@ def test_local_resource_uses_toolsets_and_exclusions_not_tool_allowlist(
     assert "ACMM_GITHUB_MCP_EXCLUDE_TOOLS=" + ",".join(EXPECTED_EXCLUSIONS) in env
     assert "ACMM_GITHUB_MCP_TOOLS=" not in env
     assert "subject-secret-value" not in env
+    assert "ACMM_GITHUB_MCP_REQUEST_INTERVAL=500ms" in env
+    assert "ACMM_GITHUB_MCP_MUTATION_INTERVAL=2s" in env
+    assert "ACMM_GITHUB_MCP_RETRY_AFTER_GRACE=3s" in env
+    assert "ACMM_GITHUB_MCP_PRIMARY_RESET_GRACE=3s" in env
     assert status["expected_catalog_sha256"] == EXPECTED_CATALOG_SHA256
-    assert status["expected_repo_digest"] == EXPECTED_REPO_DIGEST
+    assert status["image_identity_ok"] is True
+    assert status["image_labels"] == EXPECTED_IMAGE_LABELS
+    assert runner.build_calls == 0
 
 
-
-def test_local_resource_apply_rejects_unqualified_image_digest(
+def test_local_resource_apply_builds_unqualified_governed_image(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -344,7 +383,9 @@ def test_local_resource_apply_rejects_unqualified_image_digest(
     package = _install_copy(tmp_path)
     resource = load_staged_experiment_integrations(package)[0].integration.shared_resource
     assert resource is not None
-    resource._runner = _fake_resource_runner()
+    runner = _fake_resource_runner()
+    runner.image_labels = {"io.acmm.github-mcp.upstream-version": "wrong"}
+    resource._runner = runner
     component = package.integrations[0]
     context = shared_integration_context(
         experiment_id=package.experiment_id,
@@ -358,10 +399,13 @@ def test_local_resource_apply_rejects_unqualified_image_digest(
         secret_ids=(),
     )
 
-    with pytest.raises(ValueError, match="image digest mismatch"):
-        resource.apply(context)
+    status = resource.apply(context)
+    assert runner.build_calls == 1
+    assert status["image_identity_ok"] is True
+    assert runner.image_labels == EXPECTED_IMAGE_LABELS
 
-def test_shared_resource_doctor_enforces_qualified_image_digest(
+
+def test_shared_resource_doctor_enforces_governed_image_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -372,6 +416,7 @@ def test_shared_resource_doctor_enforces_qualified_image_digest(
     runner = _fake_resource_runner()
     runner.container_present = True
     runner.running = True
+    runner.image_labels = {"io.acmm.github-mcp.upstream-version": "wrong"}
     resource._runner = runner
     component = package.integrations[0]
     context = shared_integration_context(
@@ -388,12 +433,33 @@ def test_shared_resource_doctor_enforces_qualified_image_digest(
 
     report = resource.doctor(context)
     assert report.is_ready is False
-    assert next(item for item in report.checks if item.name == "image_digest").ok is False
+    assert next(item for item in report.checks if item.name == "image_identity").ok is False
 
-    runner.repo_digest = EXPECTED_REPO_DIGEST
+    runner.image_labels = dict(EXPECTED_IMAGE_LABELS)
     report = resource.doctor(context)
     assert report.is_ready is True
-    assert next(item for item in report.checks if item.name == "image_digest").ok is True
+    assert next(item for item in report.checks if item.name == "image_identity").ok is True
+
+
+def test_governed_mcp_build_recipe_pins_upstream_and_transport_patch() -> None:
+    dockerfile = (ROOT / "integration/github_mcp/payloads/governed-mcp/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    governor = (ROOT / "integration/github_mcp/payloads/governed-mcp/acmm_governor.go").read_text(
+        encoding="utf-8"
+    )
+    compose = (ROOT / "integration/github_mcp/payloads/compose.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert EXPECTED_UPSTREAM_COMMIT in dockerfile
+    assert "alpine/git:2.49.1@sha256:" in dockerfile
+    assert dockerfile.count("@sha256:") >= 4
+    assert "transport.NewACMMGovernedTransport(http.DefaultTransport)" in dockerfile
+    assert "NewACMMGovernedTransport" in governor
+    assert "acmmDefaultMutationInterval = 2 * time.Second" in governor
+    assert "ACMM_GITHUB_MCP_GOVERNOR_STATE_FILE" in compose
+    assert "ACMM_GITHUB_MCP_UNADMITTED_TOKEN" in compose
+    assert "./mcp-governor-state:/var/lib/acmm-github-mcp" in compose
 
 
 def test_manager_discovery_accepts_exact_agent_zero_catalog(
@@ -456,6 +522,71 @@ def test_agent_zero_runtime_admission_binds_42_tool_token_then_restores_sentinel
     assert server["headers"]["Authorization"] == (
         "Bearer acmm-runtime-admission-required"
     )
+
+
+def test_runtime_admission_unbinds_subject_before_governed_token_revocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    admission = (
+        load_staged_experiment_integrations(package)[0]
+        .integration.subjects["agent-zero"]
+        .admission
+    )
+    assert admission is not None
+    order: list[str] = []
+
+    class manager:
+        def runtime_admit(self, token: str) -> None:
+            assert token == "run-token"
+
+        def runtime_revoke(self, token: str) -> None:
+            assert token == "run-token"
+            order.append("subject_unbound")
+
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                "repositories": [
+                    {
+                        "repository_id": 7,
+                        "subject_bound": False,
+                        "subject_unbound": False,
+                        "token_revoked": False,
+                    }
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def revoke_token(token: str) -> None:
+        assert token == "run-token"
+        order.append("token_revoked")
+
+    handle = admission.admit(
+        None,
+        manager(),
+        {
+            "access_token": "run-token",
+            "repository_id": 7,
+            "repository_full_name": "octo/demo",
+            "ledger_path": str(ledger),
+            "revoke_installation_token": revoke_token,
+        },
+    )
+    result = admission.revoke(None, manager(), handle)
+
+    assert order == ["subject_unbound", "token_revoked"]
+    assert result["subject_unbound"] is True
+    assert result["token_revoked"] is True
+    row = json.loads(ledger.read_text(encoding="utf-8"))["repositories"][0]
+    assert row["subject_unbound"] is True
+    assert row["token_revoked"] is True
 
 
 def test_agent_zero_runtime_admission_waits_for_async_catalog_refresh(
@@ -524,7 +655,8 @@ class _fake_resource_runner:
         self.image_present = True
         self.container_present = False
         self.running = False
-        self.repo_digest = "ghcr.io/github/github-mcp-server@sha256:wrong"
+        self.image_labels = {"io.acmm.github-mcp.upstream-version": "wrong"}
+        self.build_calls = 0
 
     def run(self, args, **kwargs):
         del kwargs
@@ -535,7 +667,9 @@ class _fake_resource_runner:
             return _fake_command_result(
                 stdout=(
                     ("true" if self.running else "false")
-                    + "\tghcr.io/github/github-mcp-server:v2.0.3\n"
+                    + "\t"
+                    + EXPECTED_GOVERNED_IMAGE
+                    + "\n"
                 )
             )
         if call[:3] == ("docker", "container", "inspect"):
@@ -544,8 +678,13 @@ class _fake_resource_runner:
             if not self.image_present:
                 return _fake_command_result(returncode=1, stderr="missing")
             if "--format" in call:
-                return _fake_command_result(stdout=json.dumps([self.repo_digest]) + "\n")
+                return _fake_command_result(stdout=json.dumps(self.image_labels) + "\n")
             return _fake_command_result(stdout="{}")
+        if call[:2] == ("docker", "build"):
+            self.build_calls += 1
+            self.image_present = True
+            self.image_labels = dict(EXPECTED_IMAGE_LABELS)
+            return _fake_command_result(stdout="built")
         if call[:2] == ("docker", "compose"):
             return _fake_command_result()
         if call[:2] == ("docker", "--version"):
@@ -636,7 +775,7 @@ def test_runtime_declares_controller_diagnostic_and_all_frozen_fixture_ids(
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
 
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
 
     assert loaded.runtime.lifecycle is not None
     assert set(loaded.runtime.diagnostics) == {"github_fixture_controller"}
@@ -680,14 +819,15 @@ def test_api_status_apparatus_action_is_read_only_and_reports_governor_state(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
 
     result = loaded.runtime.apparatus_actions["api_status"].run()
 
     assert result.changed is False
     assert "GitHub API governor state" in result.detail
+    assert "primary=unobserved" in result.detail
     assert result.observations["schema_version"] == "0.1"
-    assert result.observations["policy"]["mutation_interval_seconds"] == 0.0
+    assert result.observations["policy"]["mutation_interval_seconds"] == 2.0
     assert result.observations["provider_window"]["content_requests_last_hour"] == 0
 
 
@@ -697,7 +837,7 @@ def test_controller_diagnostic_checks_repository_identity_and_read_surfaces(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     diagnostic._client._transport = _fake_controller_transport()
     diagnostic._client._mutation_interval_seconds = 0.0
@@ -732,7 +872,7 @@ def test_controller_diagnostic_rejects_same_named_repository_with_wrong_identity
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     diagnostic._client._transport = _fake_controller_transport(
         repository_id=999999,
@@ -757,7 +897,7 @@ def test_controller_diagnostic_reports_empty_repository_as_initialization_blocke
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     diagnostic._client._transport = _empty_repository_transport()
     diagnostic._client._mutation_interval_seconds = 0.0
@@ -788,7 +928,7 @@ def test_controller_client_mutation_primitives_are_namespaced_and_explicit(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     recorder = _fake_controller_transport()
     diagnostic._client._transport = recorder
@@ -862,7 +1002,7 @@ def test_urllib_transport_retries_only_tls_handshake_timeouts(
 
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     controller_module = sys.modules[type(diagnostic._client).__module__]
 
@@ -940,7 +1080,7 @@ def test_github_controller_job_logs_follow_documented_redirect_without_forwardin
 
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     controller_module = sys.modules[type(diagnostic._client).__module__]
 
@@ -974,7 +1114,7 @@ def test_github_controller_job_logs_use_nonredirecting_api_transport_by_default(
 
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     controller_module = sys.modules[type(diagnostic._client).__module__]
 
@@ -1012,7 +1152,7 @@ def test_github_controller_repository_archive_follows_redirect_without_forwardin
 
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     controller_module = sys.modules[type(diagnostic._client).__module__]
 
@@ -1044,7 +1184,7 @@ def test_github_controller_paces_mutative_requests(
 
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     controller_module = sys.modules[type(diagnostic._client).__module__]
 
@@ -1085,7 +1225,7 @@ def test_github_controller_retries_explicit_secondary_rate_limit(
 
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     controller_module = sys.modules[type(diagnostic._client).__module__]
 
@@ -1137,7 +1277,7 @@ def test_github_controller_does_not_retry_non_rate_limit_403(
 
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     controller_module = sys.modules[type(diagnostic._client).__module__]
 
@@ -1199,13 +1339,11 @@ def test_github_controller_merge_waits_for_mergeability_and_retries_transient_40
 
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     transport = transient_transport()
-    sleeps = []
     diagnostic._client._transport = transport
     diagnostic._client._mutation_interval_seconds = 0.0
-    diagnostic._client._sleep = sleeps.append
     client = diagnostic._client
     merged = client.merge_pull_request(
         "fixture-owner",
@@ -1218,7 +1356,62 @@ def test_github_controller_merge_waits_for_mergeability_and_retries_transient_40
     assert transport.pull_reads == 4
     assert transport.merge_calls == 2
     assert all(item["sha"] == "head789" for item in transport.merge_payloads)
-    assert sleeps == [0.01, 0.01, 0.01]
+    usage = diagnostic._client._governor.usage_snapshot()
+    assert usage["metrics"]["poll_wait_seconds"] == 6.0
+
+
+def test_github_controller_merge_rechecks_transient_false_mergeability(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class transient_false_transport:
+        def __init__(self) -> None:
+            self.pull_reads = 0
+            self.merge_calls = 0
+
+        def __call__(self, method, url, headers, payload):
+            from urllib.parse import urlparse
+
+            del headers, payload
+            path = urlparse(url).path
+            if method == "GET" and path.endswith("/pulls/7"):
+                self.pull_reads += 1
+                mergeable = self.pull_reads >= 2
+                return 200, {}, json.dumps({
+                    "number": 7,
+                    "mergeable": mergeable,
+                    "head": {"sha": "head789"},
+                    "base": {"sha": "base456"},
+                }).encode("utf-8")
+            if method == "PUT" and path.endswith("/pulls/7/merge"):
+                self.merge_calls += 1
+                return 200, {}, json.dumps({
+                    "sha": "merge999",
+                    "merged": True,
+                    "message": "merged",
+                }).encode("utf-8")
+            raise AssertionError(f"unexpected request: {method} {url}")
+
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
+    transport = transient_false_transport()
+    diagnostic._client._transport = transport
+    diagnostic._client._mutation_interval_seconds = 0.0
+
+    merged = diagnostic._client.merge_pull_request(
+        "fixture-owner",
+        "fixture-repo",
+        7,
+        mergeability_delays=(0.01,),
+    )
+
+    assert merged["merged"] is True
+    assert transport.pull_reads == 2
+    assert transport.merge_calls == 1
+    usage = diagnostic._client._governor.usage_snapshot()
+    assert usage["metrics"]["poll_wait_seconds"] == 2.0
 
 
 class _empty_repository_transport:
@@ -1598,7 +1791,12 @@ class _fake_disposable_repository_transport:
         if method == "POST" and path == "/app/installations/180917216/access_tokens":
             request = json.loads(payload.decode("utf-8"))
             assert request["repository_ids"] == [self.repository_id]
-            return 201, {}, json.dumps(
+            return 201, {
+                "X-RateLimit-Limit": "5000",
+                "X-RateLimit-Remaining": "4990",
+                "X-RateLimit-Reset": "2000000000",
+                "X-RateLimit-Resource": "integration_manifest",
+            }, json.dumps(
                 {
                     "token": "qualification-app-token",
                     "expires_at": "2026-11-11T19:00:00Z",
@@ -1677,7 +1875,7 @@ def test_disposable_repository_lifecycle_probe_qualifies_app_token_and_deletes(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     action = loaded.runtime.apparatus_actions["qualify_disposable_repositories"]
     transport = _fake_disposable_repository_transport()
     action._client._transport = transport
@@ -1724,7 +1922,7 @@ def test_disposable_repository_lifecycle_probe_refuses_delete_after_identity_cha
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     action = loaded.runtime.apparatus_actions["qualify_disposable_repositories"]
     transport = _fake_disposable_repository_transport()
     action._client._transport = transport
@@ -1752,7 +1950,7 @@ def test_fixture_base_initializer_materializes_empty_repository_and_is_idempoten
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     action = loaded.runtime.apparatus_actions["initialize"]
     transport = _initializable_empty_repository_transport()
@@ -1787,7 +1985,7 @@ def test_fixture_base_initializer_refuses_untrusted_nonempty_repository(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     action = loaded.runtime.apparatus_actions["initialize"]
     transport = _fake_controller_transport(fixture_base_valid=False)
@@ -1807,7 +2005,7 @@ def test_fixture_namespace_is_execution_scoped_and_stable(
 
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     controller_module = sys.modules[type(diagnostic._client).__module__]
 
@@ -1932,6 +2130,15 @@ class _fake_f1_a_client:
                 "state": "open",
             }
             self.next_issue = 2
+
+    def git_publish_batch(self, owner: str, name: str):
+        from contextlib import nullcontext
+
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        return nullcontext()
+
+    def wait_for_poll(self, minimum_seconds: float, *routes: str) -> None:
+        del minimum_seconds, routes
 
     def current_user(self):
         return {"login": self._identity.owner}
@@ -2643,7 +2850,7 @@ def test_f1_a_apparatus_materializes_world_once_and_reverifies(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     action = loaded.runtime.apparatus_actions["prepare_f1_a"]
     client = _fake_f1_a_client()
     action._client = client
@@ -2676,7 +2883,7 @@ def test_f1_a_apparatus_retries_eventually_consistent_marker_discovery(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     action = loaded.runtime.apparatus_actions["prepare_f1_a"]
     client = _fake_f1_a_client()
     action._client = client
@@ -2703,7 +2910,7 @@ def test_f1_a_apparatus_refuses_persistent_partial_existing_world(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     action = loaded.runtime.apparatus_actions["prepare_f1_a"]
     action._client = _fake_f1_a_client(partial=True)
     action._discovery_retry_delays = (0.0,)
@@ -2715,7 +2922,7 @@ def test_f1_a_apparatus_refuses_persistent_partial_existing_world(
 def _prepare_fake_f1_a_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     action = loaded.runtime.apparatus_actions["prepare_f1_a"]
     fixture = loaded.runtime.fixtures["github_workspace_f1_a"]
     client = _fake_f1_a_client()
@@ -3224,7 +3431,7 @@ def test_f1_b_apparatus_materializes_release_candidate_once_and_reverifies(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     action = loaded.runtime.apparatus_actions["prepare_f1_b"]
     client = _fake_f1_a_client()
     action._client = client
@@ -3283,13 +3490,73 @@ def test_f1_b_apparatus_materializes_release_candidate_once_and_reverifies(
     assert inspected == first.observations
 
 
+def test_f1_b_materializer_uses_merge_sha_when_default_branch_ref_lags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    action = loaded.runtime.apparatus_actions["prepare_f1_b"]
+    client = _fake_f1_a_client()
+    action._client = client
+    action._discovery_retry_delays = (0.0,)
+    action._workflow_retry_delays = (0.0, 0.0)
+
+    original_ref = client.ref
+    original_merge = client.merge_pull_request
+    stale_main_sha: str | None = None
+    included_merge_done = False
+
+    def merge_with_stale_window(owner, name, number, **kwargs):
+        nonlocal stale_main_sha, included_merge_done
+        before = client.branches["main"]
+        result = original_merge(owner, name, number, **kwargs)
+        if not included_merge_done:
+            stale_main_sha = before
+            included_merge_done = True
+        return result
+
+    def ref_with_lag(owner, name, ref):
+        merged_count = sum(1 for pull in client.pulls.values() if pull.get("merged") is True)
+        if (
+            included_merge_done
+            and merged_count == 1
+            and ref == "heads/main"
+            and stale_main_sha is not None
+        ):
+            return {"ref": "refs/heads/main", "object": {"sha": stale_main_sha}}
+        return original_ref(owner, name, ref)
+
+    client.merge_pull_request = merge_with_stale_window
+    client.ref = ref_with_lag
+
+    result = action.run()
+
+    release_branch = result.observations["release_branch"]
+    assert client.read_text_file(
+        client._identity.owner,
+        client._identity.name,
+        "scenarios/f1_b/blockers/compatibility-manifest.txt",
+        ref=release_branch,
+    ) == action._spec.included.fix_content
+    assert result.observations["included_fix_commit"] in {
+        item["sha"]
+        for item in client.list_commits(
+            client._identity.owner,
+            client._identity.name,
+            sha=release_branch,
+        )
+    }
+
+
 def test_f1_b_apparatus_refuses_persistent_partial_existing_world(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     action = loaded.runtime.apparatus_actions["prepare_f1_b"]
     client = _fake_f1_a_client()
     client.issues[1] = {
@@ -3311,7 +3578,7 @@ def test_f1_b_apparatus_refuses_persistent_partial_existing_world(
 def _prepare_fake_f1_b_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     action = loaded.runtime.apparatus_actions["prepare_f1_b"]
     fixture = loaded.runtime.fixtures["github_workspace_f1_b"]
     client = _fake_f1_a_client()
@@ -3593,7 +3860,7 @@ def test_controller_client_f1_b_readiness_primitives_use_explicit_rest_endpoints
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     recorder = _fake_controller_transport()
     diagnostic._client._transport = recorder
@@ -3670,7 +3937,7 @@ def test_f1_a_remains_qualified_after_real_f1_b_materializer_coexists(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     f1_a_action = loaded.runtime.apparatus_actions["prepare_f1_a"]
     f1_b_action = loaded.runtime.apparatus_actions["prepare_f1_b"]
     f1_a_fixture = loaded.runtime.fixtures["github_workspace_f1_a"]
@@ -3711,7 +3978,7 @@ def test_f1_a_disposable_runtime_creates_private_repo_and_deletes_after_persiste
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     lifecycle = loaded.runtime.lifecycle
     assert lifecycle is not None
 
@@ -3792,7 +4059,7 @@ def test_f1_b_disposable_runtime_materializes_actions_state_and_deletes(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     lifecycle = loaded.runtime.lifecycle
     assert lifecycle is not None
 
@@ -3871,7 +4138,7 @@ def test_f1_a_disposable_runtime_archives_then_deletes_unpersisted_run(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     lifecycle = loaded.runtime.lifecycle
     assert lifecycle is not None
     client = _fake_f1_a_client(empty=True)
@@ -3941,7 +4208,7 @@ def test_disposable_session_refuses_stale_run_repository_visibility(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     lifecycle = loaded.runtime.lifecycle
     assert lifecycle is not None
 
@@ -3970,7 +4237,7 @@ def test_preparation_failure_archives_deletes_and_does_not_block_later_run(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     lifecycle = loaded.runtime.lifecycle
     assert lifecycle is not None
     client = _fake_f1_a_client(empty=True)
@@ -4041,13 +4308,73 @@ def test_preparation_failure_archives_deletes_and_does_not_block_later_run(
     assert client.exists is True
 
 
+def test_keyboard_interrupt_during_preparation_cleans_repository_and_reraises(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+    client = _fake_f1_a_client(empty=True)
+    lifecycle._controller = client
+    lifecycle._app_client = _fake_app_client()
+    lifecycle._sleep = lambda _seconds: None
+
+    session_dir = tmp_path / "execution-keyboard-interrupt"
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="execution-keyboard-interrupt",
+            selected_run_indices=(0,),
+            session_dir=str(session_dir),
+        )
+    )
+    scenario = next(
+        item
+        for item in package.contract["scenarios"]
+        if item["id"] == "f1_a_regression_disposition"
+    )
+    context = runtime_run_context(
+        execution_id="execution-keyboard-interrupt",
+        run_index=0,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f1_a_regression_disposition",
+        repetition=1,
+        attempt=1,
+    )
+
+    def interrupt_after_repository_creation(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    client.create_issue = interrupt_after_repository_creation
+
+    with pytest.raises(KeyboardInterrupt):
+        lifecycle.run_prepare(
+            session,
+            context,
+            scenario,
+            package.contract["run_protocol"]["reset"],
+        )
+
+    assert client.exists is False
+    assert session.active_repositories == {}
+    assert len(session.forensic_archives) == 1
+    archive_path = Path(session.forensic_archives[0])
+    with zipfile.ZipFile(archive_path) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+        assert manifest["failure_phase"] == "preparation"
+        assert manifest["failure_reason"] == "KeyboardInterrupt"
+
+
 def test_controller_repository_creation_is_private_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     action = loaded.runtime.apparatus_actions["qualify_disposable_repositories"]
 
     with pytest.raises(ValueError, match="private-only"):
@@ -4064,7 +4391,7 @@ def test_quarantine_cleanup_uses_execution_identity_and_controller(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     cleanup = loaded.runtime.apparatus_cleanup
     assert cleanup is not None
 
@@ -4120,7 +4447,7 @@ def test_cleanup_recognizes_archive_delete_remote_cleanup_failure(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     cleanup = loaded.runtime.apparatus_cleanup
     assert cleanup is not None
 
@@ -4171,7 +4498,7 @@ def test_quarantine_cleanup_refuses_repository_id_drift(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     cleanup = loaded.runtime.apparatus_cleanup
     assert cleanup is not None
 
@@ -4220,7 +4547,7 @@ def _prepare_fake_f2_runtime(
 ):
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     if variant == "a":
         action_name = "prepare_f2_a"
         fixture_id = "github_workspace_f2_a"
@@ -4693,7 +5020,7 @@ def test_f2_disposable_runtime_materializes_observes_and_deletes_exact_run_repos
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     lifecycle = loaded.runtime.lifecycle
     assert lifecycle is not None
 
@@ -4765,7 +5092,7 @@ def _prepare_fake_f3_runtime(
 ):
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     if variant == "a":
         action_name = "prepare_f3_a"
         fixture_id = "github_workspace_f3_a"
@@ -5055,7 +5382,7 @@ def test_f3_b_verifies_default_branch_content_by_immutable_head_sha(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     action = loaded.runtime.apparatus_actions["prepare_f3_b"]
     client = _fake_f1_a_client()
     action._client = client
@@ -5299,7 +5626,7 @@ def test_f3_disposable_runtime_materializes_and_deletes_exact_run_repository(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     lifecycle = loaded.runtime.lifecycle
     assert lifecycle is not None
 
@@ -5368,7 +5695,7 @@ def _prepare_fake_f4_runtime(
 ):
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     if variant == "a":
         action_name = "prepare_f4_a"
         fixture_id = "github_workspace_f4_a"
@@ -5418,6 +5745,59 @@ def test_f4_prompts_use_disposable_runtime_and_explicit_procedure_opportunities(
     ]
     assert "{{ci_status_policy_path}}" in f4_b["task"]["prompt"]
     assert "do not trigger or rerun workflows" in f4_b["task"]["prompt"].casefold()
+
+
+def test_f4_b_materializer_retries_transient_workflow_dispatch_propagation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    action = loaded.runtime.apparatus_actions["prepare_f4_b"]
+    client = _fake_f1_a_client()
+    action._client = client
+    action._discovery_retry_delays = (0.0, 0.0)
+    action._workflow_retry_delays = (0.0, 0.0)
+
+    original_dispatch = client.dispatch_workflow
+    advisory_attempts = 0
+    action_module = sys.modules[type(action).__module__]
+
+    def dispatch_with_propagation_delay(
+        owner,
+        name,
+        workflow_id,
+        *,
+        ref,
+        inputs=None,
+    ):
+        nonlocal advisory_attempts
+        if workflow_id == 302:
+            advisory_attempts += 1
+            if advisory_attempts == 1:
+                raise action_module.github_api_error(
+                    method="POST",
+                    path=f"/repos/{owner}/{name}/actions/workflows/{workflow_id}/dispatches",
+                    status=422,
+                    detail="Workflow does not have 'workflow_dispatch' trigger",
+                )
+        return original_dispatch(
+            owner,
+            name,
+            workflow_id,
+            ref=ref,
+            inputs=inputs,
+        )
+
+    monkeypatch.setattr(client, "dispatch_workflow", dispatch_with_propagation_delay)
+
+    result = action.run()
+
+    assert result.changed is True
+    assert advisory_attempts == 2
 
 
 def test_f4_a_fixture_and_evaluator_require_prewrite_ci_and_repository_evidence(
@@ -5683,7 +6063,7 @@ def test_f4_disposable_runtime_materializes_and_deletes_exact_run_repository(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     lifecycle = loaded.runtime.lifecycle
     assert lifecycle is not None
 
@@ -5752,7 +6132,7 @@ def _prepare_fake_f5_runtime(
 ):
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     if variant == "a":
         action_name = "prepare_f5_a"
         fixture_id = "github_workspace_f5_a"
@@ -6003,7 +6383,7 @@ def test_f5_disposable_runtime_materializes_and_deletes_exact_run_repository(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     lifecycle = loaded.runtime.lifecycle
     assert lifecycle is not None
 
@@ -6066,7 +6446,7 @@ def _prepare_fake_f6_runtime(
 ):
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     if variant == "a":
         action_name = "prepare_f6_a"
         fixture_id = "github_workspace_f6_a"
@@ -6491,7 +6871,7 @@ def test_f6_disposable_runtime_materializes_and_deletes_exact_run_repository(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     lifecycle = loaded.runtime.lifecycle
     assert lifecycle is not None
 
@@ -6552,7 +6932,7 @@ def test_github_app_client_mints_one_repository_token_and_revokes(
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     lifecycle = loaded.runtime.lifecycle
     assert lifecycle is not None
     app = lifecycle._app_client
@@ -6576,7 +6956,12 @@ def test_github_app_client_mints_one_repository_token_and_revokes(
                     "pull_requests": "write",
                 },
             }
-            return 201, {}, json.dumps(
+            return 201, {
+                "X-RateLimit-Limit": "5000",
+                "X-RateLimit-Remaining": "4990",
+                "X-RateLimit-Reset": "2000000000",
+                "X-RateLimit-Resource": "integration_manifest",
+            }, json.dumps(
                 {
                     "token": "app-installation-token",
                     "expires_at": "2026-11-11T19:00:00Z",
@@ -6591,7 +6976,12 @@ def test_github_app_client_mints_one_repository_token_and_revokes(
             ).encode("utf-8")
         if method == "DELETE" and path == "/installation/token":
             assert headers["Authorization"] == "Bearer app-installation-token"
-            return 204, {}, b""
+            return 204, {
+                "X-RateLimit-Limit": "5000",
+                "X-RateLimit-Remaining": "4980",
+                "X-RateLimit-Reset": "2000000000",
+                "X-RateLimit-Resource": "core",
+            }, b""
         raise AssertionError((method, path))
 
     app._transport = transport
@@ -6610,6 +7000,17 @@ def test_github_app_client_mints_one_repository_token_and_revokes(
         ("POST", "/app/installations/180917216/access_tokens"),
         ("DELETE", "/installation/token"),
     ]
+    governor_snapshot = app._governor.usage_snapshot()
+    assert governor_snapshot["credential_domains"] == {
+        "app": {"requests": 1, "mutations": 1, "status_201": 1},
+        "installation": {"requests": 1, "mutations": 1, "status_204": 1},
+    }
+    assert governor_snapshot["provider_window"]["primary_rates"]["app"][
+        "remaining"
+    ] == "4990"
+    assert governor_snapshot["provider_window"]["primary_rates"]["installation"][
+        "remaining"
+    ] == "4980"
 
 
 def test_runtime_recovery_detaches_and_retires_interrupted_execution_repository(
@@ -6623,7 +7024,7 @@ def test_runtime_recovery_detaches_and_retires_interrupted_execution_repository(
 
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
-    loaded = load_staged_experiment_runtime(package)
+    loaded = _load_runtime_for_test(package)
     recovery = loaded.runtime.recovery
     assert recovery is not None
 

@@ -25,7 +25,7 @@
     "run_name_prefix": "acmm-e2-run"
   },
   "api_policy": {
-    "mutation_interval_seconds": 1.0,
+    "mutation_interval_seconds": 2.0,
     "content_requests_per_minute": 60,
     "content_requests_per_hour": 360,
     "max_secondary_retries": 5,
@@ -34,14 +34,21 @@
       120.0,
       240.0,
       480.0,
-      600.0
+      960.0
     ],
     "primary_remaining_floor": 1000,
-    "primary_reset_grace_seconds": 2.0
+    "primary_reset_grace_seconds": 3.0,
+    "provider_authoritative_rate_limits": true,
+    "retry_after_grace_seconds": 3.0,
+    "request_interval_seconds": 0.25
   },
   "github_app": {
     "app_id": 5713970,
     "installation_id": 180917216,
     "slug": "acmm-github-app"
+  },
+  "git_policy": {
+    "push_interval_seconds": 12.0,
+    "remote_read_interval_seconds": 0.1
   }
 }

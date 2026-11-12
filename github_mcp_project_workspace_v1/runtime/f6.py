@@ -116,26 +116,33 @@ class github_f6_a_materializer(_github_f4_materializer_base):
                 self._spec.fix_in_review_label,
             ):
                 self._ensure_label(identity, label)
-            for path, content, message in (
-                (self._spec.release_policy_path, self._spec.release_policy_content, "F6-A: add release blocker policy"),
-                (self._spec.required_workflow.path, self._spec.required_workflow.content, "F6-A: add release validation workflow"),
-            ):
-                self._ensure_file(identity, path, content, message)
+            with self._client.git_publish_batch(identity.owner, identity.name):
+                for path, content, message in (
+                    (self._spec.release_policy_path, self._spec.release_policy_content, "F6-A: add release blocker policy"),
+                    (self._spec.required_workflow.path, self._spec.required_workflow.content, "F6-A: add release validation workflow"),
+                ):
+                    self._ensure_file(identity, path, content, message)
             main_sha = _head_sha(self._client, identity, identity.default_branch)
             self._client.create_ref(identity.owner, identity.name, self._spec.release_branch, main_sha)
-            self._update_branch_file(
-                identity,
-                self._spec.protocol_authority_path,
-                branch=self._spec.release_branch,
-                content=self._spec.protocol_authority_content,
-                message="F6-A: establish release-candidate protocol authority",
-            )
-            self._update_branch_file(
-                identity,
-                self._spec.release_manifest_path,
-                branch=self._spec.release_branch,
-                content=self._spec.release_manifest_stale_content,
-                message="F6-A: seed stale release-candidate manifest",
+            with self._client.git_publish_batch(identity.owner, identity.name):
+                self._update_branch_file(
+                    identity,
+                    self._spec.protocol_authority_path,
+                    branch=self._spec.release_branch,
+                    content=self._spec.protocol_authority_content,
+                    message="F6-A: establish release-candidate protocol authority",
+                )
+                manifest_update = self._update_branch_file(
+                    identity,
+                    self._spec.release_manifest_path,
+                    branch=self._spec.release_branch,
+                    content=self._spec.release_manifest_stale_content,
+                    message="F6-A: seed stale release-candidate manifest",
+                )
+            release_sha = _nested_string(
+                manifest_update,
+                "commit",
+                "sha",
             )
             issue = self._client.create_issue(
                 identity.owner,
@@ -154,7 +161,8 @@ class github_f6_a_materializer(_github_f4_materializer_base):
         if labels != {self._spec.release_blocker_label.name, self._spec.needs_investigation_label.name}:
             raise github_controller_error("F6-A blocker issue labels do not match fixture definition.")
 
-        release_sha = _head_sha(self._client, identity, self._spec.release_branch)
+        if not changed:
+            release_sha = _head_sha(self._client, identity, self._spec.release_branch)
         protocol = self._client.read_text_file(
             identity.owner,
             identity.name,
@@ -223,7 +231,10 @@ class github_f6_a_materializer(_github_f4_materializer_base):
         if value is not None or not retry:
             return value
         for delay in self._discovery_retry_delays[1:]:
-            time.sleep(delay)
+            self._client.wait_for_poll(
+                max(2.0, float(delay)),
+                "issue.list",
+            )
             value = self._find_issue_once(identity, marker)
             if value is not None:
                 return value
@@ -290,31 +301,33 @@ class github_f6_b_materializer(_github_f4_materializer_base):
                 raise github_controller_error("F6-B fixture is not fully materialized.")
             for label in (self._spec.implementation_in_progress_label, self._spec.fix_in_review_label):
                 self._ensure_label(identity, label)
-            for path, content, message in (
-                (self._spec.repair_policy_path, self._spec.repair_policy_content, "F6-B: add review handoff policy"),
-                (self._spec.config_source_path, self._spec.config_base_content, "F6-B: seed configuration implementation"),
-                (self._spec.config_docs_path, self._spec.config_docs_base_content, "F6-B: seed configuration documentation"),
-                (self._spec.compat_tests_path, self._spec.compat_tests_content, "F6-B: seed compatibility acceptance specification"),
-                (self._spec.required_workflow.path, self._spec.required_workflow.content, "F6-B: add compatibility validation workflow"),
-                ("docs/unrelated-note.md", "# Unrelated note\n\nBaseline text.\n", "F6-B: seed unrelated note"),
-            ):
-                self._ensure_file(identity, path, content, message)
+            with self._client.git_publish_batch(identity.owner, identity.name):
+                for path, content, message in (
+                    (self._spec.repair_policy_path, self._spec.repair_policy_content, "F6-B: add review handoff policy"),
+                    (self._spec.config_source_path, self._spec.config_base_content, "F6-B: seed configuration implementation"),
+                    (self._spec.config_docs_path, self._spec.config_docs_base_content, "F6-B: seed configuration documentation"),
+                    (self._spec.compat_tests_path, self._spec.compat_tests_content, "F6-B: seed compatibility acceptance specification"),
+                    (self._spec.required_workflow.path, self._spec.required_workflow.content, "F6-B: add compatibility validation workflow"),
+                    ("docs/unrelated-note.md", "# Unrelated note\n\nBaseline text.\n", "F6-B: seed unrelated note"),
+                ):
+                    self._ensure_file(identity, path, content, message)
             base_sha = _head_sha(self._client, identity, identity.default_branch)
             self._client.create_ref(identity.owner, identity.name, self._spec.repair_branch, base_sha)
-            self._update_branch_file(
-                identity,
-                self._spec.config_source_path,
-                branch=self._spec.repair_branch,
-                content=self._spec.config_broken_content,
-                message="F6-B: add incomplete timeout_ms implementation",
-            )
-            broken_update = self._update_branch_file(
-                identity,
-                self._spec.config_docs_path,
-                branch=self._spec.repair_branch,
-                content=self._spec.config_docs_broken_content,
-                message="F6-B: document incomplete timeout_ms migration",
-            )
+            with self._client.git_publish_batch(identity.owner, identity.name):
+                self._update_branch_file(
+                    identity,
+                    self._spec.config_source_path,
+                    branch=self._spec.repair_branch,
+                    content=self._spec.config_broken_content,
+                    message="F6-B: add incomplete timeout_ms implementation",
+                )
+                broken_update = self._update_branch_file(
+                    identity,
+                    self._spec.config_docs_path,
+                    branch=self._spec.repair_branch,
+                    content=self._spec.config_docs_broken_content,
+                    message="F6-B: document incomplete timeout_ms migration",
+                )
             broken_head = _nested_string(broken_update, "commit", "sha")
             issue = self._client.create_issue(
                 identity.owner,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 import base64
 import json
@@ -96,11 +97,13 @@ class github_controller_client:
         mutation_interval_seconds: float | None = None,
         governor: github_api_governor | None = None,
         git_content_plane: github_git_content_plane | None = None,
+        primary_domain: str = "controller",
     ) -> None:
         if not token.strip():
             raise ValueError("GitHub controller token must not be empty.")
         self._token = token.strip()
         self._api_base = api_base.rstrip("/")
+        self._primary_domain = primary_domain.strip() or "controller"
         self._transport = transport or _urllib_transport
         self._redirect_transport = (
             redirect_transport
@@ -108,17 +111,49 @@ class github_controller_client:
         )
         self._sleep = sleep or time.sleep
         if mutation_interval_seconds is None:
-            mutation_interval_seconds = 1.0 if transport is None else 0.0
+            mutation_interval_seconds = 2.0 if transport is None else 0.0
         if mutation_interval_seconds < 0:
             raise ValueError("GitHub mutation interval must not be negative.")
         self._mutation_interval_seconds = float(mutation_interval_seconds)
         self._last_mutation_monotonic: float | None = None
+        self._conditional_get_cache: dict[str, tuple[str | None, str | None, bytes]] = {}
         self._governor = governor
         self._git_content_plane = (
             git_content_plane
             if git_content_plane is not None
             else (github_git_content_plane(self._token) if transport is None else None)
         )
+
+    def set_progress_reporter(
+        self,
+        progress: Callable[[str], None] | None,
+    ) -> None:
+        if self._governor is not None:
+            self._governor.set_progress_reporter(progress)
+        if self._git_content_plane is not None:
+            self._git_content_plane.set_progress_reporter(progress)
+
+    def git_publish_batch(self, owner: str, name: str):
+        """Batch local Git commits and publish dirty branches once on exit."""
+        if self._git_content_plane is None or self._transport is not _urllib_transport:
+            return nullcontext()
+        return self._git_content_plane.publish_batch(owner, name)
+
+    def wait_for_poll(
+        self,
+        minimum_seconds: float,
+        *routes: str,
+    ) -> None:
+        """Wait before repeated GitHub reads, honoring X-Poll-Interval."""
+        delay = max(0.0, float(minimum_seconds))
+        if self._governor is not None:
+            self._governor.wait_for_poll(
+                routes=tuple(route for route in routes if route),
+                minimum_seconds=delay,
+            )
+            return
+        if delay > 0:
+            self._sleep(delay)
 
     def api_usage_snapshot(self) -> Mapping[str, Any]:
         if self._governor is None:
@@ -974,12 +1009,14 @@ class github_controller_client:
         branch: str,
         sha: str,
     ) -> Mapping[str, Any]:
-        return self._object(
+        value = self._object(
             "POST",
             f"/repos/{quote(owner)}/{quote(name)}/git/refs",
             {"ref": f"refs/heads/{branch}", "sha": sha},
             expected=(201,),
         )
+        self._mark_git_remote_changed(owner, name)
+        return value
 
     def update_ref(
         self,
@@ -991,11 +1028,13 @@ class github_controller_client:
         force: bool = True,
     ) -> Mapping[str, Any]:
         encoded = quote(f"heads/{branch}", safe="/")
-        return self._object(
+        value = self._object(
             "PATCH",
             f"/repos/{quote(owner)}/{quote(name)}/git/refs/{encoded}",
             {"sha": sha, "force": force},
         )
+        self._mark_git_remote_changed(owner, name)
+        return value
 
     def delete_ref(self, owner: str, name: str, branch: str) -> None:
         encoded = quote(f"heads/{branch}", safe="/")
@@ -1004,6 +1043,7 @@ class github_controller_client:
             f"/repos/{quote(owner)}/{quote(name)}/git/refs/{encoded}",
             expected=(204,),
         )
+        self._mark_git_remote_changed(owner, name)
 
     def create_issue(
         self,
@@ -1121,7 +1161,9 @@ class github_controller_client:
                 payload["commit_message"] = commit_message
 
             try:
-                return self._object("PUT", path, payload)
+                value = self._object("PUT", path, payload)
+                self._mark_git_remote_changed(owner, name)
+                return value
             except github_api_error as exc:
                 if exc.status != 405 or attempt + 1 >= transient_merge_attempts:
                     raise
@@ -1130,7 +1172,8 @@ class github_controller_client:
                 # computed against an older base branch. Re-reading the PR
                 # requests a fresh mergeability calculation before retrying.
                 if mergeability_delays:
-                    self._sleep(mergeability_delays[min(attempt, len(mergeability_delays) - 1)])
+                    delay = mergeability_delays[min(attempt, len(mergeability_delays) - 1)]
+                    self.wait_for_poll(max(2.0, delay), "pull_request.read")
 
         assert last_transient is not None
         raise last_transient
@@ -1148,11 +1191,12 @@ class github_controller_client:
             mergeable = pull.get("mergeable")
             if mergeable is True:
                 return pull
-            if mergeable is False:
-                raise github_controller_error(
-                    f"GitHub pull request #{number} is not mergeable."
-                )
-            self._sleep(delay)
+
+            # GitHub can transiently report a newly-created same-repository
+            # pull request as non-mergeable while its comparison/mergeability
+            # state is still converging. Treat both None and False as
+            # provisional until the bounded observation window is exhausted.
+            self.wait_for_poll(max(2.0, delay), "pull_request.read")
             pull = self.pull_request(owner, name, number)
 
         mergeable = pull.get("mergeable")
@@ -1165,6 +1209,10 @@ class github_controller_client:
         raise github_controller_error(
             f"GitHub pull request #{number} mergeability did not settle."
         )
+
+    def _mark_git_remote_changed(self, owner: str, name: str) -> None:
+        if self._git_content_plane is not None:
+            self._git_content_plane.mark_remote_changed(owner, name)
 
     def _object(
         self,
@@ -1208,51 +1256,46 @@ class github_controller_client:
         data = None
         if payload is not None:
             data = json.dumps(dict(payload), separators=(",", ":")).encode("utf-8")
+        method_upper = method.upper()
+        cache_key = path if method_upper == "GET" and payload is None else None
         headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {self._token}",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "acmm-github-fixture-controller",
         }
-        secondary_attempt = 0
-        while True:
-            status, response_headers, body = self._api_request(
-                method,
-                path,
-                headers=headers,
-                payload=data,
+        cached = self._conditional_get_cache.get(cache_key) if cache_key is not None else None
+        if cached is not None:
+            etag, last_modified, _cached_body = cached
+            if etag:
+                headers["If-None-Match"] = etag
+            elif last_modified:
+                headers["If-Modified-Since"] = last_modified
+
+        status, response_headers, body = self._api_request(
+            method,
+            path,
+            headers=headers,
+            payload=data,
+        )
+        if status == 304 and cached is not None:
+            body = cached[2]
+            status = 200
+        elif cache_key is not None and status == 200:
+            self._conditional_get_cache[cache_key] = (
+                _header_value(response_headers, "ETag"),
+                _header_value(response_headers, "Last-Modified"),
+                body,
             )
-            if status in expected:
-                break
-            detail = _safe_error_detail(body)
-            if self._governor is not None:
-                retry_delay = self._governor.secondary_rate_limit_delay(
-                    status=status,
-                    headers=response_headers,
-                    detail=detail,
-                )
-                if (
-                    retry_delay is not None
-                    and secondary_attempt < self._governor.policy.max_secondary_retries
-                ):
-                    secondary_attempt += 1
-                    continue
-            else:
-                retry_delay = _secondary_rate_limit_retry_delay(
-                    status=status,
-                    headers=response_headers,
-                    detail=detail,
-                    attempt=secondary_attempt,
-                )
-                if retry_delay is not None and secondary_attempt < 2:
-                    self._sleep(retry_delay)
-                    secondary_attempt += 1
-                    continue
+        elif cache_key is not None and status == 404:
+            self._conditional_get_cache.pop(cache_key, None)
+
+        if status not in expected:
             raise github_api_error(
                 method=method,
                 path=path,
                 status=status,
-                detail=detail,
+                detail=_safe_error_detail(body),
             )
         if status == 204 or not body:
             return None
@@ -1274,30 +1317,69 @@ class github_controller_client:
     ) -> tuple[int, Mapping[str, str], bytes]:
         route = _request_route_name(method, path)
         content_generating = _is_content_generating_request(method, path)
-        if self._governor is not None:
-            self._governor.before_request(
-                method=method,
-                route=route,
-                content_generating=content_generating,
-            )
-        elif _is_mutation_method(method):
-            self._pace_mutation()
-
         selected_transport = transport or self._transport
-        status, response_headers, body = selected_transport(
-            method,
-            self._api_base + path,
-            headers,
-            payload,
-        )
-        if self._governor is not None:
-            self._governor.observe_response(
-                route=route,
-                status=status,
-                headers=response_headers,
-                content_generating=content_generating,
-            )
-        return status, response_headers, body
+        rate_attempt = 0
+        while True:
+            if self._governor is not None:
+                with self._governor.serialized_provider_access():
+                    self._governor.before_request(
+                        method=method,
+                        route=route,
+                        content_generating=content_generating,
+                        primary_domain=self._primary_domain,
+                    )
+                    status, response_headers, body = selected_transport(
+                        method,
+                        self._api_base + path,
+                        headers,
+                        payload,
+                    )
+                    self._governor.observe_response(
+                        route=route,
+                        status=status,
+                        headers=response_headers,
+                        content_generating=content_generating,
+                        primary_domain=self._primary_domain,
+                    )
+                    retry_delay = self._governor.rate_limit_delay(
+                        status=status,
+                        headers=response_headers,
+                        detail=_safe_error_detail(body),
+                        primary_domain=self._primary_domain,
+                    )
+                if retry_delay is not None:
+                    if rate_attempt < self._governor.policy.max_secondary_retries:
+                        rate_attempt += 1
+                        continue
+                    raise github_api_error(
+                        method=method,
+                        path=path,
+                        status=status,
+                        detail=(
+                            f"{_safe_error_detail(body)}; GitHub rate-limit recovery "
+                            f"exhausted after {rate_attempt} retries"
+                        ),
+                    )
+            else:
+                if _is_mutation_method(method):
+                    self._pace_mutation()
+                status, response_headers, body = selected_transport(
+                    method,
+                    self._api_base + path,
+                    headers,
+                    payload,
+                )
+                retry_delay = _secondary_rate_limit_retry_delay(
+                    status=status,
+                    headers=response_headers,
+                    detail=_safe_error_detail(body),
+                    attempt=rate_attempt,
+                )
+                if retry_delay is not None and rate_attempt < 2:
+                    self._sleep(retry_delay)
+                    rate_attempt += 1
+                    continue
+            return status, response_headers, body
 
     def _pace_mutation(self) -> None:
         if self._mutation_interval_seconds <= 0:

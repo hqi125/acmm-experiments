@@ -9,8 +9,6 @@ import re
 import shutil
 import time
 from typing import Any, Mapping
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 from acmm.integration_api import (
     experiment_integration,
@@ -184,6 +182,7 @@ class _github_mcp_manager_integration:
 @dataclass(frozen=True)
 class _runtime_admission_handle:
     token: str = field(repr=False)
+    revoke_installation_token: Any = field(repr=False)
     repository_id: int
     repository_full_name: str
     ledger_path: str
@@ -205,6 +204,11 @@ class _github_mcp_runtime_admission:
             payload, "repository_full_name"
         )
         ledger_path = _required_payload_text(payload, "ledger_path")
+        revoke_installation_token = payload.get("revoke_installation_token")
+        if not callable(revoke_installation_token):
+            raise ValueError(
+                "Runtime GitHub MCP admission revocation callback is invalid."
+            )
         repository_id = payload.get("repository_id")
         if not isinstance(repository_id, int) or isinstance(repository_id, bool) or repository_id <= 0:
             raise ValueError("Runtime GitHub MCP admission repository_id is invalid.")
@@ -219,6 +223,7 @@ class _github_mcp_runtime_admission:
         )
         return _runtime_admission_handle(
             token=token,
+            revoke_installation_token=revoke_installation_token,
             repository_id=repository_id,
             repository_full_name=repository_full_name,
             ledger_path=ledger_path,
@@ -236,17 +241,9 @@ class _github_mcp_runtime_admission:
         errors: list[str] = []
         token_revoked = False
         subject_unbound = False
-        try:
-            _revoke_installation_token(self._settings.github_api_base, handle.token)
-            token_revoked = True
-            _update_resource_ledger(
-                handle.ledger_path,
-                handle.repository_id,
-                token_revoked=True,
-            )
-        except Exception as exc:
-            errors.append("token revocation: " + (str(exc) or exc.__class__.__name__))
-
+        # Remove the run credential from the subject first. Provider-directed
+        # cooldowns may delay the remote revocation request, but they must not
+        # extend the subject's local admission window.
         try:
             runtime_revoke = getattr(manager, "runtime_revoke", None)
             if not callable(runtime_revoke):
@@ -262,6 +259,17 @@ class _github_mcp_runtime_admission:
             )
         except Exception as exc:
             errors.append("subject unbind: " + (str(exc) or exc.__class__.__name__))
+
+        try:
+            handle.revoke_installation_token(handle.token)
+            token_revoked = True
+            _update_resource_ledger(
+                handle.ledger_path,
+                handle.repository_id,
+                token_revoked=True,
+            )
+        except Exception as exc:
+            errors.append("token revocation: " + (str(exc) or exc.__class__.__name__))
 
         if errors:
             raise RuntimeError(
@@ -543,35 +551,6 @@ def _required_payload_text(payload: Mapping[str, Any], key: str) -> str:
     return value.strip()
 
 
-def _revoke_installation_token(api_base: str, token: str) -> None:
-    request = Request(
-        api_base.rstrip("/") + "/installation/token",
-        method="DELETE",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2026-03-10",
-            "User-Agent": "acmm-github-mcp-runtime-admission",
-        },
-    )
-    try:
-        with urlopen(request, timeout=30.0) as response:
-            status = response.status
-            body = response.read()
-    except HTTPError as exc:
-        status = exc.code
-        body = exc.read()
-    except URLError as exc:
-        raise RuntimeError(
-            f"GitHub installation-token revocation failed: {exc.reason}"
-        ) from exc
-    if status != 204:
-        detail = body.decode("utf-8", errors="replace")[:500]
-        raise RuntimeError(
-            f"GitHub installation-token revocation returned HTTP {status}: {detail}"
-        )
-
-
 def _update_resource_ledger(
     ledger_path: str,
     repository_id: int,
@@ -622,9 +601,19 @@ class _integration_settings:
         expected_catalog_sha256: str,
         github_api_base: str,
         image: str,
-        expected_repo_digest: str,
         container_name: str,
         host_port: int,
+        build_context: str,
+        build_dockerfile: str,
+        upstream_repository: str,
+        upstream_version: str,
+        upstream_commit: str,
+        governor_version: str,
+        request_interval: str,
+        mutation_interval: str,
+        retry_after_grace: str,
+        primary_reset_grace: str,
+        secondary_backoff: str,
     ) -> None:
         self.endpoint = endpoint
         self.server_id = server_id
@@ -634,9 +623,19 @@ class _integration_settings:
         self.expected_catalog_sha256 = expected_catalog_sha256
         self.github_api_base = github_api_base
         self.image = image
-        self.expected_repo_digest = expected_repo_digest
         self.container_name = container_name
         self.host_port = host_port
+        self.build_context = build_context
+        self.build_dockerfile = build_dockerfile
+        self.upstream_repository = upstream_repository
+        self.upstream_version = upstream_version
+        self.upstream_commit = upstream_commit
+        self.governor_version = governor_version
+        self.request_interval = request_interval
+        self.mutation_interval = mutation_interval
+        self.retry_after_grace = retry_after_grace
+        self.primary_reset_grace = primary_reset_grace
+        self.secondary_backoff = secondary_backoff
 
 
 def _settings(configuration: Mapping[str, Any]) -> _integration_settings:
@@ -667,10 +666,20 @@ def _settings(configuration: Mapping[str, Any]) -> _integration_settings:
     if not isinstance(service, Mapping):
         raise ValueError("local_service must be a mapping.")
     image = _required_configuration_text(service, "image")
-    expected_repo_digest = _required_configuration_text(
-        service, "expected_repo_digest"
-    )
     container_name = _required_configuration_text(service, "container_name")
+    build_context = _required_configuration_text(service, "build_context")
+    build_dockerfile = _required_configuration_text(service, "build_dockerfile")
+    upstream_repository = _required_configuration_text(service, "upstream_repository")
+    upstream_version = _required_configuration_text(service, "upstream_version")
+    upstream_commit = _required_configuration_text(service, "upstream_commit").lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", upstream_commit):
+        raise ValueError("local_service.upstream_commit must be a full lowercase SHA-1.")
+    governor_version = _required_configuration_text(service, "governor_version")
+    request_interval = _required_configuration_text(service, "request_interval")
+    mutation_interval = _required_configuration_text(service, "mutation_interval")
+    retry_after_grace = _required_configuration_text(service, "retry_after_grace")
+    primary_reset_grace = _required_configuration_text(service, "primary_reset_grace")
+    secondary_backoff = _required_configuration_text(service, "secondary_backoff")
     host_port = service.get("host_port")
     if (
         not isinstance(host_port, int)
@@ -687,9 +696,19 @@ def _settings(configuration: Mapping[str, Any]) -> _integration_settings:
         expected_catalog_sha256=expected_catalog_sha256,
         github_api_base=github_api_base,
         image=image,
-        expected_repo_digest=expected_repo_digest,
         container_name=container_name,
         host_port=host_port,
+        build_context=build_context,
+        build_dockerfile=build_dockerfile,
+        upstream_repository=upstream_repository,
+        upstream_version=upstream_version,
+        upstream_commit=upstream_commit,
+        governor_version=governor_version,
+        request_interval=request_interval,
+        mutation_interval=mutation_interval,
+        retry_after_grace=retry_after_grace,
+        primary_reset_grace=primary_reset_grace,
+        secondary_backoff=secondary_backoff,
     )
 
 
@@ -712,6 +731,10 @@ def _catalog_sha256(tools: tuple[str, ...] | set[str]) -> str:
 
 
 class _local_github_mcp_resource:
+    _UPSTREAM_VERSION_LABEL = "io.acmm.github-mcp.upstream-version"
+    _UPSTREAM_COMMIT_LABEL = "io.acmm.github-mcp.upstream-commit"
+    _GOVERNOR_VERSION_LABEL = "io.acmm.github-mcp.governor-version"
+
     def __init__(self, settings: _integration_settings) -> None:
         self._settings = settings
         self._runner = command_runner()
@@ -724,6 +747,8 @@ class _local_github_mcp_resource:
         progress=None,
     ):
         context.state_root.mkdir(parents=True, exist_ok=True)
+        governor_state_root = context.state_root / "mcp-governor-state"
+        governor_state_root.mkdir(parents=True, exist_ok=True)
         source = context.package_root / "integration/github_mcp/payloads/compose.yaml"
         shutil.copy2(source, context.state_root / "compose.yaml")
         env_path = context.state_root / ".env"
@@ -734,26 +759,40 @@ class _local_github_mcp_resource:
             "ACMM_GITHUB_MCP_EXCLUDE_TOOLS="
             + ",".join(self._settings.excluded_tools)
             + "\n"
-            "ACMM_GITHUB_MCP_HOST_PORT=" + str(self._settings.host_port) + "\n",
+            "ACMM_GITHUB_MCP_HOST_PORT=" + str(self._settings.host_port) + "\n"
+            "ACMM_GITHUB_MCP_REQUEST_INTERVAL=" + self._settings.request_interval + "\n"
+            "ACMM_GITHUB_MCP_MUTATION_INTERVAL=" + self._settings.mutation_interval + "\n"
+            "ACMM_GITHUB_MCP_RETRY_AFTER_GRACE=" + self._settings.retry_after_grace + "\n"
+            "ACMM_GITHUB_MCP_PRIMARY_RESET_GRACE=" + self._settings.primary_reset_grace + "\n"
+            "ACMM_GITHUB_MCP_SECONDARY_BACKOFF=" + self._settings.secondary_backoff + "\n",
             encoding="utf-8",
         )
 
         initially_running = self.is_running(context)
-        if self._image_present():
+        if self._image_identity_matches():
             if progress is not None:
-                progress(f"image: already present ({self._settings.image})")
+                progress(
+                    "image: governed GitHub MCP build already qualified "
+                    f"({self._settings.image})"
+                )
         else:
             if progress is not None:
-                progress(f"image: pulling {self._settings.image}...")
-            pull = self._compose(context, ["pull", "github-mcp"], timeout_seconds)
-            if not pull.succeeded:
+                progress(
+                    "image: building governed GitHub MCP server from "
+                    f"{self._settings.upstream_version} "
+                    f"({self._settings.upstream_commit[:12]})..."
+                )
+            self._build_image(
+                context,
+                timeout_seconds=max(timeout_seconds, 900.0),
+            )
+            if not self._image_identity_matches():
                 raise ValueError(
-                    pull.stderr.strip()
-                    or pull.stdout.strip()
-                    or "docker compose pull failed"
+                    "Governed GitHub MCP image build completed without the expected "
+                    "source/governor identity labels."
                 )
             if progress is not None:
-                progress(f"image: pull complete ({self._settings.image})")
+                progress(f"image: governed build complete ({self._settings.image})")
 
         if initially_running:
             if progress is not None:
@@ -786,17 +825,18 @@ class _local_github_mcp_resource:
                 )
 
         status = dict(self.status(context))
-        repo_digests = status.get("repo_digests") or []
-        if self._settings.expected_repo_digest not in repo_digests:
+        if status.get("image_identity_ok") is not True:
             raise ValueError(
-                "Pinned GitHub MCP image digest mismatch: "
-                f"observed={repo_digests!r}, "
-                f"expected={self._settings.expected_repo_digest!r}."
+                "Governed GitHub MCP image identity mismatch: "
+                f"observed={status.get('image_labels')!r}."
             )
         if progress is not None:
-            digests = status.get("repo_digests") or []
-            if digests:
-                progress(f"image digest: {digests[0]}")
+            progress(
+                "image identity: "
+                f"upstream={self._settings.upstream_version}@"
+                f"{self._settings.upstream_commit[:12]}, "
+                f"governor={self._settings.governor_version}"
+            )
             if status.get("running"):
                 progress("container: running after reconciliation")
             elif status.get("container_present"):
@@ -806,7 +846,6 @@ class _local_github_mcp_resource:
         return status
 
     def status(self, context: shared_integration_context):
-        del context
         running = False
         container_present = False
         observed_image = None
@@ -822,23 +861,35 @@ class _local_github_mcp_resource:
         )
         if result.succeeded:
             container_present = True
-            fields = result.stdout.strip().split("\t", 1)
-            running = bool(fields) and fields[0].lower() == "true"
-            observed_image = fields[1] if len(fields) == 2 else None
+            observed = result.stdout.strip().split("\t", 1)
+            running = bool(observed) and observed[0].lower() == "true"
+            observed_image = observed[1] if len(observed) == 2 else None
 
-        repo_digests = self._repo_digests()
+        labels = self._image_labels()
+        governor_state = self._governor_state(context)
         return {
             "running": running,
             "container_present": container_present,
             "image": observed_image or self._settings.image,
             "image_present": self._image_present(),
-            "repo_digests": repo_digests,
+            "image_labels": labels,
+            "image_identity_ok": self._labels_match(labels),
             "endpoint": self._settings.endpoint,
             "toolsets": list(self._settings.toolsets),
             "excluded_tools": list(self._settings.excluded_tools),
             "expected_tools": list(self._settings.expected_tools),
             "expected_catalog_sha256": self._settings.expected_catalog_sha256,
-            "expected_repo_digest": self._settings.expected_repo_digest,
+            "upstream_version": self._settings.upstream_version,
+            "upstream_commit": self._settings.upstream_commit,
+            "governor_version": self._settings.governor_version,
+            "governor_policy": {
+                "request_interval": self._settings.request_interval,
+                "mutation_interval": self._settings.mutation_interval,
+                "retry_after_grace": self._settings.retry_after_grace,
+                "primary_reset_grace": self._settings.primary_reset_grace,
+                "secondary_backoff": self._settings.secondary_backoff,
+            },
+            "governor_state": governor_state,
         }
 
     def is_running(self, context: shared_integration_context) -> bool:
@@ -852,7 +903,7 @@ class _local_github_mcp_resource:
         progress=None,
     ) -> None:
         if progress is not None:
-            progress("container: starting shared MCP service")
+            progress("container: starting shared governed MCP service")
         result = self._compose(context, ["up", "-d", "github-mcp"], timeout_seconds)
         if not result.succeeded:
             raise ValueError(
@@ -865,6 +916,7 @@ class _local_github_mcp_resource:
 
     def doctor(self, context: shared_integration_context) -> integration_report:
         status = self.status(context)
+        labels = status.get("image_labels") or {}
         return integration_report(
             checks=(
                 integration_check(
@@ -883,11 +935,12 @@ class _local_github_mcp_resource:
                     f"observed={status.get('image')!r}, expected={self._settings.image!r}",
                 ),
                 integration_check(
-                    "image_digest",
-                    self._settings.expected_repo_digest in (status.get("repo_digests") or []),
+                    "image_identity",
+                    status.get("image_identity_ok") is True,
                     (
-                        f"observed={status.get('repo_digests')!r}, "
-                        f"expected={self._settings.expected_repo_digest!r}"
+                        f"upstream={labels.get(self._UPSTREAM_VERSION_LABEL)!r}@"
+                        f"{labels.get(self._UPSTREAM_COMMIT_LABEL)!r}, "
+                        f"governor={labels.get(self._GOVERNOR_VERSION_LABEL)!r}"
                     ),
                 ),
             )
@@ -939,27 +992,95 @@ class _local_github_mcp_resource:
             timeout_seconds=15,
         ).succeeded
 
-    def _repo_digests(self) -> list[str]:
+    def _image_labels(self) -> dict[str, str]:
         result = self._runner.run(
             [
                 "docker",
                 "image",
                 "inspect",
                 "--format",
-                "{{json .RepoDigests}}",
+                "{{json .Config.Labels}}",
                 self._settings.image,
             ],
             timeout_seconds=15,
         )
         if not result.succeeded:
-            return []
+            return {}
         try:
-            parsed = json.loads(result.stdout.strip() or "[]")
+            parsed = json.loads(result.stdout.strip() or "{}")
         except json.JSONDecodeError:
-            return []
-        if not isinstance(parsed, list):
-            return []
-        return [item for item in parsed if isinstance(item, str) and item]
+            return {}
+        if not isinstance(parsed, Mapping):
+            return {}
+        return {
+            str(key): str(value)
+            for key, value in parsed.items()
+            if isinstance(key, str) and isinstance(value, str)
+        }
+
+    def _labels_match(self, labels: Mapping[str, str]) -> bool:
+        return (
+            labels.get(self._UPSTREAM_VERSION_LABEL) == self._settings.upstream_version
+            and labels.get(self._UPSTREAM_COMMIT_LABEL) == self._settings.upstream_commit
+            and labels.get(self._GOVERNOR_VERSION_LABEL) == self._settings.governor_version
+        )
+
+    def _image_identity_matches(self) -> bool:
+        return self._image_present() and self._labels_match(self._image_labels())
+
+    def _build_image(
+        self,
+        context: shared_integration_context,
+        *,
+        timeout_seconds: float,
+    ) -> None:
+        build_context = (context.package_root / self._settings.build_context).resolve()
+        dockerfile = (context.package_root / self._settings.build_dockerfile).resolve()
+        package_root = context.package_root.resolve()
+        if package_root not in build_context.parents:
+            raise ValueError("GitHub MCP build context escapes the Experiment Package root.")
+        if package_root not in dockerfile.parents:
+            raise ValueError("GitHub MCP Dockerfile escapes the Experiment Package root.")
+        if not build_context.is_dir() or not dockerfile.is_file():
+            raise ValueError("Governed GitHub MCP build payload is incomplete.")
+        result = self._runner.run(
+            [
+                "docker",
+                "build",
+                "--pull",
+                "--build-arg",
+                "UPSTREAM_REPOSITORY=" + self._settings.upstream_repository,
+                "--build-arg",
+                "UPSTREAM_VERSION=" + self._settings.upstream_version,
+                "--build-arg",
+                "UPSTREAM_COMMIT=" + self._settings.upstream_commit,
+                "--build-arg",
+                "GOVERNOR_VERSION=" + self._settings.governor_version,
+                "-t",
+                self._settings.image,
+                "-f",
+                str(dockerfile),
+                str(build_context),
+            ],
+            cwd=context.package_root,
+            timeout_seconds=timeout_seconds,
+        )
+        if not result.succeeded:
+            raise ValueError(
+                result.stderr.strip()
+                or result.stdout.strip()
+                or "governed GitHub MCP image build failed"
+            )
+
+    def _governor_state(self, context: shared_integration_context) -> Mapping[str, Any]:
+        path = context.state_root / "mcp-governor-state/governor.json"
+        if not path.is_file():
+            return {}
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return value if isinstance(value, Mapping) else {}
 
     def _compose(
         self,
@@ -980,7 +1101,6 @@ class _local_github_mcp_resource:
             cwd=context.state_root,
             timeout_seconds=timeout_seconds,
         )
-
 
 def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}

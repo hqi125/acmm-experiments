@@ -241,7 +241,10 @@ class _github_f4_materializer_base:
         latest: Mapping[str, Any] | None = None
         for delay in self._discovery_retry_delays:
             if delay > 0:
-                time.sleep(delay)
+                self._client.wait_for_poll(
+                    max(2.0, float(delay)),
+                    "workflow.list",
+                )
             value = self._client.list_workflows(identity.owner, identity.name)
             rows = value.get("workflows")
             if not isinstance(rows, list):
@@ -300,7 +303,10 @@ class _github_f4_materializer_base:
             if current.get("status") == "completed":
                 return current
             if delay > 0:
-                time.sleep(delay)
+                self._client.wait_for_poll(
+                    max(2.0, float(delay)),
+                    "workflow_run.read",
+                )
             current = dict(self._client.workflow_run(identity.owner, identity.name, run_id))
         raise github_controller_error(f"Workflow run {run_id} did not complete in time.")
 
@@ -324,16 +330,40 @@ class _github_f4_materializer_base:
             head_sha=head_sha,
         )
         if existing is None:
-            self._client.dispatch_workflow(
-                identity.owner,
-                identity.name,
-                workflow_id,
-                ref=branch,
-                inputs=inputs,
-            )
+            dispatch_error: github_api_error | None = None
+            for delay in self._discovery_retry_delays:
+                if delay > 0:
+                    self._client.wait_for_poll(
+                        max(2.0, float(delay)),
+                        "workflow.list",
+                    )
+                try:
+                    self._client.dispatch_workflow(
+                        identity.owner,
+                        identity.name,
+                        workflow_id,
+                        ref=branch,
+                        inputs=inputs,
+                    )
+                    dispatch_error = None
+                    break
+                except github_api_error as exc:
+                    transient_dispatch = (
+                        exc.status == 422
+                        and "workflow_dispatch" in exc.detail.lower()
+                    )
+                    if not transient_dispatch:
+                        raise
+                    dispatch_error = exc
+            if dispatch_error is not None:
+                raise dispatch_error
+
             for delay in self._workflow_retry_delays[1:]:
                 if delay > 0:
-                    time.sleep(delay)
+                    self._client.wait_for_poll(
+                        max(2.0, float(delay)),
+                        "workflow_run.list_for_workflow",
+                    )
                 existing = self._matching_run(
                     identity,
                     workflow_id,
@@ -409,7 +439,10 @@ class _github_f4_materializer_base:
         last: Exception | None = None
         for delay in self._discovery_retry_delays:
             if delay > 0:
-                time.sleep(delay)
+                self._client.wait_for_poll(
+                    max(2.0, float(delay)),
+                    "workflow_job.logs",
+                )
             try:
                 return self._client.workflow_job_logs(identity.owner, identity.name, job_id)
             except github_api_error as exc:
@@ -454,13 +487,14 @@ class github_f4_a_materializer(_github_f4_materializer_base):
         if pr is None:
             if not allow_create:
                 raise github_controller_error("F4-A fixture is not fully materialized.")
-            for path, content, message in (
-                (self._spec.ci_policy_path, self._spec.ci_policy_content, "F4-A: add CI diagnosis policy"),
-                (self._spec.protocol_source_path, self._spec.protocol_initial_content, "F4-A: seed protocol source"),
-                (self._spec.release_manifest_path, self._spec.release_manifest_content, "F4-A: seed release manifest"),
-                (self._spec.required_workflow.path, self._spec.required_workflow.content, "F4-A: add required validation workflow"),
-            ):
-                self._ensure_file(identity, path, content, message)
+            with self._client.git_publish_batch(identity.owner, identity.name):
+                for path, content, message in (
+                    (self._spec.ci_policy_path, self._spec.ci_policy_content, "F4-A: add CI diagnosis policy"),
+                    (self._spec.protocol_source_path, self._spec.protocol_initial_content, "F4-A: seed protocol source"),
+                    (self._spec.release_manifest_path, self._spec.release_manifest_content, "F4-A: seed release manifest"),
+                    (self._spec.required_workflow.path, self._spec.required_workflow.content, "F4-A: add required validation workflow"),
+                ):
+                    self._ensure_file(identity, path, content, message)
             base_sha = _head_sha(self._client, identity, identity.default_branch)
             self._client.create_ref(identity.owner, identity.name, self._spec.diagnosis_pr.branch, base_sha)
             update = self._update_branch_file(
@@ -577,13 +611,14 @@ class github_f4_b_materializer(_github_f4_materializer_base):
                 raise github_controller_error("F4-B fixture is not fully materialized.")
             for label in (self._spec.ci_blocked_label, self._spec.ci_resolved_label):
                 self._ensure_label(identity, label)
-            for path, content, message in (
-                (self._spec.ci_status_policy_path, self._spec.ci_status_policy_content, "F4-B: add CI status policy"),
-                (self._spec.candidate_state_path, self._spec.candidate_base_content, "F4-B: seed candidate validation state"),
-                (self._spec.required_workflow.path, self._spec.required_workflow.content, "F4-B: add required validation workflow"),
-                (self._spec.advisory_workflow.path, self._spec.advisory_workflow.content, "F4-B: add advisory workflow"),
-            ):
-                self._ensure_file(identity, path, content, message)
+            with self._client.git_publish_batch(identity.owner, identity.name):
+                for path, content, message in (
+                    (self._spec.ci_status_policy_path, self._spec.ci_status_policy_content, "F4-B: add CI status policy"),
+                    (self._spec.candidate_state_path, self._spec.candidate_base_content, "F4-B: seed candidate validation state"),
+                    (self._spec.required_workflow.path, self._spec.required_workflow.content, "F4-B: add required validation workflow"),
+                    (self._spec.advisory_workflow.path, self._spec.advisory_workflow.content, "F4-B: add advisory workflow"),
+                ):
+                    self._ensure_file(identity, path, content, message)
             base_sha = _head_sha(self._client, identity, identity.default_branch)
             self._client.create_ref(identity.owner, identity.name, self._spec.candidate_pr.branch, base_sha)
             old_update = self._update_branch_file(

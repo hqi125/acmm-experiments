@@ -9,6 +9,8 @@ from pathlib import Path
 import subprocess
 import tempfile
 from typing import Any, Callable, Mapping
+
+from .api_governor import github_api_governor
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -44,6 +46,7 @@ class github_app_client:
         transport: Transport | None = None,
         signer: Signer | None = None,
         now: Callable[[], datetime] | None = None,
+        governor: github_api_governor | None = None,
     ) -> None:
         if app_id <= 0:
             raise ValueError("GitHub App id must be positive.")
@@ -58,6 +61,7 @@ class github_app_client:
         self._transport = transport or _urllib_transport
         self._signer = signer or _openssl_rs256_sign
         self._now = now or (lambda: datetime.now(timezone.utc))
+        self._governor = governor
 
     @property
     def installation_id(self) -> int:
@@ -93,6 +97,8 @@ class github_app_client:
             f"/app/installations/{self._installation_id}/access_tokens",
             authorization=self._app_jwt(),
             payload=payload,
+            route="app.installation_token.mint",
+            primary_domain="app",
         )
         if status != 201:
             raise github_app_error(
@@ -170,6 +176,9 @@ class github_app_client:
             "/installation/token",
             authorization=token.strip(),
             payload=None,
+            route="app.installation_token.revoke",
+            primary_domain="installation",
+            enforce_primary_headroom=False,
         )
         if status != 204:
             raise github_app_error(
@@ -200,6 +209,9 @@ class github_app_client:
         *,
         authorization: str,
         payload: Mapping[str, Any] | None,
+        route: str,
+        primary_domain: str,
+        enforce_primary_headroom: bool = True,
     ) -> tuple[int, Mapping[str, str], bytes]:
         data = None
         if payload is not None:
@@ -210,14 +222,62 @@ class github_app_client:
             "X-GitHub-Api-Version": "2026-03-10",
             "User-Agent": "acmm-github-app-runtime",
         }
-        try:
-            return self._transport(method, self._api_base + path, headers, data)
-        except Exception as exc:
-            if isinstance(exc, github_app_error):
-                raise
-            raise github_app_error(
-                f"GitHub App request {method} {path} failed: {exc}"
-            ) from exc
+        secondary_attempt = 0
+        while True:
+            try:
+                if self._governor is not None:
+                    with self._governor.serialized_provider_access():
+                        self._governor.before_request(
+                            method=method,
+                            route=route,
+                            content_generating=False,
+                            primary_domain=primary_domain,
+                            enforce_primary_headroom=enforce_primary_headroom,
+                        )
+                        status, response_headers, body = self._transport(
+                            method,
+                            self._api_base + path,
+                            headers,
+                            data,
+                        )
+                        self._governor.observe_response(
+                            route=route,
+                            status=status,
+                            headers=response_headers,
+                            content_generating=False,
+                            primary_domain=primary_domain,
+                        )
+                        retry_delay = self._governor.rate_limit_delay(
+                            status=status,
+                            headers=response_headers,
+                            detail=_safe_detail(body),
+                            primary_domain=primary_domain,
+                        )
+                else:
+                    status, response_headers, body = self._transport(
+                        method,
+                        self._api_base + path,
+                        headers,
+                        data,
+                    )
+                    retry_delay = None
+            except Exception as exc:
+                if isinstance(exc, github_app_error):
+                    raise
+                raise github_app_error(
+                    f"GitHub App request {method} {path} failed: {exc}"
+                ) from exc
+
+            if retry_delay is not None:
+                if secondary_attempt < self._governor.policy.max_secondary_retries:
+                    secondary_attempt += 1
+                    continue
+                raise github_app_error(
+                    "GitHub App rate-limit recovery exhausted after "
+                    f"{secondary_attempt} retries during {method} {path}: "
+                    f"{_safe_detail(body)}"
+                )
+            return status, response_headers, body
 
 
 def _base64url_json(value: Mapping[str, Any]) -> str:

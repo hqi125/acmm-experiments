@@ -191,6 +191,7 @@ class github_f3_a_materializer:
         require_complete: bool = False,
     ) -> dict[str, Any]:
         return _discover_with_retry(
+            self._client,
             self._discover_once,
             identity,
             label="F3-A",
@@ -214,22 +215,23 @@ class github_f3_a_materializer:
         _emit(report, 3, total, "seeding F3-A labels, policy, and target baseline")
         for label in (self._spec.implemented_label, self._spec.linkage_audit_label):
             _ensure_label(self._client, identity, label, "F3-A")
-        _ensure_file(
-            self._client,
-            identity,
-            self._spec.project_record_policy_path,
-            self._spec.project_record_policy_content,
-            "F3-A: add project-record policy",
-            "F3-A",
-        )
-        _ensure_file(
-            self._client,
-            identity,
-            self._spec.target_implementation_path,
-            self._spec.target_initial_content,
-            "F3-A: seed implementation target",
-            "F3-A",
-        )
+        with self._client.git_publish_batch(owner, repo):
+            _ensure_file(
+                self._client,
+                identity,
+                self._spec.project_record_policy_path,
+                self._spec.project_record_policy_content,
+                "F3-A: add project-record policy",
+                "F3-A",
+            )
+            _ensure_file(
+                self._client,
+                identity,
+                self._spec.target_implementation_path,
+                self._spec.target_initial_content,
+                "F3-A: seed implementation target",
+                "F3-A",
+            )
 
         _emit(report, 4, total, "creating and merging the actual implementation pull request")
         implementation_base = _head_sha(self._client, identity)
@@ -604,6 +606,7 @@ class github_f3_b_materializer:
         require_complete: bool = False,
     ) -> dict[str, Any]:
         return _discover_with_retry(
+            self._client,
             self._discover_once,
             identity,
             label="F3-B",
@@ -631,22 +634,23 @@ class github_f3_b_materializer:
             self._spec.blocked_label,
         ):
             _ensure_label(self._client, identity, label, "F3-B")
-        _ensure_file(
-            self._client,
-            identity,
-            self._spec.release_status_policy_path,
-            self._spec.release_status_policy_content,
-            "F3-B: add release-status policy",
-            "F3-B",
-        )
-        _ensure_file(
-            self._client,
-            identity,
-            self._spec.target_fix_path,
-            self._spec.target_initial_content,
-            "F3-B: seed protocol-guard baseline",
-            "F3-B",
-        )
+        with self._client.git_publish_batch(owner, repo):
+            _ensure_file(
+                self._client,
+                identity,
+                self._spec.release_status_policy_path,
+                self._spec.release_status_policy_content,
+                "F3-B: add release-status policy",
+                "F3-B",
+            )
+            _ensure_file(
+                self._client,
+                identity,
+                self._spec.target_fix_path,
+                self._spec.target_initial_content,
+                "F3-B: seed protocol-guard baseline",
+                "F3-B",
+            )
 
         _emit(report, 4, total, "creating and merging the historical fix")
         old_fix_base = _head_sha(self._client, identity)
@@ -1214,6 +1218,7 @@ def _discovery(objects: Mapping[str, Mapping[str, Any] | None]) -> dict[str, Any
 
 
 def _discover_with_retry(
+    client: github_controller_client,
     discover_once,
     identity: github_repository_identity,
     *,
@@ -1236,7 +1241,11 @@ def _discover_with_retry(
             f"GitHub list views are incomplete; retrying {label} discovery ({attempt}/{len(delays) - 1})",
         )
         if delay:
-            time.sleep(delay)
+            client.wait_for_poll(
+                max(2.0, float(delay)),
+                "issue.list",
+                "pull_request.list",
+            )
         latest = discover_once(identity)
         if latest["complete"]:
             return latest

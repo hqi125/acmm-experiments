@@ -199,6 +199,9 @@ The design/pre-coding gate is closed and executable implementation is underway. 
   a new session still refuses stale `acmm-e2-run-*` repositories left by crashes or failed cleanup;
 - a fully runnable/cross-agent-qualified F1-A Regression Disposition scenario now instantiated into a fresh
   private repository per scientific run;
+- the GitHub App + Campaign path is live-qualified across Hermes, Open WebUI, and Agent Zero with one clean F1-A
+  observation per subject, exact 42-tool admission, explicit token revocation, repository detach/delete, credential
+  log redaction, and a provenance-preserving partial Campaign merge;
 - an F1-B `prepare_f1_b` materializer that creates the release milestone, blocker label, included/missing
   blocker histories, release candidate branch/PR, non-blocker noise, and a deterministic passing Actions run
   on the candidate head.
@@ -207,9 +210,10 @@ The design/pre-coding gate is closed and executable implementation is underway. 
 - F4-A/F4-B executable Actions fixtures: trusted controller-seeded completed workflow runs/jobs/logs, immutable
   run/head association, authoritative pre/post Actions inventory, real Procedure opportunities requiring evidence before
   mutation, and bounded diagnosis/alert-reconciliation evaluators.
-- controller transport hardening for Actions/job-log downloads and GitHub abuse protection: API redirect hops are
-  captured without forwarding the controller PAT to signed download hosts, mutative REST calls are paced, and only
-  explicit secondary-rate-limit responses are retried according to GitHub backoff guidance; ambiguous transport
+- controller/App transport hardening for Actions/job-log downloads and GitHub abuse protection: API redirect hops are
+  captured without forwarding the controller PAT to signed download hosts, trusted controller and App lifecycle
+  mutations share provider pacing/cooldown state, primary quota snapshots remain separated by credential domain, and
+  only explicit secondary-rate-limit responses are retried according to GitHub backoff guidance; ambiguous transport
   failures remain fail-closed;
 - a production Git content/history plane now transparently backs controller file writes and ref-addressed file reads,
   keeps the PAT out of remote URLs/command arguments through `GIT_ASKPASS`, reports Git transport telemetry, and
