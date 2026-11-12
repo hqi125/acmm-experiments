@@ -1,13 +1,15 @@
 # GitHub MCP Project Workspace Baseline
 
-> **Status:** GITHUB APP / CAMPAIGN REBASE IMPLEMENTED LOCALLY; LIVE APP-NATIVE REQUALIFICATION PENDING.
-> All F1-A through F6-B scenario semantics previously completed live smoke qualification on the disposable-repository lifecycle.
-> The subject credential model has now been rebased from a long-lived all-repositories PAT to one repository-scoped GitHub App installation token per run; the 42-tool App-native MCP surface and hard-crash recovery path require a fresh live preflight before acquisition.
+> **Status:** APP-NATIVE MCP GOVERNOR QUALIFIED; SCENARIO MATERIALIZATION PILOT IN DEVELOPMENT.
+> The exact 42-tool App-native surface and governed v2.1.0 MCP fork are qualified across all three subjects. A 288-run stress campaign exposed repeatable provider secondary-limit pressure from the per-run repository lifecycle, so the next apparatus revision introduces package-declared campaign materialization without changing the subject-visible MCP surface.
+> F1-A established the shared scenario-materialization path; F1-B now completes the F1 family by extending trusted restoration to release metadata and treating new GitHub Actions history as non-restorable taint. F2-F6 remain disposable-per-run until migrated and qualified family by family.
 
 `github_mcp_project_workspace_v1` is the working identity for the second experiment in the reworked
 ACMM research roadmap. It follows the frozen `minimal_agent_baseline_v1` and introduces one real
 external capability environment: the official GitHub MCP Server operating against controller-created,
-private disposable repositories, one scientific repository per run.
+private disposable repositories. The original apparatus used one scientific repository per run; the current
+incremental redesign allows an experiment package to retain provider resources for one declared materialization
+slice while Core preserves subject-major execution inside that slice.
 
 The experiment is intentionally **not** a single-tool or tool-call benchmark. Every subject should
 receive the same rich GitHub project workspace in every scenario. Scenarios define goals, authority,

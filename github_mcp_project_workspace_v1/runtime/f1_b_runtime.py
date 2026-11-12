@@ -96,6 +96,51 @@ class github_f1_b_fixture:
         )
 
 
+    def finalize(self, scenario, handle, reset):
+        del scenario
+        del reset
+        if not isinstance(handle, github_f1_b_run_handle):
+            return {"restored": False, "detail": "invalid F1-B environment handle"}
+
+        try:
+            before = _snapshot_f1_b_state(
+                self._client,
+                handle.identity,
+                self._spec,
+                handle.observations,
+            )
+            if before["protected_digest"] == handle.initial_state["protected_digest"]:
+                return {"restored": True, "changed": False}
+
+            non_restorable = _restore_f1_b_state(
+                self._client,
+                handle.identity,
+                handle.initial_state,
+            )
+            after = _snapshot_f1_b_state(
+                self._client,
+                handle.identity,
+                self._spec,
+                handle.observations,
+            )
+            restored = (
+                not non_restorable
+                and after["protected_digest"]
+                == handle.initial_state["protected_digest"]
+            )
+            return {
+                "restored": restored,
+                "changed": True,
+                "non_restorable": tuple(non_restorable),
+            }
+        except Exception as exc:
+            return {
+                "restored": False,
+                "changed": True,
+                "detail": str(exc) or exc.__class__.__name__,
+            }
+
+
 def _snapshot_f1_b_state(
     client: github_controller_client,
     identity: github_repository_identity,
@@ -171,6 +216,19 @@ def _snapshot_f1_b_state(
         (
             _workflow_run_snapshot(item)
             for item in run_rows
+            if isinstance(item, Mapping)
+        ),
+        key=lambda item: int(item["id"]),
+    )
+
+    all_run_catalog = client.list_workflow_runs(owner, repo, per_page=100)
+    all_run_rows = all_run_catalog.get("workflow_runs")
+    if not isinstance(all_run_rows, list):
+        raise RuntimeError("F1-B repository workflow run catalog is malformed.")
+    all_workflow_runs = sorted(
+        (
+            _workflow_run_snapshot(item)
+            for item in all_run_rows
             if isinstance(item, Mapping)
         ),
         key=lambda item: int(item["id"]),
@@ -277,6 +335,7 @@ def _snapshot_f1_b_state(
             "runs": workflow_runs,
             "required_run_id": observations.get("required_workflow_run_id"),
         },
+        "workflow_run_catalog": all_workflow_runs,
         "fixture_aliases": {
             "milestone_number": int(observations["milestone_number"]),
             "release_pr_number": int(observations["release_pr_number"]),
@@ -363,6 +422,365 @@ def _assert_pristine_f1_b_catalog(
         raise RuntimeError("F1-B required-check run is absent from authoritative state.")
     if required_run.get("status") != "completed" or required_run.get("conclusion") != "success":
         raise RuntimeError("F1-B required-check run is not completed successfully.")
+
+
+def _restore_f1_b_state(
+    client: github_controller_client,
+    identity: github_repository_identity,
+    expected: Mapping[str, Any],
+) -> list[str]:
+    owner = identity.owner
+    repo = identity.name
+    non_restorable: list[str] = []
+
+    expected_branches = {
+        str(item["name"]): str(item["sha"])
+        for item in expected.get("branches", [])
+        if isinstance(item, Mapping)
+    }
+    current_branches = {
+        str(item.get("name")): _branch_sha(item)
+        for item in client.list_branches(owner, repo)
+    }
+    for name in sorted(set(current_branches) - set(expected_branches)):
+        if name == identity.default_branch:
+            non_restorable.append(f"unexpected default branch {name}")
+            continue
+        client.delete_ref(owner, repo, name)
+    for name, sha in expected_branches.items():
+        current = current_branches.get(name)
+        if current is None:
+            client.create_ref(owner, repo, name, sha)
+        elif current != sha:
+            client.update_ref(owner, repo, name, sha, force=True)
+
+    _restore_repository_labels(
+        client,
+        owner,
+        repo,
+        expected.get("repository_labels", []),
+    )
+    _restore_milestones(
+        client,
+        owner,
+        repo,
+        expected.get("milestones", []),
+        non_restorable,
+    )
+
+    for number_text, issue in expected.get("issues", {}).items():
+        if not isinstance(issue, Mapping):
+            continue
+        number = int(number_text)
+        issue_payload = {
+            "title": issue.get("title"),
+            "body": issue.get("body"),
+            "state": issue.get("state"),
+            "labels": list(issue.get("labels", [])),
+            "assignees": list(issue.get("assignees", [])),
+            "milestone": _milestone_number(issue.get("milestone")),
+        }
+        if isinstance(issue.get("state_reason"), str):
+            issue_payload["state_reason"] = issue.get("state_reason")
+        client.update_issue(owner, repo, number, issue_payload)
+        _restore_issue_comments(
+            client,
+            owner,
+            repo,
+            number,
+            issue.get("comments", []),
+        )
+
+    for number_text, pull in expected.get("pull_requests", {}).items():
+        if not isinstance(pull, Mapping):
+            continue
+        number = int(number_text)
+        current = client.pull_request(owner, repo, number)
+        expected_merged = bool(pull.get("merged", False))
+        current_merged = bool(current.get("merged", False))
+        if expected_merged != current_merged:
+            non_restorable.append(f"pull request #{number} merge state changed")
+        expected_draft = bool(pull.get("draft", False))
+        current_draft = bool(current.get("draft", False))
+        if expected_draft != current_draft:
+            non_restorable.append(f"pull request #{number} draft state changed")
+
+        payload = {
+            "title": pull.get("title"),
+            "body": pull.get("body"),
+            "state": pull.get("state"),
+            "base": _nested_optional_string(pull, "base", "ref"),
+        }
+        if not current_merged:
+            client.update_pull_request(owner, repo, number, payload)
+        else:
+            client.update_pull_request(
+                owner,
+                repo,
+                number,
+                {"title": pull.get("title"), "body": pull.get("body")},
+            )
+
+        _restore_issue_comments(
+            client,
+            owner,
+            repo,
+            number,
+            pull.get("issue_comments", []),
+        )
+        _restore_review_comments(
+            client,
+            owner,
+            repo,
+            number,
+            pull.get("review_comments", []),
+        )
+        _restore_reviews(
+            client,
+            owner,
+            repo,
+            number,
+            pull.get("reviews", []),
+            non_restorable,
+        )
+
+    expected_issue_numbers = {
+        int(item["number"])
+        for item in expected.get("issue_catalog", [])
+        if isinstance(item, Mapping) and isinstance(item.get("number"), int)
+    }
+    current_issue_numbers = {
+        int(item["number"])
+        for item in client.list_issues(owner, repo)
+        if "pull_request" not in item and isinstance(item.get("number"), int)
+    }
+    for number in sorted(current_issue_numbers - expected_issue_numbers):
+        client.update_issue(owner, repo, number, {"state": "closed"})
+        non_restorable.append(f"unexpected issue #{number} remains in repository history")
+
+    expected_pull_numbers = {
+        int(item["number"])
+        for item in expected.get("pull_request_catalog", [])
+        if isinstance(item, Mapping) and isinstance(item.get("number"), int)
+    }
+    current_pull_numbers = {
+        int(item["number"])
+        for item in client.list_pull_requests(owner, repo)
+        if isinstance(item.get("number"), int)
+    }
+    for number in sorted(current_pull_numbers - expected_pull_numbers):
+        current = client.pull_request(owner, repo, number)
+        if current.get("merged") is not True:
+            client.update_pull_request(owner, repo, number, {"state": "closed"})
+        non_restorable.append(
+            f"unexpected pull request #{number} remains in repository history"
+        )
+
+    expected_runs = {
+        int(item["id"]): item
+        for item in expected.get("workflow_run_catalog", [])
+        if isinstance(item, Mapping) and isinstance(item.get("id"), int)
+    }
+    current_run_catalog = client.list_workflow_runs(owner, repo, per_page=100)
+    current_rows = current_run_catalog.get("workflow_runs")
+    if not isinstance(current_rows, list):
+        non_restorable.append("workflow run catalog became unreadable")
+    else:
+        current_runs = {
+            int(item["id"]): _workflow_run_snapshot(item)
+            for item in current_rows
+            if isinstance(item, Mapping) and isinstance(item.get("id"), int)
+        }
+        for run_id in sorted(set(current_runs) - set(expected_runs)):
+            non_restorable.append(
+                f"unexpected Actions run {run_id} remains in repository history"
+            )
+        for run_id in sorted(set(expected_runs) - set(current_runs)):
+            non_restorable.append(f"expected Actions run {run_id} disappeared")
+        for run_id in sorted(set(expected_runs) & set(current_runs)):
+            if current_runs[run_id] != expected_runs[run_id]:
+                non_restorable.append(f"Actions run {run_id} state changed")
+
+    return non_restorable
+
+
+def _restore_issue_comments(
+    client: github_controller_client,
+    owner: str,
+    repo: str,
+    number: int,
+    expected_items,
+) -> None:
+    expected = {
+        int(item["id"]): item
+        for item in expected_items
+        if isinstance(item, Mapping) and isinstance(item.get("id"), int)
+    }
+    current = {
+        int(item["id"]): item
+        for item in client.issue_comments(owner, repo, number)
+        if isinstance(item.get("id"), int)
+    }
+    for comment_id in sorted(set(current) - set(expected)):
+        client.delete_issue_comment(owner, repo, comment_id)
+    for comment_id, expected_item in expected.items():
+        current_item = current.get(comment_id)
+        if current_item is None:
+            continue
+        if current_item.get("body") != expected_item.get("body"):
+            client.update_issue_comment(
+                owner,
+                repo,
+                comment_id,
+                str(expected_item.get("body") or ""),
+            )
+
+
+def _restore_review_comments(
+    client: github_controller_client,
+    owner: str,
+    repo: str,
+    number: int,
+    expected_items,
+) -> None:
+    expected = {
+        int(item["id"]): item
+        for item in expected_items
+        if isinstance(item, Mapping) and isinstance(item.get("id"), int)
+    }
+    current = {
+        int(item["id"]): item
+        for item in client.pull_request_review_comments(owner, repo, number)
+        if isinstance(item.get("id"), int)
+    }
+    for comment_id in sorted(set(current) - set(expected)):
+        client.delete_pull_request_review_comment(owner, repo, comment_id)
+    for comment_id, expected_item in expected.items():
+        current_item = current.get(comment_id)
+        if current_item is None:
+            continue
+        if current_item.get("body") != expected_item.get("body"):
+            client.update_pull_request_review_comment(
+                owner,
+                repo,
+                comment_id,
+                str(expected_item.get("body") or ""),
+            )
+
+
+def _restore_reviews(
+    client: github_controller_client,
+    owner: str,
+    repo: str,
+    number: int,
+    expected_items,
+    non_restorable: list[str],
+) -> None:
+    expected_ids = {
+        int(item["id"])
+        for item in expected_items
+        if isinstance(item, Mapping) and isinstance(item.get("id"), int)
+    }
+    current = client.pull_request_reviews(owner, repo, number)
+    for review in current:
+        review_id = review.get("id")
+        if not isinstance(review_id, int) or review_id in expected_ids:
+            continue
+        if str(review.get("state") or "").upper() == "PENDING":
+            client.delete_pending_pull_request_review(owner, repo, number, review_id)
+        else:
+            non_restorable.append(
+                f"pull request #{number} has submitted review {review_id}"
+            )
+
+
+def _restore_repository_labels(
+    client: github_controller_client,
+    owner: str,
+    repo: str,
+    expected_items,
+) -> None:
+    expected = {
+        str(item["name"]): item
+        for item in expected_items
+        if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+    }
+    current = {
+        str(item.get("name")): item
+        for item in client.list_labels(owner, repo)
+        if isinstance(item.get("name"), str)
+    }
+    for name in sorted(set(current) - set(expected)):
+        client.delete_label(owner, repo, name)
+    for name, item in expected.items():
+        color = str(item.get("color") or "000000")
+        description = item.get("description")
+        if name not in current:
+            client.create_label(
+                owner,
+                repo,
+                label=name,
+                color=color,
+                description=description if isinstance(description, str) else None,
+            )
+            continue
+        current_item = _label_snapshot(current[name])
+        if current_item != item:
+            client.update_label(
+                owner,
+                repo,
+                name,
+                new_name=name,
+                color=color,
+                description=description if isinstance(description, str) else None,
+            )
+
+
+def _restore_milestones(
+    client: github_controller_client,
+    owner: str,
+    repo: str,
+    expected_items,
+    non_restorable: list[str],
+) -> None:
+    expected = {
+        int(item["number"]): item
+        for item in expected_items
+        if isinstance(item, Mapping) and isinstance(item.get("number"), int)
+    }
+    current = {
+        int(item["number"]): item
+        for item in client.list_milestones(owner, repo)
+        if isinstance(item.get("number"), int)
+    }
+    for number in sorted(set(current) - set(expected)):
+        client.delete_milestone(owner, repo, number)
+    for number, item in expected.items():
+        current_item = current.get(number)
+        if current_item is None:
+            non_restorable.append(f"milestone #{number} was deleted")
+            continue
+        expected_snapshot = _milestone_full_snapshot(item)
+        current_snapshot = _milestone_full_snapshot(current_item)
+        if current_snapshot != expected_snapshot:
+            client.update_milestone(
+                owner,
+                repo,
+                number,
+                title=str(item.get("title") or ""),
+                description=(
+                    str(item.get("description"))
+                    if item.get("description") is not None
+                    else None
+                ),
+                state=str(item.get("state") or "open"),
+            )
+
+
+def _milestone_number(value: Any) -> int | None:
+    if isinstance(value, Mapping) and isinstance(value.get("number"), int):
+        return int(value["number"])
+    return None
 
 
 def _issue_snapshot(

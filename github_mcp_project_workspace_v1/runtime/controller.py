@@ -831,6 +831,36 @@ class github_controller_client:
             expected=(201,),
         )
 
+    def update_milestone(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+        *,
+        title: str,
+        description: str | None = None,
+        state: str = "open",
+    ) -> Mapping[str, Any]:
+        payload: dict[str, Any] = {"title": title, "state": state}
+        payload["description"] = description
+        return self._object(
+            "PATCH",
+            f"/repos/{quote(owner)}/{quote(name)}/milestones/{number}",
+            payload,
+        )
+
+    def delete_milestone(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+    ) -> None:
+        self._request(
+            "DELETE",
+            f"/repos/{quote(owner)}/{quote(name)}/milestones/{number}",
+            expected=(204,),
+        )
+
     def issue_comments(
         self,
         owner: str,

@@ -1,6 +1,11 @@
-schema_version: "0.3"
+schema_version: "0.4"
 experiment_id: github_mcp_project_workspace_v1
 contract: experiment.yaml
+
+campaign:
+  materialization:
+    group_by:
+      - scenario_id
 
 runtime:
   api_version: "0.1"

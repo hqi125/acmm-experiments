@@ -14,6 +14,8 @@ import zipfile
 from acmm.experiment_api import (
     observed_environment,
     prepared_environment,
+    runtime_materialization_context,
+    runtime_materialization_finalization,
     runtime_run_context,
     runtime_subject_admission_request,
     runtime_run_finalization,
@@ -87,6 +89,19 @@ class github_disposable_run_handle:
     fixture: Any
     fixture_handle: Any
     admission_token: str = field(repr=False)
+    shared_materialization: bool = False
+
+
+@dataclass
+class github_materialization_handle:
+    key: str
+    scenario_id: str
+    shared: bool
+    identity: github_repository_identity | None = None
+    fixture: Any = None
+    fixture_id: str | None = None
+    tainted: bool = False
+    retired: bool = False
 
 
 class github_workspace_disposable_lifecycle:
@@ -157,6 +172,240 @@ class github_workspace_disposable_lifecycle:
             ledger=github_resource_ledger(context.session_dir),
         )
 
+    def materialization_initialize(
+        self,
+        session_handle: github_disposable_session,
+        context: runtime_materialization_context,
+    ) -> github_materialization_handle:
+        if not isinstance(session_handle, github_disposable_session):
+            raise TypeError("Disposable GitHub session handle is invalid.")
+        if len(context.scenario_ids) != 1:
+            raise github_controller_error(
+                "GitHub scenario materialization requires exactly one scenario per "
+                f"slice; received {context.scenario_ids!r}."
+            )
+
+        scenario_id = context.scenario_ids[0]
+        # Incremental qualification proceeds fixture-family by fixture-family.
+        # F1-A and F1-B now have complete trusted restore/taint implementations.
+        # Other scenario slices keep their existing disposable-per-run behavior
+        # while exercising the same Core materialization scheduler.
+        if scenario_id not in {
+            "f1_a_regression_disposition",
+            "f1_b_release_candidate_status",
+        }:
+            return github_materialization_handle(
+                key=context.key,
+                scenario_id=scenario_id,
+                shared=False,
+            )
+
+        if session_handle.active_repositories:
+            names = ", ".join(sorted(session_handle.active_repositories.values()))
+            raise github_controller_error(
+                "Cannot initialize shared F1-A materialization while another "
+                f"repository remains active: {names}."
+            )
+        if session_handle.ledger is None:
+            raise github_controller_error("GitHub runtime resource ledger is unavailable.")
+
+        repository_name = self._materialization_repository_name(context)
+        created = self._controller.create_repository(
+            name=repository_name,
+            description=(
+                f"ACMM scenario materialization for {self._experiment_id}: "
+                f"{scenario_id} / {context.key}"
+            ),
+            private=True,
+            has_issues=True,
+            auto_init=False,
+        )
+        owner, full_name, repository_id = _created_repository_coordinates(
+            created,
+            expected_owner=session_handle.owner,
+            expected_name=repository_name,
+        )
+        session_handle.active_repositories[repository_id] = full_name
+        session_handle.ledger.record_repository(
+            run_index=context.selected_run_indices[0],
+            repository_id=repository_id,
+            owner=owner,
+            name=repository_name,
+            full_name=full_name,
+        )
+        installation_attached = False
+
+        try:
+            controller_identity = self._controller.repository_identity(owner, repository_name)
+            _verify_disposable_identity(
+                controller_identity,
+                expected_full_name=full_name,
+                expected_repository_id=repository_id,
+                role="controller",
+            )
+            dynamic_base = self._dynamic_fixture_base(
+                full_name=full_name,
+                repository_id=repository_id,
+            )
+            self._initialize_empty_repository(controller_identity, dynamic_base)
+            identity = self._controller.repository_identity(owner, repository_name)
+            _verify_disposable_identity(
+                identity,
+                expected_full_name=full_name,
+                expected_repository_id=repository_id,
+                role="controller",
+            )
+            if identity.default_branch != self._expected_default_branch:
+                raise github_controller_error(
+                    f"Materialized repository default branch is '{identity.default_branch}'; "
+                    f"expected '{self._expected_default_branch}'."
+                )
+
+            if scenario_id == "f1_a_regression_disposition":
+                materializer = github_f1_a_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f1_a_spec,
+                )
+                fixture = github_f1_a_fixture(
+                    self._controller, materializer, self._f1_a_spec
+                )
+                fixture_id = self._f1_a_spec.fixture_id
+            else:
+                materializer = github_f1_b_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f1_b_spec,
+                )
+                fixture = github_f1_b_fixture(
+                    self._controller, materializer, self._f1_b_spec
+                )
+                fixture_id = self._f1_b_spec.fixture_id
+            materializer.run()
+
+            self._controller.add_repository_to_app_installation(
+                installation_id=self._app_client.installation_id,
+                repository_id=repository_id,
+            )
+            installation_attached = True
+            session_handle.ledger.update(repository_id, installation_attached=True)
+            self._write_api_usage_artifact(session_handle)
+            return github_materialization_handle(
+                key=context.key,
+                scenario_id=scenario_id,
+                shared=True,
+                identity=identity,
+                fixture=fixture,
+                fixture_id=fixture_id,
+            )
+        except (Exception, KeyboardInterrupt) as exc:
+            cleanup_errors: list[str] = []
+            if installation_attached:
+                try:
+                    self._controller.remove_repository_from_app_installation(
+                        installation_id=self._app_client.installation_id,
+                        repository_id=repository_id,
+                    )
+                    session_handle.ledger.update(
+                        repository_id,
+                        installation_detached=True,
+                    )
+                except Exception as cleanup_exc:
+                    cleanup_errors.append(f"App detachment: {cleanup_exc}")
+            archive_context = self._materialization_archive_context(context)
+            archive_path = self._archive_then_delete_failed_repository(
+                session_handle,
+                archive_context,
+                owner=owner,
+                repository_name=repository_name,
+                full_name=full_name,
+                repository_id=repository_id,
+                phase="materialization_initialization",
+                reason=str(exc) or exc.__class__.__name__,
+            )
+            self._write_api_usage_artifact(session_handle)
+            if isinstance(exc, KeyboardInterrupt):
+                raise
+            detail = (
+                f"Shared materialization repository {full_name} was archived locally "
+                f"and deleted after initialization failure: {exc}. "
+                f"Forensic archive: {archive_path}"
+            )
+            if cleanup_errors:
+                detail += "; cleanup warnings: " + "; ".join(cleanup_errors)
+            raise github_controller_error(detail) from exc
+
+    def materialization_finalize(
+        self,
+        session_handle: github_disposable_session,
+        context: runtime_materialization_context,
+        handle: github_materialization_handle | None,
+        outcome: runtime_materialization_finalization,
+    ) -> Mapping[str, Any]:
+        if not isinstance(session_handle, github_disposable_session):
+            raise TypeError("Disposable GitHub session handle is invalid.")
+        if handle is None or not isinstance(handle, github_materialization_handle):
+            return {"shared": False, "retired": False}
+        if not handle.shared:
+            return {"shared": False, "retired": False}
+        if handle.retired:
+            return {
+                "shared": True,
+                "retired": True,
+                "tainted": handle.tainted,
+            }
+        identity = handle.identity
+        if identity is None:
+            raise github_controller_error(
+                f"Shared materialization {context.key} has no repository identity."
+            )
+
+        if not outcome.completed:
+            handle.tainted = True
+            archive_path = self._archive_then_delete_failed_repository(
+                session_handle,
+                self._materialization_archive_context(context),
+                owner=identity.owner,
+                repository_name=identity.name,
+                full_name=identity.full_name,
+                repository_id=identity.repository_id,
+                phase="materialization_finalization",
+                reason=outcome.detail or (
+                    "materialization interrupted"
+                    if outcome.interrupted
+                    else "materialization did not complete"
+                ),
+            )
+            handle.retired = True
+            self._write_api_usage_artifact(session_handle)
+            return {
+                "shared": True,
+                "retired": True,
+                "tainted": True,
+                "archived": True,
+                "forensic_archive": archive_path,
+                "repository": identity.full_name,
+                "repository_id": identity.repository_id,
+            }
+
+        self._retire_materialization_repository(session_handle, handle)
+        self._write_api_usage_artifact(session_handle)
+        return {
+            "shared": True,
+            "retired": True,
+            "tainted": handle.tainted,
+            "repository": identity.full_name,
+            "repository_id": identity.repository_id,
+        }
+
     def run_prepare(
         self,
         session_handle: github_disposable_session,
@@ -166,6 +415,18 @@ class github_workspace_disposable_lifecycle:
     ) -> prepared_environment:
         if not isinstance(session_handle, github_disposable_session):
             raise TypeError("Disposable GitHub session handle is invalid.")
+        materialization_handle = context.materialization_handle
+        if (
+            isinstance(materialization_handle, github_materialization_handle)
+            and materialization_handle.shared
+        ):
+            return self._prepare_shared_materialization_run(
+                session_handle,
+                context,
+                scenario,
+                reset,
+                materialization_handle,
+            )
         if session_handle.active_repositories:
             names = ", ".join(sorted(session_handle.active_repositories.values()))
             raise github_controller_error(
@@ -535,12 +796,23 @@ class github_workspace_disposable_lifecycle:
         reset: dict[str, Any],
         outcome: runtime_run_finalization,
     ) -> Mapping[str, Any]:
-        del scenario
-        del reset
         if not isinstance(session_handle, github_disposable_session):
             raise TypeError("Disposable GitHub session handle is invalid.")
         if not isinstance(handle, github_disposable_run_handle):
             raise TypeError("Disposable GitHub run handle is invalid.")
+
+        if handle.shared_materialization:
+            return self._finalize_shared_materialization_run(
+                session_handle,
+                context,
+                scenario,
+                handle,
+                reset,
+                outcome,
+            )
+
+        del scenario
+        del reset
 
         identity = handle.identity
         full_name = identity.full_name
@@ -615,6 +887,266 @@ class github_workspace_disposable_lifecycle:
             "repository": full_name,
             "repository_id": repository_id,
         }
+
+    def _prepare_shared_materialization_run(
+        self,
+        session_handle: github_disposable_session,
+        context: runtime_run_context,
+        scenario: dict[str, Any],
+        reset: dict[str, Any],
+        materialization_handle: github_materialization_handle,
+    ) -> prepared_environment:
+        if materialization_handle.tainted:
+            raise github_controller_error(
+                f"Refusing run {context.run_index}: shared materialization "
+                f"{materialization_handle.key} is tainted."
+            )
+        if materialization_handle.retired:
+            raise github_controller_error(
+                f"Refusing run {context.run_index}: shared materialization "
+                f"{materialization_handle.key} is already retired."
+            )
+        if context.scenario_id != materialization_handle.scenario_id:
+            raise github_controller_error(
+                "Run/materialization scenario mismatch: "
+                f"{context.scenario_id} != {materialization_handle.scenario_id}."
+            )
+        if materialization_handle.scenario_id not in {
+            "f1_a_regression_disposition",
+            "f1_b_release_candidate_status",
+        }:
+            raise github_controller_error(
+                "This scenario is not qualified for shared scenario materialization."
+            )
+        identity = materialization_handle.identity
+        fixture = materialization_handle.fixture
+        if identity is None or fixture is None:
+            raise github_controller_error(
+                f"Shared materialization {materialization_handle.key} is incomplete."
+            )
+        if session_handle.ledger is None:
+            raise github_controller_error("GitHub runtime resource ledger is unavailable.")
+
+        current = self._controller.repository_identity(identity.owner, identity.name)
+        _verify_disposable_identity(
+            current,
+            expected_full_name=identity.full_name,
+            expected_repository_id=identity.repository_id,
+            role="controller",
+        )
+        prepared = fixture.prepare(scenario, reset)
+
+        issued_token = self._app_client.mint_repository_token(
+            repository_id=identity.repository_id,
+            expected_repository_full_name=identity.full_name,
+        )
+        session_handle.ledger.update(
+            identity.repository_id,
+            token_minted=True,
+            token_fingerprint=hashlib.sha256(
+                issued_token.token.encode("utf-8")
+            ).hexdigest(),
+            token_revoked=False,
+            subject_bound=False,
+            subject_unbound=False,
+        )
+        configuration = dict(prepared.provenance.get("configuration", {}))
+        configuration.update(
+            {
+                "repository_full_name": identity.full_name,
+                "repository_id": identity.repository_id,
+                "disposable_repository": True,
+                "repository_lifetime": "scenario_materialization",
+                "materialization_key": materialization_handle.key,
+                "credential_model": "github_app_installation_token",
+                "installation_id": self._app_client.installation_id,
+            }
+        )
+        return prepared_environment(
+            handle=github_disposable_run_handle(
+                identity=identity,
+                fixture=fixture,
+                fixture_handle=prepared.handle,
+                admission_token=issued_token.token,
+                shared_materialization=True,
+            ),
+            provenance={
+                "fixture": materialization_handle.fixture_id,
+                "configuration": configuration,
+            },
+            evidence=prepared.evidence,
+            task_bindings=prepared.task_bindings,
+            admission_requests=(
+                runtime_subject_admission_request(
+                    integration_id="github_mcp",
+                    payload={
+                        "access_token": issued_token.token,
+                        "repository_id": identity.repository_id,
+                        "repository_full_name": identity.full_name,
+                        "ledger_path": str(session_handle.ledger.path),
+                        "revoke_installation_token": self._app_client.revoke,
+                    },
+                ),
+            ),
+        )
+
+    def _finalize_shared_materialization_run(
+        self,
+        session_handle: github_disposable_session,
+        context: runtime_run_context,
+        scenario: dict[str, Any],
+        handle: github_disposable_run_handle,
+        reset: dict[str, Any],
+        outcome: runtime_run_finalization,
+    ) -> Mapping[str, Any]:
+        identity = handle.identity
+        materialization_handle = context.materialization_handle
+        if not isinstance(materialization_handle, github_materialization_handle):
+            raise github_controller_error(
+                f"Run {context.run_index} lost its shared materialization handle."
+            )
+        if session_handle.ledger is None:
+            raise github_controller_error("GitHub runtime resource ledger is unavailable.")
+
+        ledger_entry = self._ledger_entry(session_handle, identity.repository_id)
+        if (
+            ledger_entry.get("token_minted") is True
+            and ledger_entry.get("token_revoked") is not True
+        ):
+            try:
+                self._app_client.revoke(handle.admission_token)
+                session_handle.ledger.update(identity.repository_id, token_revoked=True)
+            except Exception as exc:
+                materialization_handle.tainted = True
+                raise github_controller_error(
+                    f"Refusing shared-materialization continuation for {identity.full_name}: "
+                    f"subject App token could not be revoked: {exc}"
+                ) from exc
+
+        if not outcome.persisted:
+            materialization_handle.tainted = True
+            reason = (
+                "run evidence was not durably persisted"
+                if not outcome.interrupted
+                else "run execution was interrupted before durable persistence"
+            )
+            archive_path = self._archive_then_delete_failed_repository(
+                session_handle,
+                context,
+                owner=identity.owner,
+                repository_name=identity.name,
+                full_name=identity.full_name,
+                repository_id=identity.repository_id,
+                phase="shared_run_finalization",
+                reason=reason,
+            )
+            materialization_handle.retired = True
+            self._write_api_usage_artifact(session_handle)
+            return {
+                "shared": True,
+                "restored": False,
+                "tainted": True,
+                "retired": True,
+                "archived": True,
+                "forensic_archive": archive_path,
+                "repository": identity.full_name,
+                "repository_id": identity.repository_id,
+                "reason": reason,
+            }
+
+        restoration = handle.fixture.finalize(
+            scenario,
+            handle.fixture_handle,
+            reset,
+        )
+        restored = (
+            isinstance(restoration, Mapping)
+            and restoration.get("restored") is True
+        )
+        if not restored:
+            materialization_handle.tainted = True
+            reason = (
+                "shared scenario materialization could not be restored exactly after "
+                f"run {context.run_index}: {restoration!r}"
+            )
+            archive_path = self._archive_then_delete_failed_repository(
+                session_handle,
+                context,
+                owner=identity.owner,
+                repository_name=identity.name,
+                full_name=identity.full_name,
+                repository_id=identity.repository_id,
+                phase="shared_run_restore",
+                reason=reason,
+            )
+            materialization_handle.retired = True
+            self._write_api_usage_artifact(session_handle)
+            raise github_controller_error(
+                f"{reason}. The materialization was archived and retired: {archive_path}"
+            )
+
+        self._write_api_usage_artifact(session_handle)
+        return {
+            "shared": True,
+            "restored": True,
+            "tainted": False,
+            "retired": False,
+            "repository": identity.full_name,
+            "repository_id": identity.repository_id,
+            "restoration": dict(restoration),
+        }
+
+    def _retire_materialization_repository(
+        self,
+        session_handle: github_disposable_session,
+        handle: github_materialization_handle,
+    ) -> None:
+        identity = handle.identity
+        if identity is None:
+            raise github_controller_error(
+                f"Shared materialization {handle.key} has no repository identity."
+            )
+        current = self._controller.repository_optional(identity.owner, identity.name)
+        if current is None:
+            raise github_controller_error(
+                f"Shared materialization repository {identity.full_name} disappeared "
+                "before trusted finalization."
+            )
+        current_id = current.get("id")
+        if current_id != identity.repository_id:
+            raise github_controller_error(
+                f"Refusing deletion of {identity.full_name}: repository id changed "
+                f"from {identity.repository_id} to {current_id}."
+            )
+        if current.get("private") is not True:
+            raise github_controller_error(
+                f"Refusing deletion workflow for {identity.full_name}: repository is "
+                "no longer private."
+            )
+        self._detach_repository(session_handle, identity.repository_id)
+        self._controller.delete_repository(identity.owner, identity.name)
+        self._verify_deleted(identity.owner, identity.name)
+        assert session_handle.ledger is not None
+        session_handle.ledger.update(
+            identity.repository_id,
+            repository_retired=True,
+        )
+        session_handle.active_repositories.pop(identity.repository_id, None)
+        handle.retired = True
+
+    def _materialization_archive_context(
+        self,
+        context: runtime_materialization_context,
+    ) -> runtime_run_context:
+        return runtime_run_context(
+            execution_id=context.execution_id,
+            run_index=context.selected_run_indices[0],
+            subject_id=(context.subject_ids[0] if context.subject_ids else "materialization"),
+            scenario_id=(context.scenario_ids[0] if context.scenario_ids else "materialization"),
+            repetition=(context.repetitions[0] if context.repetitions else 0),
+            attempt=0,
+            materialization_key=context.key,
+        )
 
     def session_finalize(
         self,
@@ -1007,6 +1539,31 @@ class github_workspace_disposable_lifecycle:
         raw = (
             f"{self._run_name_prefix}-{scenario}-{subject}-e{execution_tag}-"
             f"r{context.repetition:02d}-a{context.attempt}-{token}"
+        )
+        return raw[:96].rstrip("-")
+
+    def _materialization_repository_name(
+        self,
+        context: runtime_materialization_context,
+    ) -> str:
+        scenario_aliases = {
+            "f1_a_regression_disposition": "f1-a",
+            "f1_b_release_candidate_status": "f1-b",
+            "f2_a_incoming_regression_triage": "f2-a",
+            "f2_b_stale_work_item_maintenance": "f2-b",
+            "f3_a_implementation_provenance": "f3-a",
+            "f3_b_reverted_fix_status": "f3-b",
+        }
+        scenario_id = context.scenario_ids[0] if context.scenario_ids else "materialization"
+        scenario = scenario_aliases.get(scenario_id, _slug(scenario_id))
+        token = uuid4().hex[:8]
+        execution_tag = hashlib.sha256(
+            context.execution_id.encode("utf-8")
+        ).hexdigest()[:8]
+        key_tag = hashlib.sha256(context.key.encode("utf-8")).hexdigest()[:8]
+        raw = (
+            f"{self._run_name_prefix}-{scenario}-e{execution_tag}-"
+            f"m{key_tag}-{token}"
         )
         return raw[:96].rstrip("-")
 

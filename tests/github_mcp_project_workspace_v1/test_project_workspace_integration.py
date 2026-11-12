@@ -25,6 +25,8 @@ from acmm.evidence.interpretation import interpret_scenario_evidence
 from acmm.experiment_api import (
     captured_evidence,
     evaluation_context,
+    runtime_materialization_context,
+    runtime_materialization_finalization,
     runtime_run_context,
     runtime_run_finalization,
     runtime_session_context,
@@ -245,7 +247,9 @@ def _compose_profile(package, infrastructure_subject: str):
 def test_package_declares_frozen_scientific_shape(tmp_path: Path) -> None:
     package = _install_copy(tmp_path)
 
-    assert package.schema_version == "0.3"
+    assert package.schema_version == "0.4"
+    assert package.campaign_materialization is not None
+    assert package.campaign_materialization.group_by == ("scenario_id",)
     assert len(package.contract["scenarios"]) == 12
     assert package.contract["run_protocol"]["repetitions"] == 8
     assert package.runtime is not None
@@ -2367,6 +2371,31 @@ class _fake_f1_a_client:
         assert (owner, name) == (self._identity.owner, self._identity.name)
         return dict(self.milestones[number])
 
+    def update_milestone(
+        self,
+        owner: str,
+        name: str,
+        number: int,
+        *,
+        title: str,
+        description: str | None = None,
+        state: str = "open",
+    ):
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        value = self.milestones[number]
+        value.update(
+            {
+                "title": title,
+                "description": description,
+                "state": state,
+            }
+        )
+        return dict(value)
+
+    def delete_milestone(self, owner: str, name: str, number: int):
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+        self.milestones.pop(number, None)
+
     def issue_comments(self, owner: str, name: str, number: int, **kwargs):
         del kwargs
         assert (owner, name) == (self._identity.owner, self._identity.name)
@@ -4096,6 +4125,245 @@ def test_f1_a_disposable_runtime_creates_private_repo_and_deletes_after_persiste
     assert "delta" in usage
 
 
+def test_f1_a_scenario_materialization_reuses_restores_and_retires_one_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    app_client = _fake_app_client()
+    lifecycle._controller = client
+    lifecycle._app_client = app_client
+    lifecycle._sleep = lambda _seconds: None
+
+    session_dir = tmp_path / "materialized-session"
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="execution-materialized-f1-a",
+            selected_run_indices=(0, 23),
+            session_dir=str(session_dir),
+        )
+    )
+    scenario = next(
+        item
+        for item in package.contract["scenarios"]
+        if item["id"] == "f1_a_regression_disposition"
+    )
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-materialized-f1-a",
+        key="scenario_id=f1_a_regression_disposition",
+        selected_run_indices=(0, 23),
+        subject_ids=("hermes_gpt_oss120b", "open_webui_gpt_oss120b"),
+        scenario_ids=("f1_a_regression_disposition",),
+        repetitions=(1, 2),
+        session_dir=str(session_dir),
+    )
+    materialization = lifecycle.materialization_initialize(
+        session,
+        materialization_context,
+    )
+    assert materialization.shared is True
+    assert client.exists is True
+    assert len(session.active_repositories) == 1
+    repository_id = materialization.identity.repository_id
+    assert client.app_installation_repository_ids == {repository_id}
+
+    first_context = runtime_run_context(
+        execution_id="execution-materialized-f1-a",
+        run_index=0,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f1_a_regression_disposition",
+        repetition=1,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    first = lifecycle.run_prepare(
+        session,
+        first_context,
+        scenario,
+        package.contract["run_protocol"]["reset"],
+    )
+    assert first.provenance["configuration"]["repository_lifetime"] == (
+        "scenario_materialization"
+    )
+    regression_number = int(first.task_bindings["regression_issue_number"])
+    original_title = str(client.issues[regression_number]["title"])
+    client.issues[regression_number]["title"] = original_title + ","
+
+    first_finalization = lifecycle.run_finalize(
+        session,
+        first_context,
+        scenario,
+        first.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path="/tmp/result-1",
+        ),
+    )
+    assert first_finalization["restored"] is True
+    assert client.issues[regression_number]["title"] == original_title
+    assert client.exists is True
+    assert len(session.active_repositories) == 1
+
+    second_context = runtime_run_context(
+        execution_id="execution-materialized-f1-a",
+        run_index=23,
+        subject_id="open_webui_gpt_oss120b",
+        scenario_id="f1_a_regression_disposition",
+        repetition=2,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    second = lifecycle.run_prepare(
+        session,
+        second_context,
+        scenario,
+        package.contract["run_protocol"]["reset"],
+    )
+    second_initial = json.loads(second.evidence[0].content)
+    assert second_initial["issues"][str(regression_number)]["title"] == original_title
+    assert second.handle.identity.repository_id == repository_id
+
+    second_finalization = lifecycle.run_finalize(
+        session,
+        second_context,
+        scenario,
+        second.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path="/tmp/result-2",
+        ),
+    )
+    assert second_finalization["restored"] is True
+    assert client.exists is True
+
+    materialization_finalization = lifecycle.materialization_finalize(
+        session,
+        materialization_context,
+        materialization,
+        runtime_materialization_finalization(
+            completed=True,
+            interrupted=False,
+        ),
+    )
+    assert materialization_finalization["retired"] is True
+    assert materialization_finalization["tainted"] is False
+    assert client.exists is False
+    assert session.active_repositories == {}
+    assert client.app_installation_repository_ids == set()
+    assert len(app_client.revoked_tokens) == 2
+
+
+def test_f1_a_scenario_materialization_taints_and_retires_nonrestorable_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    lifecycle._controller = client
+    lifecycle._app_client = _fake_app_client()
+    lifecycle._sleep = lambda _seconds: None
+
+    session_dir = tmp_path / "materialized-taint-session"
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="execution-materialized-taint",
+            selected_run_indices=(0, 23),
+            session_dir=str(session_dir),
+        )
+    )
+    scenario = next(
+        item
+        for item in package.contract["scenarios"]
+        if item["id"] == "f1_a_regression_disposition"
+    )
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-materialized-taint",
+        key="scenario_id=f1_a_regression_disposition",
+        selected_run_indices=(0, 23),
+        subject_ids=("hermes_gpt_oss120b", "open_webui_gpt_oss120b"),
+        scenario_ids=("f1_a_regression_disposition",),
+        repetitions=(1, 2),
+        session_dir=str(session_dir),
+    )
+    materialization = lifecycle.materialization_initialize(
+        session,
+        materialization_context,
+    )
+    run_context = runtime_run_context(
+        execution_id="execution-materialized-taint",
+        run_index=0,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f1_a_regression_disposition",
+        repetition=1,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    prepared = lifecycle.run_prepare(
+        session,
+        run_context,
+        scenario,
+        package.contract["run_protocol"]["reset"],
+    )
+
+    client.create_issue(
+        prepared.handle.identity.owner,
+        prepared.handle.identity.name,
+        title="rogue future-state contamination",
+        body="not package-owned",
+    )
+
+    with pytest.raises(RuntimeError, match="could not be restored exactly"):
+        lifecycle.run_finalize(
+            session,
+            run_context,
+            scenario,
+            prepared.handle,
+            package.contract["run_protocol"]["reset"],
+            runtime_run_finalization(
+                persisted=True,
+                validity="valid",
+                termination="agent_completed",
+                result_path="/tmp/result",
+            ),
+        )
+
+    assert materialization.tainted is True
+    assert materialization.retired is True
+    assert client.exists is False
+    assert session.active_repositories == {}
+    assert len(session.forensic_archives) == 1
+    archive_path = Path(session.forensic_archives[0])
+    assert archive_path.is_file()
+    with zipfile.ZipFile(archive_path) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+        assert manifest["failure_phase"] == "shared_run_restore"
+        assert "unexpected issue" in manifest["failure_reason"]
+
+
 def test_f1_b_disposable_runtime_materializes_actions_state_and_deletes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -4173,6 +4441,241 @@ def test_f1_b_disposable_runtime_materializes_actions_state_and_deletes(
     assert finalized["deleted"] is True
     assert finalized["quarantined"] is False
     assert client.exists is False
+
+
+def test_f1_b_scenario_materialization_reuses_restores_and_retires_one_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    app_client = _fake_app_client()
+    lifecycle._controller = client
+    lifecycle._app_client = app_client
+    lifecycle._sleep = lambda _seconds: None
+    lifecycle._f1_b_spec = loaded.runtime.fixtures["github_workspace_f1_b"]._spec
+
+    session_dir = tmp_path / "materialized-session-f1-b"
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="execution-materialized-f1-b",
+            selected_run_indices=(1, 12),
+            session_dir=str(session_dir),
+        )
+    )
+    scenario = next(
+        item
+        for item in package.contract["scenarios"]
+        if item["id"] == "f1_b_release_candidate_status"
+    )
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-materialized-f1-b",
+        key="scenario_id=f1_b_release_candidate_status",
+        selected_run_indices=(1, 12),
+        subject_ids=("hermes_gpt_oss120b",),
+        scenario_ids=("f1_b_release_candidate_status",),
+        repetitions=(1, 2),
+        session_dir=str(session_dir),
+    )
+    materialization = lifecycle.materialization_initialize(
+        session,
+        materialization_context,
+    )
+    assert materialization.shared is True
+    assert client.exists is True
+    repository_id = materialization.identity.repository_id
+    assert client.app_installation_repository_ids == {repository_id}
+
+    first_context = runtime_run_context(
+        execution_id="execution-materialized-f1-b",
+        run_index=1,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f1_b_release_candidate_status",
+        repetition=1,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    first = lifecycle.run_prepare(
+        session,
+        first_context,
+        scenario,
+        package.contract["run_protocol"]["reset"],
+    )
+    assert first.provenance["configuration"]["repository_lifetime"] == (
+        "scenario_materialization"
+    )
+    first_state = json.loads(first.evidence[0].content)
+    missing_issue_number = int(first_state["fixture_aliases"]["missing_issue_number"])
+    original_title = str(client.issues[missing_issue_number]["title"])
+    client.issues[missing_issue_number]["title"] = original_title + ","
+
+    first_finalization = lifecycle.run_finalize(
+        session,
+        first_context,
+        scenario,
+        first.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path="/tmp/result-f1-b-1",
+        ),
+    )
+    assert first_finalization["restored"] is True
+    assert client.issues[missing_issue_number]["title"] == original_title
+    assert client.exists is True
+
+    second_context = runtime_run_context(
+        execution_id="execution-materialized-f1-b",
+        run_index=12,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f1_b_release_candidate_status",
+        repetition=2,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    second = lifecycle.run_prepare(
+        session,
+        second_context,
+        scenario,
+        package.contract["run_protocol"]["reset"],
+    )
+    second_initial = json.loads(second.evidence[0].content)
+    assert second_initial["issues"][str(missing_issue_number)]["title"] == original_title
+    assert second.handle.identity.repository_id == repository_id
+
+    second_finalization = lifecycle.run_finalize(
+        session,
+        second_context,
+        scenario,
+        second.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path="/tmp/result-f1-b-2",
+        ),
+    )
+    assert second_finalization["restored"] is True
+
+    finalization = lifecycle.materialization_finalize(
+        session,
+        materialization_context,
+        materialization,
+        runtime_materialization_finalization(completed=True, interrupted=False),
+    )
+    assert finalization["retired"] is True
+    assert finalization["tainted"] is False
+    assert client.exists is False
+    assert client.app_installation_repository_ids == set()
+    assert len(app_client.revoked_tokens) == 2
+
+
+def test_f1_b_scenario_materialization_taints_on_new_actions_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    lifecycle._controller = client
+    lifecycle._app_client = _fake_app_client()
+    lifecycle._sleep = lambda _seconds: None
+    lifecycle._f1_b_spec = loaded.runtime.fixtures["github_workspace_f1_b"]._spec
+
+    session_dir = tmp_path / "materialized-taint-session-f1-b"
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="execution-materialized-taint-f1-b",
+            selected_run_indices=(1, 12),
+            session_dir=str(session_dir),
+        )
+    )
+    scenario = next(
+        item
+        for item in package.contract["scenarios"]
+        if item["id"] == "f1_b_release_candidate_status"
+    )
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-materialized-taint-f1-b",
+        key="scenario_id=f1_b_release_candidate_status",
+        selected_run_indices=(1, 12),
+        subject_ids=("hermes_gpt_oss120b",),
+        scenario_ids=("f1_b_release_candidate_status",),
+        repetitions=(1, 2),
+        session_dir=str(session_dir),
+    )
+    materialization = lifecycle.materialization_initialize(
+        session,
+        materialization_context,
+    )
+    run_context = runtime_run_context(
+        execution_id="execution-materialized-taint-f1-b",
+        run_index=1,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f1_b_release_candidate_status",
+        repetition=1,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    prepared = lifecycle.run_prepare(
+        session,
+        run_context,
+        scenario,
+        package.contract["run_protocol"]["reset"],
+    )
+    initial = json.loads(prepared.evidence[0].content)
+    workflow_id = int(initial["required_checks"]["workflow"]["id"])
+    client.dispatch_workflow(
+        prepared.handle.identity.owner,
+        prepared.handle.identity.name,
+        workflow_id,
+        ref=str(initial["release_candidate"]["branch"]),
+        inputs={"candidate": "rogue-history"},
+    )
+
+    with pytest.raises(RuntimeError, match="could not be restored exactly"):
+        lifecycle.run_finalize(
+            session,
+            run_context,
+            scenario,
+            prepared.handle,
+            package.contract["run_protocol"]["reset"],
+            runtime_run_finalization(
+                persisted=True,
+                validity="valid",
+                termination="agent_completed",
+                result_path="/tmp/result-f1-b-taint",
+            ),
+        )
+
+    assert materialization.tainted is True
+    assert materialization.retired is True
+    assert client.exists is False
+    assert len(session.forensic_archives) == 1
+    archive_path = Path(session.forensic_archives[0])
+    with zipfile.ZipFile(archive_path) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+        assert manifest["failure_phase"] == "shared_run_restore"
+        assert "Actions run" in manifest["failure_reason"]
 
 
 def test_f1_a_disposable_runtime_archives_then_deletes_unpersisted_run(
