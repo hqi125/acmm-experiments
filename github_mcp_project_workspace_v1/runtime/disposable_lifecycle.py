@@ -187,12 +187,14 @@ class github_workspace_disposable_lifecycle:
 
         scenario_id = context.scenario_ids[0]
         # Incremental qualification proceeds fixture-family by fixture-family.
-        # F1-A and F1-B now have complete trusted restore/taint implementations.
-        # Other scenario slices keep their existing disposable-per-run behavior
+        # F1 and F2 now have complete trusted restore/taint implementations.
+        # Later scenario slices keep their existing disposable-per-run behavior
         # while exercising the same Core materialization scheduler.
         if scenario_id not in {
             "f1_a_regression_disposition",
             "f1_b_release_candidate_status",
+            "f2_a_incoming_regression_triage",
+            "f2_b_stale_work_item_maintenance",
         }:
             return github_materialization_handle(
                 key=context.key,
@@ -203,7 +205,7 @@ class github_workspace_disposable_lifecycle:
         if session_handle.active_repositories:
             names = ", ".join(sorted(session_handle.active_repositories.values()))
             raise github_controller_error(
-                "Cannot initialize shared F1-A materialization while another "
+                "Cannot initialize shared scenario materialization while another "
                 f"repository remains active: {names}."
             )
         if session_handle.ledger is None:
@@ -275,7 +277,7 @@ class github_workspace_disposable_lifecycle:
                     self._controller, materializer, self._f1_a_spec
                 )
                 fixture_id = self._f1_a_spec.fixture_id
-            else:
+            elif scenario_id == "f1_b_release_candidate_status":
                 materializer = github_f1_b_materializer(
                     self._controller,
                     repository_name=repository_name,
@@ -289,6 +291,34 @@ class github_workspace_disposable_lifecycle:
                     self._controller, materializer, self._f1_b_spec
                 )
                 fixture_id = self._f1_b_spec.fixture_id
+            elif scenario_id == "f2_a_incoming_regression_triage":
+                materializer = github_f2_a_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f2_a_spec,
+                )
+                fixture = github_f2_a_fixture(
+                    self._controller, materializer, self._f2_a_spec
+                )
+                fixture_id = self._f2_a_spec.fixture_id
+            else:
+                materializer = github_f2_b_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f2_b_spec,
+                )
+                fixture = github_f2_b_fixture(
+                    self._controller, materializer, self._f2_b_spec
+                )
+                fixture_id = self._f2_b_spec.fixture_id
             materializer.run()
 
             self._controller.add_repository_to_app_installation(
@@ -914,6 +944,8 @@ class github_workspace_disposable_lifecycle:
         if materialization_handle.scenario_id not in {
             "f1_a_regression_disposition",
             "f1_b_release_candidate_status",
+            "f2_a_incoming_regression_triage",
+            "f2_b_stale_work_item_maintenance",
         }:
             raise github_controller_error(
                 "This scenario is not qualified for shared scenario materialization."

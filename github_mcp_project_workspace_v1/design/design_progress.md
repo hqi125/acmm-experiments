@@ -265,3 +265,13 @@ A fresh live re-profile is required before resuming the 36-run whole-package qua
 - [x] Replace the Experiment Package's source-rewriting Docker build with an exact maintained-fork source checkout and source-commit image identity.
 - [x] Keep the seven selected toolsets and the normalized 42-tool acquisition assertion unchanged; explicitly disable feature flags and insiders mode for v2.1.0.
 - [x] Preserve the earlier v2.0.3 package-owned governor milestones above as historical implementation checkpoints rather than rewriting them as if they had never occurred.
+
+
+## Scenario materialization checkpoint - F2 family (2026-11-12)
+
+- [x] Extend shared scenario materialization from F1-A/F1-B to F2-A/F2-B without changing the 42-tool subject-visible MCP surface.
+- [x] F2-A restores the complete pristine incoming-issue state after legitimate bounded duplicate triage, including state, labels, and run-created comments.
+- [x] F2-B restores reversible accidental drift while preserving its deliberate no-op scientific contract.
+- [x] Treat new issue/PR provider-history objects as non-restorable taint; archive and retire the materialization rather than allow later observations to inherit contaminated history.
+- [x] Treat Git refs that advance to non-baseline commit history as taint even when the trusted controller can force-reset the visible branch.
+- [x] Keep F3-F6 on disposable-per-run repository lifecycle until their family-specific restoration/taint semantics are qualified.

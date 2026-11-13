@@ -90,6 +90,49 @@ class github_f2_a_fixture:
             ),
         )
 
+    def finalize(self, scenario, handle, reset):
+        del scenario
+        del reset
+        if not isinstance(handle, github_f2_a_run_handle):
+            return {"restored": False, "detail": "invalid F2-A environment handle"}
+
+        try:
+            before = _snapshot_f2_a_state(
+                self._client,
+                handle.identity,
+                self._spec,
+                handle.observations,
+            )
+            if before["full_digest"] == handle.initial_state["full_digest"]:
+                return {"restored": True, "changed": False}
+
+            non_restorable = _restore_f2_state(
+                self._client,
+                handle.identity,
+                handle.initial_state,
+            )
+            after = _snapshot_f2_a_state(
+                self._client,
+                handle.identity,
+                self._spec,
+                handle.observations,
+            )
+            restored = (
+                not non_restorable
+                and after["full_digest"] == handle.initial_state["full_digest"]
+            )
+            return {
+                "restored": restored,
+                "changed": True,
+                "non_restorable": tuple(non_restorable),
+            }
+        except Exception as exc:
+            return {
+                "restored": False,
+                "changed": True,
+                "detail": str(exc) or exc.__class__.__name__,
+            }
+
 
 class github_f2_b_fixture:
     def __init__(
@@ -150,6 +193,50 @@ class github_f2_b_fixture:
                 ),
             ),
         )
+
+    def finalize(self, scenario, handle, reset):
+        del scenario
+        del reset
+        if not isinstance(handle, github_f2_b_run_handle):
+            return {"restored": False, "detail": "invalid F2-B environment handle"}
+
+        try:
+            before = _snapshot_f2_b_state(
+                self._client,
+                handle.identity,
+                self._spec,
+                handle.observations,
+            )
+            if before["protected_digest"] == handle.initial_state["protected_digest"]:
+                return {"restored": True, "changed": False}
+
+            non_restorable = _restore_f2_state(
+                self._client,
+                handle.identity,
+                handle.initial_state,
+            )
+            after = _snapshot_f2_b_state(
+                self._client,
+                handle.identity,
+                self._spec,
+                handle.observations,
+            )
+            restored = (
+                not non_restorable
+                and after["protected_digest"]
+                == handle.initial_state["protected_digest"]
+            )
+            return {
+                "restored": restored,
+                "changed": True,
+                "non_restorable": tuple(non_restorable),
+            }
+        except Exception as exc:
+            return {
+                "restored": False,
+                "changed": True,
+                "detail": str(exc) or exc.__class__.__name__,
+            }
 
 
 def _snapshot_f2_a_state(
@@ -422,6 +509,23 @@ def _pull_snapshot(
         "merge_commit_sha": item.get("merge_commit_sha"),
         "head": _nested_optional_string(item, "head", "sha"),
         "base": _nested_optional_string(item, "base", "sha"),
+        "head_ref": _nested_optional_string(item, "head", "ref"),
+        "base_ref": _nested_optional_string(item, "base", "ref"),
+        "labels": _label_names(item),
+        "assignees": _login_names(item.get("assignees")),
+        "milestone": _milestone_snapshot(item.get("milestone")),
+        "issue_comments": [
+            _comment_snapshot(comment)
+            for comment in client.issue_comments(owner, repo, number)
+        ],
+        "review_comments": [
+            _comment_snapshot(comment)
+            for comment in client.pull_request_review_comments(owner, repo, number)
+        ],
+        "reviews": [
+            _review_snapshot(review)
+            for review in client.pull_request_reviews(owner, repo, number)
+        ],
     }
 
 
@@ -433,6 +537,18 @@ def _comment_snapshot(item: Mapping[str, Any]) -> dict[str, Any]:
         "user": user.get("login") if isinstance(user, Mapping) else None,
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
+    }
+
+
+def _review_snapshot(item: Mapping[str, Any]) -> dict[str, Any]:
+    user = item.get("user")
+    return {
+        "id": item.get("id"),
+        "state": item.get("state"),
+        "body": item.get("body"),
+        "commit_id": item.get("commit_id"),
+        "user": user.get("login") if isinstance(user, Mapping) else None,
+        "submitted_at": item.get("submitted_at"),
     }
 
 
@@ -490,6 +606,353 @@ def _nested_optional_string(value: Mapping[str, Any], *keys: str) -> str | None:
             return None
         current = current.get(key)
     return current if isinstance(current, str) and current else None
+
+
+def _restore_f2_state(
+    client: github_controller_client,
+    identity: github_repository_identity,
+    expected: Mapping[str, Any],
+) -> list[str]:
+    owner = identity.owner
+    repo = identity.name
+    non_restorable: list[str] = []
+
+    expected_branches = {
+        str(item["name"]): str(item["sha"])
+        for item in expected.get("branches", [])
+        if isinstance(item, Mapping)
+        and isinstance(item.get("name"), str)
+        and isinstance(item.get("sha"), str)
+    }
+    current_branches = {
+        str(item.get("name")): _branch_sha(item)
+        for item in client.list_branches(owner, repo)
+        if isinstance(item.get("name"), str)
+    }
+    baseline_shas = set(expected_branches.values())
+    for name in sorted(set(current_branches) - set(expected_branches)):
+        if name == identity.default_branch:
+            non_restorable.append(f"unexpected default branch {name}")
+            continue
+        if current_branches[name] not in baseline_shas:
+            non_restorable.append(
+                f"unexpected branch {name} points to non-baseline Git history"
+            )
+        client.delete_ref(owner, repo, name)
+    for name, sha in expected_branches.items():
+        current = current_branches.get(name)
+        if current is None:
+            client.create_ref(owner, repo, name, sha)
+        elif current != sha:
+            if current not in baseline_shas:
+                non_restorable.append(
+                    f"branch {name} advanced to non-baseline Git history"
+                )
+            client.update_ref(owner, repo, name, sha, force=True)
+
+    for number_text, issue in expected.get("issues", {}).items():
+        if not isinstance(issue, Mapping):
+            continue
+        number = int(number_text)
+        client.update_issue(
+            owner,
+            repo,
+            number,
+            {
+                "title": issue.get("title"),
+                "body": issue.get("body"),
+                "state": issue.get("state"),
+                "labels": list(issue.get("labels", [])),
+                "assignees": list(issue.get("assignees", [])),
+                "milestone": _milestone_number(issue.get("milestone")),
+            },
+        )
+        _restore_f2_issue_comments(
+            client,
+            owner,
+            repo,
+            number,
+            issue.get("comments", []),
+            non_restorable,
+        )
+
+    for number_text, pull in expected.get("pull_requests", {}).items():
+        if not isinstance(pull, Mapping):
+            continue
+        number = int(number_text)
+        current = client.pull_request(owner, repo, number)
+        expected_merged = bool(pull.get("merged", False))
+        current_merged = bool(current.get("merged", False))
+        if expected_merged != current_merged:
+            non_restorable.append(f"pull request #{number} merge state changed")
+        expected_draft = bool(pull.get("draft", False))
+        current_draft = bool(current.get("draft", False))
+        if expected_draft != current_draft:
+            non_restorable.append(f"pull request #{number} draft state changed")
+
+        expected_issue_facets = {
+            "labels": list(pull.get("labels", [])),
+            "assignees": list(pull.get("assignees", [])),
+            "milestone": pull.get("milestone"),
+        }
+        current_issue_facets = {
+            "labels": _label_names(current),
+            "assignees": _login_names(current.get("assignees")),
+            "milestone": _milestone_snapshot(current.get("milestone")),
+        }
+        if current_issue_facets != expected_issue_facets:
+            non_restorable.append(
+                f"pull request #{number} issue metadata changed"
+            )
+
+        payload: dict[str, Any] = {
+            "title": pull.get("title"),
+            "body": pull.get("body"),
+        }
+        if not current_merged:
+            payload["state"] = pull.get("state")
+            base_ref = pull.get("base_ref")
+            if isinstance(base_ref, str) and base_ref:
+                payload["base"] = base_ref
+        client.update_pull_request(owner, repo, number, payload)
+        _restore_f2_issue_comments(
+            client,
+            owner,
+            repo,
+            number,
+            pull.get("issue_comments", []),
+            non_restorable,
+        )
+        _restore_f2_review_comments(
+            client,
+            owner,
+            repo,
+            number,
+            pull.get("review_comments", []),
+            non_restorable,
+        )
+        _restore_f2_reviews(
+            client,
+            owner,
+            repo,
+            number,
+            pull.get("reviews", []),
+            non_restorable,
+        )
+
+    _restore_f2_repository_labels(
+        client,
+        owner,
+        repo,
+        expected.get("repository_labels", []),
+    )
+
+    expected_issue_numbers = {
+        int(item["number"])
+        for item in expected.get("issue_catalog", [])
+        if isinstance(item, Mapping) and isinstance(item.get("number"), int)
+    }
+    current_issue_numbers = {
+        int(item["number"])
+        for item in client.list_issues(owner, repo)
+        if "pull_request" not in item and isinstance(item.get("number"), int)
+    }
+    for number in sorted(current_issue_numbers - expected_issue_numbers):
+        client.update_issue(owner, repo, number, {"state": "closed"})
+        non_restorable.append(f"unexpected issue #{number} remains in repository history")
+
+    expected_pull_numbers = {
+        int(item["number"])
+        for item in expected.get("pull_request_catalog", [])
+        if isinstance(item, Mapping) and isinstance(item.get("number"), int)
+    }
+    current_pull_numbers = {
+        int(item["number"])
+        for item in client.list_pull_requests(owner, repo)
+        if isinstance(item.get("number"), int)
+    }
+    for number in sorted(current_pull_numbers - expected_pull_numbers):
+        current = client.pull_request(owner, repo, number)
+        if current.get("merged") is not True:
+            client.update_pull_request(owner, repo, number, {"state": "closed"})
+        non_restorable.append(
+            f"unexpected pull request #{number} remains in repository history"
+        )
+
+    return non_restorable
+
+
+def _restore_f2_issue_comments(
+    client: github_controller_client,
+    owner: str,
+    repo: str,
+    number: int,
+    expected_items,
+    non_restorable: list[str],
+) -> None:
+    expected = {
+        int(item["id"]): item
+        for item in expected_items
+        if isinstance(item, Mapping) and isinstance(item.get("id"), int)
+    }
+    current = {
+        int(item["id"]): item
+        for item in client.issue_comments(owner, repo, number)
+        if isinstance(item.get("id"), int)
+    }
+    for comment_id in sorted(set(current) - set(expected)):
+        client.delete_issue_comment(owner, repo, comment_id)
+    for comment_id, expected_item in expected.items():
+        current_item = current.get(comment_id)
+        if current_item is None:
+            non_restorable.append(
+                f"issue #{number} expected comment {comment_id} disappeared"
+            )
+            continue
+        if current_item.get("body") != expected_item.get("body"):
+            client.update_issue_comment(
+                owner,
+                repo,
+                comment_id,
+                str(expected_item.get("body") or ""),
+            )
+        if (
+            current_item.get("created_at") != expected_item.get("created_at")
+            or current_item.get("updated_at") != expected_item.get("updated_at")
+        ):
+            non_restorable.append(
+                f"issue #{number} comment {comment_id} provider timestamps changed"
+            )
+
+
+def _restore_f2_review_comments(
+    client: github_controller_client,
+    owner: str,
+    repo: str,
+    number: int,
+    expected_items,
+    non_restorable: list[str],
+) -> None:
+    expected = {
+        int(item["id"]): item
+        for item in expected_items
+        if isinstance(item, Mapping) and isinstance(item.get("id"), int)
+    }
+    current = {
+        int(item["id"]): item
+        for item in client.pull_request_review_comments(owner, repo, number)
+        if isinstance(item.get("id"), int)
+    }
+    for comment_id in sorted(set(current) - set(expected)):
+        client.delete_pull_request_review_comment(owner, repo, comment_id)
+    for comment_id, expected_item in expected.items():
+        current_item = current.get(comment_id)
+        if current_item is None:
+            non_restorable.append(
+                f"pull request #{number} expected review comment {comment_id} disappeared"
+            )
+            continue
+        if current_item.get("body") != expected_item.get("body"):
+            client.update_pull_request_review_comment(
+                owner,
+                repo,
+                comment_id,
+                str(expected_item.get("body") or ""),
+            )
+        if (
+            current_item.get("created_at") != expected_item.get("created_at")
+            or current_item.get("updated_at") != expected_item.get("updated_at")
+        ):
+            non_restorable.append(
+                f"pull request #{number} review comment {comment_id} provider timestamps changed"
+            )
+
+
+def _restore_f2_reviews(
+    client: github_controller_client,
+    owner: str,
+    repo: str,
+    number: int,
+    expected_items,
+    non_restorable: list[str],
+) -> None:
+    expected = {
+        int(item["id"]): item
+        for item in expected_items
+        if isinstance(item, Mapping) and isinstance(item.get("id"), int)
+    }
+    current = {
+        int(item["id"]): item
+        for item in client.pull_request_reviews(owner, repo, number)
+        if isinstance(item.get("id"), int)
+    }
+    for review_id in sorted(set(current) - set(expected)):
+        review = current[review_id]
+        if str(review.get("state") or "").upper() == "PENDING":
+            client.delete_pending_pull_request_review(owner, repo, number, review_id)
+        else:
+            non_restorable.append(
+                f"pull request #{number} has submitted review {review_id}"
+            )
+    for review_id, expected_item in expected.items():
+        current_item = current.get(review_id)
+        if current_item is None:
+            non_restorable.append(
+                f"pull request #{number} expected review {review_id} disappeared"
+            )
+            continue
+        if _review_snapshot(current_item) != expected_item:
+            non_restorable.append(
+                f"pull request #{number} review {review_id} changed"
+            )
+
+
+def _restore_f2_repository_labels(
+    client: github_controller_client,
+    owner: str,
+    repo: str,
+    expected_items,
+) -> None:
+    expected = {
+        str(item["name"]): item
+        for item in expected_items
+        if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+    }
+    current = {
+        str(item.get("name")): item
+        for item in client.list_labels(owner, repo)
+        if isinstance(item.get("name"), str)
+    }
+    for name in sorted(set(current) - set(expected)):
+        client.delete_label(owner, repo, name)
+    for name, item in expected.items():
+        color = str(item.get("color") or "000000")
+        description = item.get("description")
+        description_value = description if isinstance(description, str) else None
+        if name not in current:
+            client.create_label(
+                owner,
+                repo,
+                label=name,
+                color=color,
+                description=description_value,
+            )
+            continue
+        if _label_snapshot(current[name]) != item:
+            client.update_label(
+                owner,
+                repo,
+                name,
+                new_name=name,
+                color=color,
+                description=description_value,
+            )
+
+
+def _milestone_number(value: Any) -> int | None:
+    if isinstance(value, Mapping) and isinstance(value.get("number"), int):
+        return int(value["number"])
+    return None
 
 
 def _digest(value: Any) -> str:

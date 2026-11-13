@@ -2,7 +2,7 @@
 
 > **Status:** APP-NATIVE MCP GOVERNOR QUALIFIED; SCENARIO MATERIALIZATION PILOT IN DEVELOPMENT.
 > The exact 42-tool App-native surface and governed v2.1.0 MCP fork are qualified across all three subjects. A 288-run stress campaign exposed repeatable provider secondary-limit pressure from the per-run repository lifecycle, so the next apparatus revision introduces package-declared campaign materialization without changing the subject-visible MCP surface.
-> F1-A established the shared scenario-materialization path; F1-B now completes the F1 family by extending trusted restoration to release metadata and treating new GitHub Actions history as non-restorable taint. F2-F6 remain disposable-per-run until migrated and qualified family by family.
+> F1 established the shared scenario-materialization path; F2 now extends it to bounded issue mutation and deliberate no-op maintenance. Reversible issue/label/comment drift is restored between observations, while new provider-history objects remain hard taint. F3-F6 remain disposable-per-run until migrated and qualified family by family.
 
 `github_mcp_project_workspace_v1` is the working identity for the second experiment in the reworked
 ACMM research roadmap. It follows the frozen `minimal_agent_baseline_v1` and introduces one real
