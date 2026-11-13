@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from acmm.experiment_api import captured_evidence, observed_environment, prepared_environment
 
 from .controller import github_controller_client, github_repository_identity
+from .f2_runtime import _restore_f2_state
 from .f3 import (
     github_f3_a_materializer,
     github_f3_a_spec,
@@ -96,6 +97,46 @@ class github_f3_a_fixture:
             ),
         )
 
+    def finalize(self, scenario, handle, reset):
+        del scenario
+        del reset
+        if not isinstance(handle, github_f3_a_run_handle):
+            return {"restored": False, "detail": "invalid F3-A environment handle"}
+        try:
+            before = _snapshot_f3_a_state(
+                self._client,
+                handle.identity,
+                self._spec,
+                handle.observations,
+            )
+            if before["full_digest"] == handle.initial_state["full_digest"]:
+                return {"restored": True, "changed": False}
+            non_restorable = _restore_f2_state(
+                self._client,
+                handle.identity,
+                handle.initial_state,
+            )
+            after = _snapshot_f3_a_state(
+                self._client,
+                handle.identity,
+                self._spec,
+                handle.observations,
+            )
+            return {
+                "restored": (
+                    not non_restorable
+                    and after["full_digest"] == handle.initial_state["full_digest"]
+                ),
+                "changed": True,
+                "non_restorable": tuple(non_restorable),
+            }
+        except Exception as exc:
+            return {
+                "restored": False,
+                "changed": True,
+                "detail": str(exc) or exc.__class__.__name__,
+            }
+
 
 class github_f3_b_fixture:
     def __init__(
@@ -161,6 +202,46 @@ class github_f3_b_fixture:
                 ),
             ),
         )
+
+    def finalize(self, scenario, handle, reset):
+        del scenario
+        del reset
+        if not isinstance(handle, github_f3_b_run_handle):
+            return {"restored": False, "detail": "invalid F3-B environment handle"}
+        try:
+            before = _snapshot_f3_b_state(
+                self._client,
+                handle.identity,
+                self._spec,
+                handle.observations,
+            )
+            if before["full_digest"] == handle.initial_state["full_digest"]:
+                return {"restored": True, "changed": False}
+            non_restorable = _restore_f2_state(
+                self._client,
+                handle.identity,
+                handle.initial_state,
+            )
+            after = _snapshot_f3_b_state(
+                self._client,
+                handle.identity,
+                self._spec,
+                handle.observations,
+            )
+            return {
+                "restored": (
+                    not non_restorable
+                    and after["full_digest"] == handle.initial_state["full_digest"]
+                ),
+                "changed": True,
+                "non_restorable": tuple(non_restorable),
+            }
+        except Exception as exc:
+            return {
+                "restored": False,
+                "changed": True,
+                "detail": str(exc) or exc.__class__.__name__,
+            }
 
 
 def _snapshot_f3_a_state(
@@ -524,6 +605,23 @@ def _pull_snapshot(
         "merge_commit_sha": item.get("merge_commit_sha"),
         "head": _nested_optional_string(item, "head", "sha"),
         "base": _nested_optional_string(item, "base", "sha"),
+        "head_ref": _nested_optional_string(item, "head", "ref"),
+        "base_ref": _nested_optional_string(item, "base", "ref"),
+        "labels": _label_names(item),
+        "assignees": _login_names(item.get("assignees")),
+        "milestone": _milestone_snapshot(item.get("milestone")),
+        "issue_comments": [
+            _comment_snapshot(comment)
+            for comment in client.issue_comments(owner, repo, number)
+        ],
+        "review_comments": [
+            _comment_snapshot(comment)
+            for comment in client.pull_request_review_comments(owner, repo, number)
+        ],
+        "reviews": [
+            _review_snapshot(review)
+            for review in client.pull_request_reviews(owner, repo, number)
+        ],
     }
 
 
@@ -535,6 +633,18 @@ def _comment_snapshot(item: Mapping[str, Any]) -> dict[str, Any]:
         "user": user.get("login") if isinstance(user, Mapping) else None,
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
+    }
+
+
+def _review_snapshot(item: Mapping[str, Any]) -> dict[str, Any]:
+    user = item.get("user")
+    return {
+        "id": item.get("id"),
+        "state": item.get("state"),
+        "body": item.get("body"),
+        "commit_id": item.get("commit_id"),
+        "user": user.get("login") if isinstance(user, Mapping) else None,
+        "submitted_at": item.get("submitted_at"),
     }
 
 

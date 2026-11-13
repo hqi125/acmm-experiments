@@ -195,6 +195,10 @@ class github_workspace_disposable_lifecycle:
             "f1_b_release_candidate_status",
             "f2_a_incoming_regression_triage",
             "f2_b_stale_work_item_maintenance",
+            "f3_a_implementation_provenance",
+            "f3_b_reverted_fix_status",
+            "f4_a_failing_validation_diagnosis",
+            "f4_b_superseded_failure_alert",
         }:
             return github_materialization_handle(
                 key=context.key,
@@ -305,7 +309,7 @@ class github_workspace_disposable_lifecycle:
                     self._controller, materializer, self._f2_a_spec
                 )
                 fixture_id = self._f2_a_spec.fixture_id
-            else:
+            elif scenario_id == "f2_b_stale_work_item_maintenance":
                 materializer = github_f2_b_materializer(
                     self._controller,
                     repository_name=repository_name,
@@ -319,6 +323,66 @@ class github_workspace_disposable_lifecycle:
                     self._controller, materializer, self._f2_b_spec
                 )
                 fixture_id = self._f2_b_spec.fixture_id
+            elif scenario_id == "f3_a_implementation_provenance":
+                materializer = github_f3_a_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f3_a_spec,
+                )
+                fixture = github_f3_a_fixture(
+                    self._controller, materializer, self._f3_a_spec
+                )
+                fixture_id = self._f3_a_spec.fixture_id
+            elif scenario_id == "f3_b_reverted_fix_status":
+                materializer = github_f3_b_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f3_b_spec,
+                )
+                fixture = github_f3_b_fixture(
+                    self._controller, materializer, self._f3_b_spec
+                )
+                fixture_id = self._f3_b_spec.fixture_id
+            elif scenario_id == "f4_a_failing_validation_diagnosis":
+                if self._f4_a_spec is None:
+                    raise github_controller_error("F4-A fixture specification is unavailable.")
+                materializer = github_f4_a_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f4_a_spec,
+                )
+                fixture = github_f4_a_fixture(
+                    self._controller, materializer, self._f4_a_spec
+                )
+                fixture_id = self._f4_a_spec.fixture_id
+            else:
+                if self._f4_b_spec is None:
+                    raise github_controller_error("F4-B fixture specification is unavailable.")
+                materializer = github_f4_b_materializer(
+                    self._controller,
+                    repository_name=repository_name,
+                    expected_repository_full_name=full_name,
+                    expected_repository_id=repository_id,
+                    expected_default_branch=self._expected_default_branch,
+                    fixture_base_files=dynamic_base,
+                    spec=self._f4_b_spec,
+                )
+                fixture = github_f4_b_fixture(
+                    self._controller, materializer, self._f4_b_spec
+                )
+                fixture_id = self._f4_b_spec.fixture_id
             materializer.run()
 
             self._controller.add_repository_to_app_installation(
@@ -946,6 +1010,10 @@ class github_workspace_disposable_lifecycle:
             "f1_b_release_candidate_status",
             "f2_a_incoming_regression_triage",
             "f2_b_stale_work_item_maintenance",
+            "f3_a_implementation_provenance",
+            "f3_b_reverted_fix_status",
+            "f4_a_failing_validation_diagnosis",
+            "f4_b_superseded_failure_alert",
         }:
             raise github_controller_error(
                 "This scenario is not qualified for shared scenario materialization."

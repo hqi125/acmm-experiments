@@ -274,4 +274,14 @@ A fresh live re-profile is required before resuming the 36-run whole-package qua
 - [x] F2-B restores reversible accidental drift while preserving its deliberate no-op scientific contract.
 - [x] Treat new issue/PR provider-history objects as non-restorable taint; archive and retire the materialization rather than allow later observations to inherit contaminated history.
 - [x] Treat Git refs that advance to non-baseline commit history as taint even when the trusted controller can force-reset the visible branch.
-- [x] Keep F3-F6 on disposable-per-run repository lifecycle until their family-specific restoration/taint semantics are qualified.
+
+## Scenario materialization completion checkpoint - F3 through F6 (2026-11-12)
+
+- [x] Extend exact shared restoration to F3-A/F3-B cross-artifact reconciliation. Authorized issue-record comments/labels are restored; unrelated issue/PR/ref/review/provider-history drift remains protected.
+- [x] Extend exact shared restoration to F4-A/F4-B CI diagnosis/reconciliation. Completed baseline Actions evidence is reusable, while any new workflow execution is hard non-restorable taint.
+- [x] Preserve fresh repository-scoped App admission for every run even when the repository is shared by the scenario slice.
+- [x] Keep F5-A/F5-B run-isolated because the required successful handoff creates a new branch/commit/PR whose provider history cannot be erased exactly.
+- [x] Keep F6-A run-isolated for the same new repair-branch/PR reason.
+- [x] Keep F6-B run-isolated because a correct run necessarily advances the existing PR head with new Git history; resetting the visible branch would not erase those commits/provider history.
+- [x] Freeze the policy that scalability optimization must not redefine non-restorable provider history as reversible merely to increase sharing.
+- [ ] Run broad/full per-scenario acquisition qualification across the new materialization policy and use real failures to drive the remaining hardening pass.

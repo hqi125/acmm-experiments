@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from acmm.experiment_api import captured_evidence, observed_environment, prepared_environment
 
 from .controller import github_controller_client, github_controller_error, github_repository_identity
+from .f2_runtime import _restore_f2_state
 from .f4 import github_f4_a_materializer, github_f4_a_spec, github_f4_b_materializer, github_f4_b_spec
 
 
@@ -57,6 +58,23 @@ class github_f4_a_fixture:
         state = _snapshot_f4_a_state(self._client, handle.identity, self._spec, handle.observations)
         return observed_environment(evidence=(_json_evidence("final_environment_state", "final_environment_state", "evidence/final_environment_state.json", state),))
 
+    def finalize(self, scenario, handle, reset):
+        del scenario
+        del reset
+        if not isinstance(handle, github_f4_a_run_handle):
+            return {"restored": False, "detail": "invalid F4-A environment handle"}
+        return _restore_f4_fixture(
+            self._client,
+            handle.identity,
+            handle.initial_state,
+            lambda: _snapshot_f4_a_state(
+                self._client,
+                handle.identity,
+                self._spec,
+                handle.observations,
+            ),
+        )
+
 
 class github_f4_b_fixture:
     def __init__(self, client: github_controller_client, materializer: github_f4_b_materializer, spec: github_f4_b_spec) -> None:
@@ -91,6 +109,23 @@ class github_f4_b_fixture:
         state = _snapshot_f4_b_state(self._client, handle.identity, self._spec, handle.observations)
         return observed_environment(evidence=(_json_evidence("final_environment_state", "final_environment_state", "evidence/final_environment_state.json", state),))
 
+    def finalize(self, scenario, handle, reset):
+        del scenario
+        del reset
+        if not isinstance(handle, github_f4_b_run_handle):
+            return {"restored": False, "detail": "invalid F4-B environment handle"}
+        return _restore_f4_fixture(
+            self._client,
+            handle.identity,
+            handle.initial_state,
+            lambda: _snapshot_f4_b_state(
+                self._client,
+                handle.identity,
+                self._spec,
+                handle.observations,
+            ),
+        )
+
 
 def _snapshot_f4_a_state(client: github_controller_client, identity: github_repository_identity, spec: github_f4_a_spec, observations: Mapping[str, Any]) -> dict[str, Any]:
     pr_number = int(observations["diagnosis_pr_number"])
@@ -123,6 +158,14 @@ def _snapshot_f4_a_state(client: github_controller_client, identity: github_repo
     protected = dict(state)
     protected.pop("diagnosis_pr_comments", None)
     protected.pop("fixture_aliases", None)
+    protected_pr = dict(protected.get("diagnosis_pr", {}))
+    protected_pr.pop("issue_comments", None)
+    protected["diagnosis_pr"] = protected_pr
+    protected_pulls = dict(protected.get("pull_requests", {}))
+    tracked = dict(protected_pulls.get(str(pr_number), {}))
+    tracked.pop("issue_comments", None)
+    protected_pulls[str(pr_number)] = tracked
+    protected["pull_requests"] = protected_pulls
     state["protected_digest"] = _digest(protected)
     state["full_digest"] = _digest(state)
     return state
@@ -173,6 +216,14 @@ def _snapshot_f4_b_state(client: github_controller_client, identity: github_repo
     issues = dict(protected.get("issues", {}))
     issues.pop(str(issue_number), None)
     protected["issues"] = issues
+    protected["issue_catalog"] = [
+        item
+        for item in protected.get("issue_catalog", [])
+        if not (
+            isinstance(item, Mapping)
+            and item.get("number") == issue_number
+        )
+    ]
     protected.pop("fixture_aliases", None)
     state["protected_digest"] = _digest(protected)
     state["full_digest"] = _digest(state)
@@ -222,13 +273,17 @@ def _snapshot_common(client: github_controller_client, identity: github_reposito
     issues = tuple(item for item in client.list_issues(identity.owner, identity.name) if "pull_request" not in item)
     pulls = tuple(client.list_pull_requests(identity.owner, identity.name))
     labels = tuple(client.list_labels(identity.owner, identity.name))
+    issue_numbers = sorted(int(item["number"]) for item in issues if isinstance(item.get("number"), int))
+    pull_numbers = sorted(int(item["number"]) for item in pulls if isinstance(item.get("number"), int))
     return {
         "authoritative_source": "github_rest_api",
         "repository": {"id": identity.repository_id, "full_name": identity.full_name, "default_branch": identity.default_branch},
         "branches": sorted(({"name": str(item.get("name")), "sha": _branch_sha(item), "protected": bool(item.get("protected", False))} for item in branches), key=lambda item: item["name"]),
+        "issue_catalog": sorted(({"number": int(item["number"]), "title": item.get("title"), "state": item.get("state")} for item in issues if isinstance(item.get("number"), int)), key=lambda item: item["number"]),
+        "pull_request_catalog": sorted(({"number": int(item["number"]), "title": item.get("title"), "state": item.get("state"), "draft": bool(item.get("draft", False))} for item in pulls if isinstance(item.get("number"), int)), key=lambda item: item["number"]),
         "repository_labels": sorted(({"name": item.get("name"), "color": item.get("color"), "description": item.get("description")} for item in labels), key=lambda item: str(item["name"])),
-        "issues": {str(int(item["number"])): _issue_snapshot(client, identity, int(item["number"])) for item in issues if isinstance(item.get("number"), int)},
-        "pull_requests": {str(int(item["number"])): _pull_snapshot(client, identity, int(item["number"])) for item in pulls if isinstance(item.get("number"), int)},
+        "issues": {str(number): _issue_snapshot(client, identity, number) for number in issue_numbers},
+        "pull_requests": {str(number): _pull_snapshot(client, identity, number) for number in pull_numbers},
     }
 
 
@@ -241,6 +296,8 @@ def _issue_snapshot(client: github_controller_client, identity: github_repositor
         "body": item.get("body"),
         "state": item.get("state"),
         "labels": sorted(_label_names(item)),
+        "assignees": _login_names(item.get("assignees")),
+        "milestone": _milestone_snapshot(item.get("milestone")),
         "comments": [_comment_snapshot(comment) for comment in comments],
     }
 
@@ -254,10 +311,50 @@ def _pull_snapshot(client: github_controller_client, identity: github_repository
         "state": item.get("state"),
         "draft": bool(item.get("draft", False)),
         "merged": item.get("merged") is True,
+        "merge_commit_sha": item.get("merge_commit_sha"),
         "head": _nested_optional_string(item, "head", "sha"),
         "base": _nested_optional_string(item, "base", "sha"),
+        "head_ref": _nested_optional_string(item, "head", "ref"),
+        "base_ref": _nested_optional_string(item, "base", "ref"),
         "labels": sorted(_label_names(item)),
+        "assignees": _login_names(item.get("assignees")),
+        "milestone": _milestone_snapshot(item.get("milestone")),
+        "issue_comments": [_comment_snapshot(comment) for comment in client.issue_comments(identity.owner, identity.name, number)],
+        "review_comments": [_comment_snapshot(comment) for comment in client.pull_request_review_comments(identity.owner, identity.name, number)],
+        "reviews": [_review_snapshot(review) for review in client.pull_request_reviews(identity.owner, identity.name, number)],
     }
+
+
+def _restore_f4_fixture(
+    client: github_controller_client,
+    identity: github_repository_identity,
+    initial_state: Mapping[str, Any],
+    snapshot,
+) -> dict[str, Any]:
+    try:
+        before = snapshot()
+        if before["full_digest"] == initial_state["full_digest"]:
+            return {"restored": True, "changed": False}
+        non_restorable = _restore_f2_state(client, identity, initial_state)
+        after = snapshot()
+        expected_actions = initial_state.get("actions_inventory", [])
+        current_actions = after.get("actions_inventory", [])
+        if current_actions != expected_actions:
+            non_restorable.append("Actions execution history changed")
+        return {
+            "restored": (
+                not non_restorable
+                and after["full_digest"] == initial_state["full_digest"]
+            ),
+            "changed": True,
+            "non_restorable": tuple(non_restorable),
+        }
+    except Exception as exc:
+        return {
+            "restored": False,
+            "changed": True,
+            "detail": str(exc) or exc.__class__.__name__,
+        }
 
 
 def _workflow_run_snapshot(client: github_controller_client, identity: github_repository_identity, run_id: int) -> dict[str, Any]:
@@ -310,6 +407,38 @@ def _actions_inventory(client: github_controller_client, identity: github_reposi
 def _comment_snapshot(item: Mapping[str, Any]) -> dict[str, Any]:
     user = item.get("user")
     return {"id": item.get("id"), "body": item.get("body"), "user": user.get("login") if isinstance(user, Mapping) else None, "created_at": item.get("created_at"), "updated_at": item.get("updated_at")}
+
+
+def _review_snapshot(item: Mapping[str, Any]) -> dict[str, Any]:
+    user = item.get("user")
+    return {
+        "id": item.get("id"),
+        "state": item.get("state"),
+        "body": item.get("body"),
+        "commit_id": item.get("commit_id"),
+        "user": user.get("login") if isinstance(user, Mapping) else None,
+        "submitted_at": item.get("submitted_at"),
+    }
+
+
+def _login_names(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return sorted(
+        str(item["login"])
+        for item in value
+        if isinstance(item, Mapping) and isinstance(item.get("login"), str)
+    )
+
+
+def _milestone_snapshot(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping):
+        return None
+    return {
+        "number": value.get("number"),
+        "title": value.get("title"),
+        "state": value.get("state"),
+    }
 
 
 def _branch_sha(item: Mapping[str, Any]) -> str | None:
