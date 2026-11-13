@@ -916,3 +916,97 @@ def test_controller_repeated_get_uses_authenticated_conditional_request(
 
     assert first == second
     assert len(calls) == 2
+
+
+def test_forecast_admission_uses_provider_primary_headers_before_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock(start=1000.0)
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+            content_requests_per_minute=60,
+            content_requests_per_hour=360,
+            primary_remaining_floor=100,
+            primary_reset_grace_seconds=3.0,
+        ),
+        state_path=tmp_path / "governor.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+    governor.observe_response(
+        route="repository.read",
+        status=200,
+        headers={
+            "X-RateLimit-Limit": "5000",
+            "X-RateLimit-Remaining": "120",
+            "X-RateLimit-Used": "4880",
+            "X-RateLimit-Reset": "1010",
+            "X-RateLimit-Resource": "core",
+        },
+        content_generating=False,
+        primary_domain="controller",
+    )
+
+    admission = governor.wait_for_forecast_capacity(
+        forecast_content_requests=0,
+        forecast_primary_requests={"controller": 50},
+    )
+
+    assert clock.sleeps == [13.0]
+    assert admission["primary"]["controller"]["source"] == "provider_headers"
+    assert admission["primary"]["controller"]["limit"] == 5000
+    assert admission["primary"]["controller"]["blocked_before_admission"] is True
+    assert admission["primary_wait_seconds"] == 13.0
+
+
+def test_forecast_admission_uses_persisted_content_ledger_as_secondary_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock(start=1000.0)
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+            content_requests_per_minute=60,
+            content_requests_per_hour=3,
+            primary_remaining_floor=0,
+        ),
+        state_path=tmp_path / "governor.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+    for _ in range(2):
+        governor.before_request(
+            method="POST",
+            route="issue.create",
+            content_generating=True,
+        )
+        governor.observe_response(
+            route="issue.create",
+            status=201,
+            headers={},
+            content_generating=True,
+        )
+        clock.value += 1.0
+
+    admission = governor.wait_for_forecast_capacity(
+        forecast_content_requests=2,
+        forecast_primary_requests={},
+    )
+
+    assert admission["content"]["source"] == "configured_secondary_fallback"
+    assert admission["content"]["hour_limit"] == 3
+    assert admission["content"]["wait_seconds"] > 3500
+    assert clock.sleeps[-1] > 3500

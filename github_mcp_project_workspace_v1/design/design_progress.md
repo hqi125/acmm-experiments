@@ -197,6 +197,7 @@ semantic validation rather than runner timing as the scientific correctness orac
 - [x] Implement route-independent scenario evaluators for F1 through F6.
 - [x] Pilot/smoke the fixture lifecycle before scientific acquisition. F1 through F6 are live qualified.
 - [x] Replace endpoint-local GitHub throttling with a shared provider request governor, persistent rolling content ledger, and execution-level API telemetry.
+- [x] Add generic Core materialization resource-governor hooks plus canonical `execution_resource_usage.yaml`; Experiment 2 forecasts from historical max × 1.25, prefers provider-observed primary limits, imports legacy usage as a seed, and uses configured content caps only as the secondary-limit fallback.
 - [~] Complete the pre-acquisition provider-volume reduction pass. The frozen direction is to move package-owned Git content/history off per-file REST mutations and onto a batched Git transport while reserving REST mutations for GitHub-native semantic objects.
 
 See [`pre_coding_checkpoint.md`](pre_coding_checkpoint.md), [`pinned_mcp_catalog.md`](pinned_mcp_catalog.md),

@@ -23,6 +23,7 @@ from .api_governor import (
 from .github_app import github_app_client
 from .git_content_plane import github_git_content_plane
 from .recovery import github_workspace_runtime_recovery
+from .resource_governor import github_execution_resource_governor
 from .controller import (
     github_controller_client,
     github_controller_diagnostic,
@@ -138,6 +139,10 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         api_base=configuration["api_base"],
         governor=governor,
         git_content_plane=git_content_plane,
+    )
+    execution_resource_governor = github_execution_resource_governor(
+        controller,
+        governor,
     )
     credentials_distinct = True
     diagnostic = github_controller_diagnostic(
@@ -413,6 +418,7 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
             ),
         ),
         lifecycle=disposable_lifecycle,
+        resource_governor=execution_resource_governor,
         apparatus_cleanup=quarantine_cleanup,
         recovery=github_workspace_runtime_recovery(
             controller,

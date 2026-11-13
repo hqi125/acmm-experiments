@@ -20,10 +20,7 @@ moved into Core merely because several scenarios use it.
 
 The package now has two complementary provider-governor boundaries. The trusted controller runtime owns a provider-scoped governor shared by controller REST, GitHub App lifecycle requests, and trusted remote Git operations. Separately, the maintained ACMM GitHub MCP v2.1.0 fork governs the server's outbound GitHub HTTP transports so subject-originated REST/GraphQL traffic is serialized and paced below the unchanged 42-tool MCP surface. No GitHub-specific behavior is added to ACMM Core.
 
-GitHub rate limiting is provider-authoritative. ACMM no longer treats its own rolling minute/hour
-content counters or a fixed primary-rate reserve as gating thresholds for GitHub. Those counters remain
-telemetry and a dormant static-fallback policy only; the production GitHub path waits because GitHub
-reported a limit, not because ACMM guessed one. The active policy is:
+GitHub request-level rate limiting remains provider-authoritative. Ordinary requests do not stop merely because a local estimate predicts exhaustion: provider `X-RateLimit-*`, `Retry-After`, and observed secondary-limit responses remain authoritative for request-level backoff. The persisted rolling content ledger and configured numeric caps now have one additional, explicitly conservative role at the *materialization admission* boundary: when GitHub exposes no queryable secondary-limit status, they are used as fallback headroom checks before starting another expensive scenario slice. The active policy is:
 
 - serialize every trusted REST/App request and conservatively keep at least 250 ms between request starts;
 - keep at least two seconds between trusted `POST`/`PATCH`/`PUT`/`DELETE` requests, deliberately stricter
@@ -41,13 +38,7 @@ reported a limit, not because ACMM guessed one. The active policy is:
 - ambiguous transport failures and unrelated authorization/validation errors remain fail-closed and are
   never mutation-retried merely because the request was mutative.
 
-The legacy `60/minute`, `360/hour`, and `1,000` primary-headroom settings remain serialized in the package
-policy for compatibility and fallback-mode testing, but are not proactive quota gates while
-`provider_authoritative_rate_limits=true`. The bounded secondary-retry count remains active because GitHub's
-best-practice guidance explicitly requires clients to stop retrying after a finite recovery sequence. This is
-necessary because GitHub explicitly notes
-that content-creation limits can be endpoint-specific, can change without notice, and can include
-undisclosed constraints.
+The configured `60/minute` and `360/hour` content limits are therefore fallback admission bounds, not claims about a queryable provider quota. The `1,000` primary-headroom reserve is applied to a live provider-reported primary limit/remaining snapshot when one exists; if a credential domain has no current provider snapshot, admission records it as unobserved rather than inventing remaining capacity. Request-level behavior still waits on provider exhaustion/cooldown signals. The bounded secondary-retry count remains active because GitHub's best-practice guidance requires finite recovery, and GitHub notes that content-creation limits can change without notice or include undisclosed constraints.
 
 ## Subject MCP provider governor
 
@@ -112,6 +103,28 @@ The package also exposes:
 for a read-only view of the current local governor budget/cooldown state and latest observed primary
 quota snapshot. GitHub does not expose a queryable secondary-limit status, so a secondary cooldown is
 known only after GitHub reports one and is then shared persistently by the governor.
+
+## Materialization admission and canonical usage
+
+Experiment 2 now attaches a package-owned execution resource governor to the generic Core execution service. It is not implemented in `acmm run` or `acmm campaign`; both entry points delegate to the same `execute_experiment()` materialization boundary and therefore receive identical admission behavior.
+
+Each execution with this package writes Core's canonical:
+
+`execution_resource_usage.yaml`
+
+The artifact contains one admission record and one measured usage record per materialization slice. The package forecast is intentionally simple for the proof of concept: maximum observed historical usage per dimension multiplied by a 1.25 safety factor. Completed canonical resource-usage records are preferred. For migration, the package can also import prior sibling `apparatus_api_usage.json` artifacts as seed samples so already-collected F3/F4 executions remain useful.
+
+Admission precedence is:
+
+1. latest provider `X-RateLimit-*` observations for primary credential-domain capacity;
+2. persisted provider cooldown/rate state carried by the existing governor;
+3. configured rolling content caps only where GitHub exposes no queryable secondary-limit status.
+
+The package never manufactures a secondary `remaining` value. A forecast larger than one configured content window is admitted only from a maximally clear local window and marked as requiring in-slice pacing; the existing per-request governor remains responsible for safe progress within the slice.
+
+Cold start requires no CLI flag. With no historical sample, the first slice is recorded as `cold_start` and is admitted using current provider/cooldown state plus existing request-level controls. Its measured delta is appended to the in-memory history immediately and becomes a forecast sample for the next materialization in the same execution.
+
+`apparatus_api_usage.json` remains the detailed whole-session diagnostic artifact. The new YAML is the stable execution-facing interface for admission history and per-materialization measured deltas.
 
 ## Provider semantics already centralized
 

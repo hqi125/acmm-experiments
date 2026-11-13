@@ -27,6 +27,7 @@ from acmm.experiment_api import (
     evaluation_context,
     runtime_materialization_context,
     runtime_materialization_finalization,
+    runtime_resource_execution_context,
     runtime_run_context,
     runtime_run_finalization,
     runtime_session_context,
@@ -8458,3 +8459,83 @@ def test_f5_f6_materialization_remains_run_isolated_by_design(
     assert materialization.shared is False
     assert materialization.identity is None
     assert session.active_repositories == {}
+
+
+def test_execution_resource_governor_imports_legacy_usage_as_cold_start_seed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    governor = loaded.runtime.resource_governor
+    assert governor is not None
+
+    parent = tmp_path / "results" / EXPERIMENT_ID
+    prior = parent / "execution_prior"
+    prior.mkdir(parents=True)
+    (prior / "experiment_execution.yaml").write_text(
+        "slots:\n"
+        "  - run_index: 1\n"
+        "    scenario_id: f4_b_superseded_failure_alert\n"
+        "  - run_index: 2\n"
+        "    scenario_id: f4_b_superseded_failure_alert\n",
+        encoding="utf-8",
+    )
+    (prior / "apparatus_api_usage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1",
+                "start": {},
+                "end": {},
+                "delta": {
+                    "schema_version": "0.1",
+                    "metrics": {
+                        "requests": 100,
+                        "status_304": 40,
+                        "mutations": 12,
+                        "content_requests": 8,
+                    },
+                    "routes": {},
+                    "credential_domains": {
+                        "controller": {
+                            "requests": 90,
+                            "status_304": 40,
+                        },
+                        "installation": {"requests": 10},
+                    },
+                    "git_content_plane": {"metrics": {"pushes": 3}},
+                    "provider_window_after": {},
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    current = parent / "execution_current"
+    current.mkdir(parents=True)
+
+    session = governor.execution_initialize(
+        runtime_resource_execution_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="current",
+            selected_run_indices=(0,),
+            session_dir=str(current),
+        )
+    )
+
+    assert session.record["history_sample_count"] == 1
+    assert session.record["legacy_history_artifacts"] == [
+        str(prior / "apparatus_api_usage.json")
+    ]
+    sample = session.handle.history_samples[0]
+    assert sample == {
+        "content_requests": 8,
+        "mutations": 12,
+        "requests": 100,
+        "non_304_requests": 60,
+        "primary_requests": {"controller": 50, "installation": 10},
+        "git_pushes": 3,
+        "run_count": 2,
+    }

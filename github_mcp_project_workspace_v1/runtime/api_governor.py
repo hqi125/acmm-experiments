@@ -574,6 +574,127 @@ class github_api_governor:
             self._report_wait("GitHub fallback content budget", wait)
             self._sleep(wait)
 
+    def wait_for_forecast_capacity(
+        self,
+        *,
+        forecast_content_requests: int,
+        forecast_primary_requests: Mapping[str, int],
+    ) -> dict[str, Any]:
+        """Wait until the next materialization has conservative provider headroom.
+
+        Primary-rate bounds come from the latest provider response headers whenever
+        they are available. The local content ledger is a deliberately conservative
+        fallback because GitHub does not expose secondary-limit status directly.
+        """
+        if forecast_content_requests < 0:
+            raise ValueError("Forecast content requests must not be negative.")
+        normalized_primary = {
+            str(domain): int(value)
+            for domain, value in forecast_primary_requests.items()
+            if int(value) > 0
+        }
+        before = self.usage_snapshot()
+        wait_before = float(self._metrics.get("wait_seconds", 0.0))
+
+        self._refresh_state()
+        self._wait_for_provider_clear(content_generating=True)
+
+        content_limit = self._policy.content_requests_per_hour
+        required_content = min(int(forecast_content_requests), content_limit)
+        content_wait = 0.0
+        if required_content > 0:
+            self._refresh_state()
+            now = self._clock()
+            self._prune_content_timestamps(now)
+            hour = sorted(
+                float(value)
+                for value in self._state.get("content_request_timestamps", ())
+                if isinstance(value, (int, float)) and value > now - 3600.0
+            )
+            excess = len(hour) + required_content - content_limit
+            if excess > 0:
+                release_index = min(excess, len(hour)) - 1
+                content_wait = max(0.0, hour[release_index] + 3600.0 - now + 0.05)
+                if content_wait > 0:
+                    self._record_wait(
+                        "admission_content_budget_wait_seconds",
+                        content_wait,
+                    )
+                    self._report_wait(
+                        "GitHub scenario admission content budget",
+                        content_wait,
+                    )
+                    self._sleep(content_wait)
+                    self._refresh_state()
+
+        primary_decisions: dict[str, dict[str, Any]] = {}
+        primary_wait = 0.0
+        now = self._clock()
+        primary_rates = self._primary_rates_snapshot()
+        waits: list[float] = []
+        for domain, forecast in sorted(normalized_primary.items()):
+            snapshot = primary_rates.get(domain)
+            if not isinstance(snapshot, Mapping):
+                primary_decisions[domain] = {
+                    "source": "unobserved",
+                    "forecast": forecast,
+                }
+                continue
+            limit = _rate_integer(snapshot.get("limit"))
+            remaining = _rate_integer(snapshot.get("remaining"))
+            reset = _rate_float(snapshot.get("reset"))
+            if limit is None or remaining is None or reset is None:
+                primary_decisions[domain] = {
+                    "source": "unobserved",
+                    "forecast": forecast,
+                }
+                continue
+            reserve = min(self._policy.primary_remaining_floor, max(0, limit - 1))
+            usable_window = max(0, limit - reserve)
+            admitted_forecast = min(forecast, usable_window)
+            required_remaining = reserve + admitted_forecast
+            blocked = remaining < required_remaining and reset > now
+            wait = (reset - now + self._policy.primary_reset_grace_seconds) if blocked else 0.0
+            if wait > 0:
+                waits.append(wait)
+            primary_decisions[domain] = {
+                "source": "provider_headers",
+                "resource": snapshot.get("resource"),
+                "limit": limit,
+                "remaining": remaining,
+                "reset": reset,
+                "reserve": reserve,
+                "forecast": forecast,
+                "admitted_forecast": admitted_forecast,
+                "requires_in_slice_pacing": forecast > usable_window,
+                "blocked_before_admission": blocked,
+            }
+
+        if waits:
+            primary_wait = max(waits)
+            self._record_wait("admission_primary_wait_seconds", primary_wait)
+            self._report_wait("GitHub scenario admission primary budget", primary_wait)
+            self._sleep(primary_wait)
+            self._refresh_state()
+
+        after = self.usage_snapshot()
+        wait_after = float(self._metrics.get("wait_seconds", 0.0))
+        return {
+            "wait_seconds": max(0.0, wait_after - wait_before),
+            "content": {
+                "source": "configured_secondary_fallback",
+                "hour_limit": content_limit,
+                "forecast": int(forecast_content_requests),
+                "admitted_forecast": required_content,
+                "requires_in_slice_pacing": int(forecast_content_requests) > content_limit,
+                "wait_seconds": content_wait,
+            },
+            "primary": primary_decisions,
+            "primary_wait_seconds": primary_wait,
+            "provider_window_before": before.get("provider_window", {}),
+            "provider_window_after": after.get("provider_window", {}),
+        }
+
     def wait_for_provider_ready(
         self,
         *,
@@ -712,6 +833,22 @@ def _approximate_duration(seconds: float) -> str:
         return f"{minutes}m {remaining:02d}s"
     hours, minutes = divmod(minutes, 60)
     return f"{hours}h {minutes:02d}m"
+
+def _rate_integer(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def _rate_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
 
 def default_github_api_governor_state_path(scope: str) -> Path:
     root = os.getenv("ACMM_GITHUB_PROVIDER_STATE_ROOT")
