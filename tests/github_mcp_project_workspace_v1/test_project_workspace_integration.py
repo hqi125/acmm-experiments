@@ -2627,6 +2627,7 @@ class _fake_f1_a_client:
         self.next_workflow_job = 1001
         self.git_push_count = 0
         self.pull_request_read_count = 0
+        self.update_pull_request_payloads: list[dict[str, object]] = []
         self.compare_commits_count = 0
         self._git_batch_depth = 0
         self._git_batch_dirty = False
@@ -3122,7 +3123,9 @@ class _fake_f1_a_client:
     def update_pull_request(self, owner: str, name: str, number: int, payload):
         assert (owner, name) == (self._identity.owner, self._identity.name)
         value = self.pulls[number]
-        for key, item in dict(payload).items():
+        rendered = dict(payload)
+        self.update_pull_request_payloads.append(rendered)
+        for key, item in rendered.items():
             if key == "base":
                 value["base_ref"] = item
             else:
@@ -8700,6 +8703,188 @@ def test_f5_f6_scenario_slice_initial_publication_uses_semantic_barriers_only(
     )
 
 
+def test_f6_a_wrong_base_pr_is_boundary_evidence_but_restores_shared_slice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    lifecycle._controller = client
+    lifecycle._app_client = _fake_app_client()
+    lifecycle._sleep = lambda _seconds: None
+    original_update_pull_request = client.update_pull_request
+
+    def strict_update_pull_request(owner, name, number, payload):
+        rendered = dict(payload)
+        current = client.pulls[number]
+        if "state" in rendered and "base" in rendered:
+            raise RuntimeError(
+                "GitHub API PATCH pull request returned HTTP 422: "
+                "combined state/base update"
+            )
+        if "base" in rendered and rendered["base"] == current.get("base_ref"):
+            raise RuntimeError(
+                "GitHub API PATCH pull request returned HTTP 422: "
+                "redundant base update"
+            )
+        return original_update_pull_request(owner, name, number, rendered)
+
+    client.update_pull_request = strict_update_pull_request
+    scenario_id = "f6_a_release_blocker_resolution"
+    scenario = next(
+        item for item in package.contract["scenarios"] if item["id"] == scenario_id
+    )
+    session_dir = tmp_path / "f6-a-wrong-base-restoration"
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="execution-f6-a-wrong-base-restoration",
+            selected_run_indices=(10, 21),
+            session_dir=str(session_dir),
+        )
+    )
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-f6-a-wrong-base-restoration",
+        key=f"scenario_id={scenario_id}",
+        selected_run_indices=(10, 21),
+        subject_ids=("open_webui_gpt_oss120b",),
+        scenario_ids=(scenario_id,),
+        repetitions=(1, 2),
+        session_dir=str(session_dir),
+    )
+    materialization = lifecycle.materialization_initialize(
+        session,
+        materialization_context,
+    )
+    assert materialization.identity is not None
+    owner = materialization.identity.owner
+    repo = materialization.identity.name
+
+    first_context = runtime_run_context(
+        execution_id="execution-f6-a-wrong-base-restoration",
+        run_index=10,
+        subject_id="open_webui_gpt_oss120b",
+        scenario_id=scenario_id,
+        repetition=1,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    first = lifecycle.run_prepare(
+        session,
+        first_context,
+        scenario,
+        package.contract["run_protocol"]["reset"],
+    )
+    pre = json.loads(first.evidence[0].content)
+    release_branch = pre["fixture_aliases"]["release_branch"]
+    release_sha = client.branches[release_branch]
+    branch = "wrong-base-review"
+    client.create_ref(owner, repo, branch, release_sha)
+    pr = client.create_pull_request(
+        owner,
+        repo,
+        title="Repair release blocker",
+        head=branch,
+        base="main",
+        body="Agent selected the wrong PR base.",
+    )
+
+    observed = lifecycle.run_observe(
+        session,
+        first_context,
+        scenario,
+        first.handle,
+    )
+    post = json.loads(observed.evidence[0].content)
+    assert post["pull_requests"][str(pr["number"])]["base_ref"] == "main"
+
+    finalized = lifecycle.run_finalize(
+        session,
+        first_context,
+        scenario,
+        first.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path=str(tmp_path / "f6-a-wrong-base-run-1"),
+        ),
+    )
+    assert finalized["restored"] is True
+    assert finalized["tainted"] is False
+    residue = client.pull_request(owner, repo, pr["number"])
+    assert residue["state"] == "closed"
+    assert residue["base"]["ref"] == release_branch
+    assert branch not in client.branches
+    assert {"base": release_branch} in client.update_pull_request_payloads
+    assert {"state": "closed"} in client.update_pull_request_payloads
+    assert not any(
+        "state" in payload and "base" in payload
+        for payload in client.update_pull_request_payloads
+    )
+
+    second_context = runtime_run_context(
+        execution_id="execution-f6-a-wrong-base-restoration",
+        run_index=21,
+        subject_id="open_webui_gpt_oss120b",
+        scenario_id=scenario_id,
+        repetition=2,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    second = lifecycle.run_prepare(
+        session,
+        second_context,
+        scenario,
+        package.contract["run_protocol"]["reset"],
+    )
+    second_pre = json.loads(second.evidence[0].content)
+    assert second_pre["candidate_branches"] == {}
+    historical = second_pre["pull_requests"][str(pr["number"])]
+    assert historical["state"] == "closed"
+    assert historical["base_ref"] == release_branch
+
+    # A later submitted review is permanent provider history. The slice must
+    # be tainted/retired rather than pretending that historical contamination
+    # was restored.
+    client.review_rows[int(pr["number"])] = [
+        {
+            "id": 99101,
+            "state": "APPROVED",
+            "body": "irreversible historical review",
+            "commit_id": release_sha,
+            "user": {"login": client._identity.owner},
+            "submitted_at": "2026-11-17T14:00:00Z",
+        }
+    ]
+    with pytest.raises(RuntimeError, match="could not be restored exactly"):
+        lifecycle.run_finalize(
+            session,
+            second_context,
+            scenario,
+            second.handle,
+            package.contract["run_protocol"]["reset"],
+            runtime_run_finalization(
+                persisted=True,
+                validity="valid",
+                termination="agent_completed",
+                result_path=str(tmp_path / "f6-a-review-taint-run-2"),
+            ),
+        )
+    assert materialization.tainted is True
+    assert materialization.retired is True
+    assert client.exists is False
+
+
 def test_f6_b_creates_run_scoped_review_fixture_inside_one_scenario_repository(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -8822,6 +9007,268 @@ def test_f6_b_creates_run_scoped_review_fixture_inside_one_scenario_repository(
         runtime_materialization_finalization(completed=True, interrupted=False),
     )
     assert client.exists is False
+
+
+def test_f6_a_correct_base_pr_restoration_does_not_resend_base(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    lifecycle._controller = client
+    lifecycle._app_client = _fake_app_client()
+    lifecycle._sleep = lambda _seconds: None
+    original_update_pull_request = client.update_pull_request
+
+    def strict_update_pull_request(owner, name, number, payload):
+        rendered = dict(payload)
+        current = client.pulls[number]
+        if "state" in rendered and "base" in rendered:
+            raise RuntimeError(
+                "GitHub API PATCH pull request returned HTTP 422: "
+                "combined state/base update"
+            )
+        if "base" in rendered and rendered["base"] == current.get("base_ref"):
+            raise RuntimeError(
+                "GitHub API PATCH pull request returned HTTP 422: "
+                "redundant base update"
+            )
+        return original_update_pull_request(owner, name, number, rendered)
+
+    client.update_pull_request = strict_update_pull_request
+    scenario_id = "f6_a_release_blocker_resolution"
+    scenario = next(
+        item for item in package.contract["scenarios"] if item["id"] == scenario_id
+    )
+    session_dir = tmp_path / "f6-a-correct-base-restoration"
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="execution-f6-a-correct-base-restoration",
+            selected_run_indices=(10,),
+            session_dir=str(session_dir),
+        )
+    )
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-f6-a-correct-base-restoration",
+        key=f"scenario_id={scenario_id}",
+        selected_run_indices=(10,),
+        subject_ids=("hermes_gpt_oss120b",),
+        scenario_ids=(scenario_id,),
+        repetitions=(1,),
+        session_dir=str(session_dir),
+    )
+    materialization = lifecycle.materialization_initialize(
+        session, materialization_context
+    )
+    assert materialization.identity is not None
+    owner = materialization.identity.owner
+    repo = materialization.identity.name
+    context = runtime_run_context(
+        execution_id="execution-f6-a-correct-base-restoration",
+        run_index=10,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id=scenario_id,
+        repetition=1,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    prepared = lifecycle.run_prepare(
+        session, context, scenario, package.contract["run_protocol"]["reset"]
+    )
+    pre = json.loads(prepared.evidence[0].content)
+    release_branch = pre["fixture_aliases"]["release_branch"]
+    branch = "correct-base-review"
+    client.create_ref(owner, repo, branch, client.branches[release_branch])
+    pr = client.create_pull_request(
+        owner,
+        repo,
+        title="Repair release blocker",
+        head=branch,
+        base=release_branch,
+        body="Correct base from the start.",
+    )
+    lifecycle.run_observe(session, context, scenario, prepared.handle)
+
+    finalized = lifecycle.run_finalize(
+        session,
+        context,
+        scenario,
+        prepared.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path=str(tmp_path / "f6-a-correct-base-run"),
+        ),
+    )
+    assert finalized["restored"] is True
+    residue = client.pull_request(owner, repo, pr["number"])
+    assert residue["state"] == "closed"
+    assert residue["base"]["ref"] == release_branch
+    assert {"state": "closed"} in client.update_pull_request_payloads
+    assert not any("base" in payload for payload in client.update_pull_request_payloads)
+
+
+def test_f6_b_restores_mutable_run_scope_and_default_branch_before_next_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    lifecycle._controller = client
+    lifecycle._app_client = _fake_app_client()
+    lifecycle._sleep = lambda _seconds: None
+    scenario_id = "f6_b_existing_pr_repair"
+    scenario = next(
+        item for item in package.contract["scenarios"] if item["id"] == scenario_id
+    )
+    session_dir = tmp_path / "f6-b-mutable-restoration"
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="execution-f6-b-mutable-restoration",
+            selected_run_indices=(11, 22),
+            session_dir=str(session_dir),
+        )
+    )
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-f6-b-mutable-restoration",
+        key=f"scenario_id={scenario_id}",
+        selected_run_indices=(11, 22),
+        subject_ids=("open_webui_gpt_oss120b",),
+        scenario_ids=(scenario_id,),
+        repetitions=(1, 2),
+        session_dir=str(session_dir),
+    )
+    materialization = lifecycle.materialization_initialize(
+        session,
+        materialization_context,
+    )
+    assert materialization.identity is not None
+
+    def prepare(run_index: int, repetition: int):
+        context = runtime_run_context(
+            execution_id="execution-f6-b-mutable-restoration",
+            run_index=run_index,
+            subject_id="open_webui_gpt_oss120b",
+            scenario_id=scenario_id,
+            repetition=repetition,
+            attempt=1,
+            materialization_key=materialization_context.key,
+            materialization_handle=materialization,
+        )
+        prepared = lifecycle.run_prepare(
+            session,
+            context,
+            scenario,
+            package.contract["run_protocol"]["reset"],
+        )
+        return context, prepared
+
+    first_context, first = prepare(11, 1)
+    owner = first.handle.identity.owner
+    repo = first.handle.identity.name
+    initial = json.loads(first.evidence[0].content)
+    aliases = initial["fixture_aliases"]
+    repair_pr = int(aliases["repair_pr_number"])
+    repair_issue = int(aliases["repair_issue_number"])
+    repair_branch = aliases["repair_head_branch"]
+    default_branch = first.handle.identity.default_branch
+    trusted_main = client.branches[default_branch]
+
+    # Simulate several agent-side Boundary breaches that are provider-mutable:
+    # direct main mutation, wrong PR base/title, and extra issue/PR comments.
+    source_path = aliases["config_source_path"]
+    source_blob = client.contents_optional(
+        owner,
+        repo,
+        source_path,
+        ref=default_branch,
+    )["sha"]
+    client.create_or_update_file(
+        owner,
+        repo,
+        source_path,
+        message="rogue direct main edit",
+        content="def timeout_ms(config):\n    return 1\n",
+        branch=default_branch,
+        sha=source_blob,
+    )
+    client.update_pull_request(
+        owner,
+        repo,
+        repair_pr,
+        {
+            "base": repair_branch,
+            "title": "agent-mutated repair title",
+        },
+    )
+    client.create_issue_comment(
+        owner,
+        repo,
+        repair_issue,
+        "temporary agent comment",
+    )
+    client.create_issue_comment(
+        owner,
+        repo,
+        repair_pr,
+        "temporary PR comment",
+    )
+
+    observed = lifecycle.run_observe(
+        session,
+        first_context,
+        scenario,
+        first.handle,
+    )
+    post = json.loads(observed.evidence[0].content)
+    assert post["branches"][0]["sha"] != trusted_main or client.branches[default_branch] != trusted_main
+    assert post["repair_pr"]["base_ref"] == repair_branch
+
+    finalized = lifecycle.run_finalize(
+        session,
+        first_context,
+        scenario,
+        first.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path=str(tmp_path / "f6-b-mutable-run-1"),
+        ),
+    )
+    assert finalized["restored"] is True
+    assert finalized["tainted"] is False
+    assert client.branches[default_branch] == trusted_main
+    assert client.issue_comments(owner, repo, repair_issue) == ()
+    assert client.issue_comments(owner, repo, repair_pr) == ()
+    retired_pr = client.pull_request(owner, repo, repair_pr)
+    assert retired_pr["state"] == "closed"
+    assert retired_pr["base"]["ref"] == initial["repair_pr"]["base_ref"]
+    assert retired_pr["title"] == initial["repair_pr"]["title"]
+
+    second_context, second = prepare(22, 2)
+    second_pre = json.loads(second.evidence[0].content)
+    assert second.handle.identity.repository_id == first.handle.identity.repository_id
+    assert client.branches[default_branch] == trusted_main
+    assert second_pre["base_branch_files"] == initial["base_branch_files"]
 
 
 def test_run_prepare_fails_closed_without_scenario_materialization(

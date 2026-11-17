@@ -377,10 +377,23 @@ class github_quarantined_repository_cleanup:
         execution_path: str,
     ) -> tuple[Path, Mapping[str, object]]:
         path = Path(execution_path).expanduser().resolve()
-        manifest_path = path if path.is_file() else path / "experiment_execution.yaml"
+        if path.is_file():
+            manifest_path = path
+        else:
+            candidates = (
+                path / "experiment_execution.yaml",
+                path / "experiment_interruption.yaml",
+                path / "experiment_failure.yaml",
+            )
+            manifest_path = next(
+                (candidate for candidate in candidates if candidate.is_file()),
+                candidates[0],
+            )
         if not manifest_path.is_file():
             raise github_controller_error(
-                f"Execution manifest does not exist: {manifest_path}"
+                "Execution manifest does not exist; expected one of "
+                "experiment_execution.yaml, experiment_interruption.yaml, or "
+                f"experiment_failure.yaml under: {path}"
             )
         try:
             value = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))

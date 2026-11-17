@@ -190,7 +190,7 @@ semantic validation rather than runner timing as the scientific correctness orac
 - [x] Pin resolved repository full name `Dufferin125/acmm-mcp-arena-experiment-2` + numeric repository ID `1447536932` from live controller doctor.
 - [x] Implement explicit trusted fixture-base initialization on the pinned repository identity.
 - [x] Live-initialize and verify the trusted fixture base repository.
-- [x] Implement scenario fixture materialization/reset for F1-A/F1-B through F6-A/F6-B using package-owned blueprints in the disposable per-run lifecycle.
+- [x] Historical checkpoint: implement F1-A/F1-B through F6-A/F6-B using package-owned disposable per-run repositories. This topology was later superseded by Phase F scenario-slice materialization; it is not an active fallback.
 - [x] Add trusted `qualify_disposable_repositories` apparatus action covering controller create/delete and subject dynamic write access with exact repository-ID deletion guards.
 - [~] Live-qualify disposable repository create/write/delete lifecycle and stress repeated cycles. One real create/subject-write/controller-read/delete probe has passed; repeated stress remains pending.
 - [x] Convert F1-A/F1-B fixed-repository materializers into package-owned blueprints instantiated into fresh run repositories. Both F1 scenarios now use the Core typed disposable lifecycle; the engineering-reference actions remain available only for qualification/debugging.
@@ -296,7 +296,7 @@ A fresh live re-profile is required before resuming the 36-run whole-package qua
 - [x] Advance GitHub PPH to v0.12 so the recurring APP/MCP checkpoint follows the per-run `app.installation_token.mint` admission action inside a scenario slice; repeated `repository.create` is no longer assumed.
 - [x] Keep the APP MCP checkpoint non-episode state; APP alone retains probe/episode semantics and Event PPH remains event-driven.
 - [x] Translate observed MCP secondary-limit deltas into independent Event-PPH punishment on `provider.github.shared_pressure` without synthesizing APP probes or rewarding governor-paced MCP successes.
-- [x] Upgrade the maintained MCP transport to governor v2 pinned at `97ceb2a7080b3c36516076e84a093224e0c27696`, with synchronous fail-closed Core admission/recovery gating and richer request-kind/gate telemetry.
+- [x] Upgrade the maintained MCP transport to governor v2 pinned at `99ef0b2db76dd4eb388df77a5cd6c94f4a200b97`, with synchronous fail-closed Core admission/recovery gating and richer request-kind/gate telemetry.
 - [x] Add live and historical regression coverage for the dual observation planes, MCP checkpoint behavior, and MCP secondary-pressure replay.
 - [x] Validate corrected F5-A engineering acquisition on the restored scenario-slice lifecycle: one repository across 24 logical runs, clean Provider Pressure trajectory, and subject-MCP usage evidence.
 - [x] Replace the temporary `max(Event PPH, APP)` admission composition with independent APP suspension plus Event-PPH pacing; provider underprediction learning now compares provider recovery against Event-PPH wait only. Advance the GitHub pressure-model lineage to v0.12.
@@ -357,7 +357,7 @@ The temporary `prepared_isolated`/shard implementation was a regression against 
 - [x] Promote Agent Zero GitHub MCP `Tool ... not found` / policy-block responses to normalized tool-result errors without teaching Core GitHub-specific semantics.
 - [x] Keep Core's provider-gate ownership generic and retain the experiment-selected mutation admission console trace.
 - [x] Eliminate active-gate mutation replay: provider recovery is still learned and actuated, but only retry-safe reads may be replayed under the same decision.
-- [x] Add the same no-mutation-replay guard defensively inside the maintained MCP fork and pin the scientific package to immutable fork commit `97ceb2a7080b3c36516076e84a093224e0c27696`.
+- [x] Add the same no-mutation-replay guard defensively inside the maintained MCP fork and pin the scientific package to immutable fork commit `99ef0b2db76dd4eb388df77a5cd6c94f4a200b97`.
 - [x] Re-run F5-A and confirm all eight Agent Zero repetitions retain the exact 42-tool catalog and complete their expected mutation path.
 - [ ] Re-run F5-B after the residual Agent Zero policy-classification shim and empty-final-response validity fix; require infrastructure-clean execution before F6 validation resumes.
 

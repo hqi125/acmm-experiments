@@ -2,7 +2,7 @@
 
 ## Implementation status
 
-F4-A and F4-B are implemented in the disposable per-run runtime and are pending live smoke qualification.
+F4-A and F4-B are implemented and live-qualified under the current scenario-slice runtime. Historical per-run-repository qualification has been superseded by the shared materialization lifecycle.
 The trusted controller pre-seeds completed `workflow_dispatch` runs before subject exposure and snapshots run,
 job, log, head-SHA, repository, and policy evidence. The workflow jobs use deterministic controller-verified
 fixture inputs so the study exercises real GitHub Actions evidence without making runner-side checkout/network

@@ -1840,8 +1840,17 @@ def _safe_error_detail(body: bytes) -> str:
         return "non-JSON error response"
     if isinstance(value, Mapping):
         message = value.get("message")
-        if isinstance(message, str) and message:
-            return message
+        rendered = message if isinstance(message, str) and message else "GitHub API request failed"
+        errors = value.get("errors")
+        if isinstance(errors, list) and errors:
+            try:
+                detail = json.dumps(errors, separators=(",", ":"), ensure_ascii=True)
+            except (TypeError, ValueError):
+                detail = "unrenderable validation details"
+            if len(detail) > 768:
+                detail = detail[:765] + "..."
+            rendered = f"{rendered}; errors={detail}"
+        return rendered
     return "GitHub API request failed"
 
 

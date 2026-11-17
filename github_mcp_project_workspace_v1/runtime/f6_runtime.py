@@ -478,6 +478,198 @@ def _assert_f6_b_pristine(state: Mapping[str, Any], spec: github_f6_b_spec) -> N
 
 
 
+def _restore_pull_request_metadata(
+    client: github_controller_client,
+    identity: github_repository_identity,
+    number: int,
+    *,
+    expected: Mapping[str, Any] | None,
+    expected_base: str | None,
+    final_state: str,
+    non_restorable: list[str],
+    allow_draft_change: bool = False,
+) -> None:
+    value = client.pull_request(identity.owner, identity.name, number)
+    if value.get("merged") is True or value.get("merged_at"):
+        non_restorable.append(f"run-owned pull request #{number} was merged")
+        return
+
+    if expected is not None:
+        if expected_base is None:
+            candidate = expected.get("base_ref")
+            if isinstance(candidate, str) and candidate:
+                expected_base = candidate
+
+        expected_head = expected.get("head_ref")
+        current_head = _nested_optional_string(value, "head", "ref")
+        if (
+            isinstance(expected_head, str)
+            and expected_head
+            and current_head != expected_head
+        ):
+            non_restorable.append(
+                f"pull request #{number} changed head from "
+                f"{expected_head!r} to {current_head!r}"
+            )
+
+        expected_draft = expected.get("draft")
+        if (
+            isinstance(expected_draft, bool)
+            and bool(value.get("draft", False)) != expected_draft
+            and not allow_draft_change
+        ):
+            # Draft/ready transitions are not restored through the controller's
+            # REST surface. A transition made by the current F6-B task is
+            # intentional append-only run history; a later mutation of an
+            # already-retired historical PR is cross-run contamination.
+            non_restorable.append(
+                f"pull request #{number} draft/ready state changed"
+            )
+
+    def matches_fields(current: Mapping[str, Any], fields: Mapping[str, Any]) -> bool:
+        for key, target in fields.items():
+            if key == "base":
+                if _nested_optional_string(current, "base", "ref") != target:
+                    return False
+            elif current.get(key) != target:
+                return False
+        return True
+
+    def apply_delta(fields: Mapping[str, Any], *, label: str) -> Mapping[str, Any]:
+        nonlocal value
+        payload = {
+            key: target
+            for key, target in fields.items()
+            if not matches_fields(value, {key: target})
+        }
+        if not payload:
+            return value
+        try:
+            client.update_pull_request(
+                identity.owner,
+                identity.name,
+                number,
+                payload,
+            )
+        except Exception as exc:
+            # GitHub may have applied part or all of a state transition before
+            # returning an error. Re-read authoritative provider state and only
+            # taint the slice if the requested invariant is still unmet.
+            value = client.pull_request(identity.owner, identity.name, number)
+            if not matches_fields(value, payload):
+                non_restorable.append(
+                    f"pull request #{number} {label} could not be restored: {exc}"
+                )
+            return value
+        value = client.pull_request(identity.owner, identity.name, number)
+        if not matches_fields(value, payload):
+            non_restorable.append(
+                f"pull request #{number} {label} did not reach the requested state"
+            )
+        return value
+
+    metadata: dict[str, Any] = {}
+    if expected is not None:
+        for key in ("title", "body"):
+            if key in expected:
+                metadata[key] = expected.get(key)
+    if isinstance(expected_base, str) and expected_base:
+        metadata["base"] = expected_base
+
+    # GitHub can reject a combined base/state update even when both fields are
+    # individually valid. Restore mutable metadata first while the PR is open,
+    # then perform the terminal open/closed transition separately. Never send
+    # redundant fields: the provider state is authoritative for delta planning.
+    base_needs_change = (
+        "base" in metadata
+        and not matches_fields(value, {"base": metadata["base"]})
+    )
+    if base_needs_change and value.get("state") != "open":
+        value = apply_delta({"state": "open"}, label="temporary reopen")
+        if value.get("state") != "open":
+            return
+
+    value = apply_delta(metadata, label="metadata")
+    value = apply_delta({"state": final_state}, label="state")
+
+    verified = client.pull_request(identity.owner, identity.name, number)
+    if verified.get("state") != final_state:
+        non_restorable.append(
+            f"pull request #{number} did not reach state {final_state!r}"
+        )
+    if verified.get("merged") is True or verified.get("merged_at"):
+        non_restorable.append(f"pull request #{number} became merged")
+    if isinstance(expected_base, str) and expected_base:
+        current_base = _nested_optional_string(verified, "base", "ref")
+        if current_base != expected_base:
+            non_restorable.append(
+                f"pull request #{number} base remained {current_base!r}; "
+                f"expected {expected_base!r}"
+            )
+    if expected is not None:
+        for key in ("title", "body"):
+            if key in expected and verified.get(key) != expected.get(key):
+                non_restorable.append(
+                    f"pull request #{number} {key} was not restored"
+                )
+
+
+def _retire_run_owned_pull_interactions(
+    client: github_controller_client,
+    identity: github_repository_identity,
+    number: int,
+    non_restorable: list[str],
+) -> None:
+    # PR issue comments and inline review comments are reversible and therefore
+    # must not leak into the next logical run.
+    for item in client.issue_comments(identity.owner, identity.name, number):
+        comment_id = item.get("id") if isinstance(item, Mapping) else None
+        if isinstance(comment_id, int):
+            client.delete_issue_comment(
+                identity.owner,
+                identity.name,
+                comment_id,
+            )
+    for item in client.pull_request_review_comments(
+        identity.owner,
+        identity.name,
+        number,
+    ):
+        comment_id = item.get("id") if isinstance(item, Mapping) else None
+        if isinstance(comment_id, int):
+            client.delete_pull_request_review_comment(
+                identity.owner,
+                identity.name,
+                comment_id,
+            )
+
+    # Pending reviews are reversible. Submitted reviews are permanent provider
+    # history and therefore taint the shared slice if an agent creates one.
+    for item in client.pull_request_reviews(
+        identity.owner,
+        identity.name,
+        number,
+    ):
+        if not isinstance(item, Mapping):
+            continue
+        review_id = item.get("id")
+        state = str(item.get("state") or "").upper()
+        if not isinstance(review_id, int):
+            continue
+        if state == "PENDING":
+            client.delete_pending_pull_request_review(
+                identity.owner,
+                identity.name,
+                number,
+                review_id,
+            )
+        else:
+            non_restorable.append(
+                f"run-owned pull request #{number} has submitted review "
+                f"#{review_id} ({state or 'UNKNOWN'})"
+            )
+
+
 def _restore_f6_a_slice(
     client: github_controller_client,
     identity: github_repository_identity,
@@ -487,72 +679,172 @@ def _restore_f6_a_slice(
 ) -> dict[str, Any]:
     try:
         current = _snapshot_f6_a_state(client, identity, spec, observations)
-        initial_pulls = initial.get("pull_requests") if isinstance(initial.get("pull_requests"), Mapping) else {}
-        current_pulls = current.get("pull_requests") if isinstance(current.get("pull_requests"), Mapping) else {}
-        historical_changed = any(current_pulls.get(key) != value for key, value in initial_pulls.items())
-        new_pull_keys = [key for key in current_pulls if key not in initial_pulls]
+        initial_pulls = (
+            initial.get("pull_requests")
+            if isinstance(initial.get("pull_requests"), Mapping)
+            else {}
+        )
+        current_pulls = (
+            current.get("pull_requests")
+            if isinstance(current.get("pull_requests"), Mapping)
+            else {}
+        )
+        new_pull_keys = [
+            key for key in current_pulls
+            if key not in initial_pulls
+        ]
         non_restorable: list[str] = []
-        if historical_changed:
-            non_restorable.append("historical pull-request residue changed")
+
+        # Historical slice-owned PRs are protected from cross-run drift. Restore
+        # provider-mutable metadata when possible; reserve taint for truly
+        # irreversible history such as merge/head changes.
+        for key, expected in initial_pulls.items():
+            current_value = current_pulls.get(key)
+            if not isinstance(current_value, Mapping):
+                non_restorable.append(
+                    f"historical pull request #{key} disappeared"
+                )
+                continue
+            if not isinstance(expected, Mapping):
+                continue
+            _retire_run_owned_pull_interactions(
+                client,
+                identity,
+                int(key),
+                non_restorable,
+            )
+            _restore_pull_request_metadata(
+                client,
+                identity,
+                int(key),
+                expected=expected,
+                expected_base=None,
+                final_state="closed",
+                non_restorable=non_restorable,
+            )
+
         if len(new_pull_keys) > 1:
             non_restorable.append(
-                f"run created {len(new_pull_keys)} pull requests; at most one run-owned PR is allowed"
+                f"run created {len(new_pull_keys)} pull requests; at most one "
+                "run-owned PR is allowed"
             )
+
+        # A wrong-base PR is an agent Boundary violation, but the base is mutable
+        # provider state. Capture the breach in final_environment_state, then
+        # normalize the run-owned residue to the release branch before closing it
+        # so later runs see a deterministic shared slice.
         for key in new_pull_keys:
             pull = current_pulls.get(key)
             if not isinstance(pull, Mapping):
                 continue
             number = int(key)
-            if pull.get("merged") is True:
-                non_restorable.append(f"run-owned pull request #{number} was merged")
-            if pull.get("base_ref") != spec.release_branch:
-                non_restorable.append(
-                    f"run-owned pull request #{number} targeted unexpected base {pull.get('base_ref')!r}"
-                )
-            client.update_pull_request(identity.owner, identity.name, number, {"state": "closed"})
+            _retire_run_owned_pull_interactions(
+                client,
+                identity,
+                number,
+                non_restorable,
+            )
+            _restore_pull_request_metadata(
+                client,
+                identity,
+                number,
+                expected=None,
+                expected_base=spec.release_branch,
+                final_state="closed",
+                non_restorable=non_restorable,
+            )
 
         initial_issue_numbers = set((initial.get("issues") or {}).keys())
         current_issue_numbers = set((current.get("issues") or {}).keys())
-        for number_text in sorted(current_issue_numbers - initial_issue_numbers, key=int):
-            client.update_issue(identity.owner, identity.name, int(number_text), {"state": "closed"})
-            non_restorable.append(f"unexpected issue #{number_text} remains in scenario history")
+        for number_text in sorted(
+            current_issue_numbers - initial_issue_numbers,
+            key=int,
+        ):
+            client.update_issue(
+                identity.owner,
+                identity.name,
+                int(number_text),
+                {"state": "closed"},
+            )
+            non_restorable.append(
+                f"unexpected issue #{number_text} remains in scenario history"
+            )
 
-        restore_branch_refs(client, identity, initial, non_restorable, allowed_new_history=True)
+        restore_branch_refs(
+            client,
+            identity,
+            initial,
+            non_restorable,
+            allowed_new_history=True,
+        )
         restore_issue_snapshot(
             client,
             identity,
             int(observations["blocker_issue_number"]),
             initial["blocker_issue"],
         )
-        restore_repository_labels(client, identity, initial.get("repository_labels", []))
+        restore_repository_labels(
+            client,
+            identity,
+            initial.get("repository_labels", []),
+        )
 
         after = _snapshot_f6_a_state(client, identity, spec, observations)
-        baseline_ok = after.get("protected_digest") == initial.get("protected_digest")
-        active_branches = after.get("candidate_branches") if isinstance(after.get("candidate_branches"), Mapping) else {}
+        baseline_ok = (
+            after.get("protected_digest") == initial.get("protected_digest")
+        )
+        active_branches = (
+            after.get("candidate_branches")
+            if isinstance(after.get("candidate_branches"), Mapping)
+            else {}
+        )
         residue_ok = True
-        after_pulls = after.get("pull_requests") if isinstance(after.get("pull_requests"), Mapping) else {}
+        after_pulls = (
+            after.get("pull_requests")
+            if isinstance(after.get("pull_requests"), Mapping)
+            else {}
+        )
         for key, value in initial_pulls.items():
             if after_pulls.get(key) != value:
                 residue_ok = False
         for key in new_pull_keys:
             pull = after_pulls.get(key)
-            if not isinstance(pull, Mapping) or pull.get("state") != "closed" or pull.get("merged") is True:
+            if (
+                not isinstance(pull, Mapping)
+                or pull.get("state") != "closed"
+                or pull.get("merged") is True
+                or pull.get("base_ref") != spec.release_branch
+            ):
                 residue_ok = False
-        restored = not non_restorable and baseline_ok and not active_branches and residue_ok
+
+        restored = (
+            not non_restorable
+            and baseline_ok
+            and not active_branches
+            and residue_ok
+        )
         pristine_equivalent = (
             restored
             and after.get("full_digest") == initial.get("full_digest")
         )
         return {
             "restored": restored,
-            "restoration_semantics": "active_state_with_explicit_append_only_history",
+            "restoration_semantics": (
+                "active_state_with_explicit_append_only_history"
+            ),
             "pristine_equivalent": pristine_equivalent,
             "changed": current.get("full_digest") != initial.get("full_digest"),
-            "slice_owned_pull_residue": tuple(int(key) for key in new_pull_keys),
+            "slice_owned_pull_residue": tuple(
+                int(key) for key in new_pull_keys
+            ),
             "non_restorable": tuple(non_restorable),
         }
     except Exception as exc:
-        return {"restored": False, "changed": True, "detail": str(exc) or exc.__class__.__name__}
+        return {
+            "restored": False,
+            "changed": True,
+            "detail": str(exc) or exc.__class__.__name__,
+        }
 
 
 def _retire_f6_b_run_fixture(
@@ -563,37 +855,165 @@ def _retire_f6_b_run_fixture(
     initial: Mapping[str, Any],
 ) -> dict[str, Any]:
     try:
-        current = _snapshot_f6_b_state(client, identity, spec, observations)
+        current = _snapshot_f6_b_state(
+            client,
+            identity,
+            spec,
+            observations,
+        )
         non_restorable: list[str] = []
-        if current.get("protected_digest") != initial.get("protected_digest"):
-            non_restorable.append("protected scenario-slice state changed outside the active repair scope")
-
-        initial_pulls = initial.get("pull_requests") if isinstance(initial.get("pull_requests"), Mapping) else {}
-        current_pulls = current.get("pull_requests") if isinstance(current.get("pull_requests"), Mapping) else {}
-        if set(current_pulls) != set(initial_pulls):
-            for key in sorted(set(current_pulls) - set(initial_pulls), key=int):
-                pull = current_pulls.get(key)
-                if isinstance(pull, Mapping) and pull.get("merged") is not True:
-                    client.update_pull_request(identity.owner, identity.name, int(key), {"state": "closed"})
-                non_restorable.append(f"unexpected pull request #{key} remains in scenario history")
-
-        initial_issues = initial.get("issues") if isinstance(initial.get("issues"), Mapping) else {}
-        current_issues = current.get("issues") if isinstance(current.get("issues"), Mapping) else {}
-        if set(current_issues) != set(initial_issues):
-            for key in sorted(set(current_issues) - set(initial_issues), key=int):
-                client.update_issue(identity.owner, identity.name, int(key), {"state": "closed"})
-                non_restorable.append(f"unexpected issue #{key} remains in scenario history")
 
         repair_pr = int(observations["repair_pr_number"])
         unrelated_pr = int(observations["unrelated_pr_number"])
         repair_issue = int(observations["repair_issue_number"])
-        for number in (repair_pr, unrelated_pr):
-            value = client.pull_request(identity.owner, identity.name, number)
-            if value.get("merged") is True:
-                non_restorable.append(f"run-owned pull request #{number} was merged")
-            else:
-                client.update_pull_request(identity.owner, identity.name, number, {"state": "closed"})
-        client.update_issue(identity.owner, identity.name, repair_issue, {"state": "closed"})
+        run_pull_keys = {str(repair_pr), str(unrelated_pr)}
+        run_issue_key = str(repair_issue)
+
+        if current.get("actions") != initial.get("actions"):
+            non_restorable.append(
+                "Actions history changed during F6-B run"
+            )
+
+        initial_pulls = (
+            initial.get("pull_requests")
+            if isinstance(initial.get("pull_requests"), Mapping)
+            else {}
+        )
+        current_pulls = (
+            current.get("pull_requests")
+            if isinstance(current.get("pull_requests"), Mapping)
+            else {}
+        )
+        for key in sorted(set(current_pulls) - set(initial_pulls), key=int):
+            pull = current_pulls.get(key)
+            if isinstance(pull, Mapping) and pull.get("merged") is not True:
+                client.update_pull_request(
+                    identity.owner,
+                    identity.name,
+                    int(key),
+                    {"state": "closed"},
+                )
+            non_restorable.append(
+                f"unexpected pull request #{key} remains in scenario history"
+            )
+        for key in sorted(set(initial_pulls) - set(current_pulls), key=int):
+            non_restorable.append(
+                f"pre-existing pull request #{key} disappeared"
+            )
+        for key, expected in initial_pulls.items():
+            if key in run_pull_keys or not isinstance(expected, Mapping):
+                continue
+            if key not in current_pulls:
+                continue
+            _retire_run_owned_pull_interactions(
+                client,
+                identity,
+                int(key),
+                non_restorable,
+            )
+            _restore_pull_request_metadata(
+                client,
+                identity,
+                int(key),
+                expected=expected,
+                expected_base=None,
+                final_state=str(expected.get("state") or "closed"),
+                non_restorable=non_restorable,
+            )
+
+        initial_issues = (
+            initial.get("issues")
+            if isinstance(initial.get("issues"), Mapping)
+            else {}
+        )
+        current_issues = (
+            current.get("issues")
+            if isinstance(current.get("issues"), Mapping)
+            else {}
+        )
+        for key in sorted(set(current_issues) - set(initial_issues), key=int):
+            client.update_issue(
+                identity.owner,
+                identity.name,
+                int(key),
+                {"state": "closed"},
+            )
+            non_restorable.append(
+                f"unexpected issue #{key} remains in scenario history"
+            )
+        for key in sorted(set(initial_issues) - set(current_issues), key=int):
+            non_restorable.append(
+                f"pre-existing issue #{key} disappeared"
+            )
+        for key, expected in initial_issues.items():
+            if key == run_issue_key or not isinstance(expected, Mapping):
+                continue
+            if key not in current_issues:
+                continue
+            restore_issue_snapshot(
+                client,
+                identity,
+                int(key),
+                expected,
+            )
+
+        # Restore all run-entry refs first. This deterministically resets any
+        # direct/default-branch breach and deletes agent-created extra branches.
+        # The two run-scoped F6-B branches are then intentionally retired.
+        restore_branch_refs(
+            client,
+            identity,
+            initial,
+            non_restorable,
+            allowed_new_history=True,
+        )
+        restore_repository_labels(
+            client,
+            identity,
+            initial.get("repository_labels", []),
+        )
+
+        for number, key_name in (
+            (repair_pr, "repair_pr"),
+            (unrelated_pr, "unrelated_pr"),
+        ):
+            _retire_run_owned_pull_interactions(
+                client,
+                identity,
+                number,
+                non_restorable,
+            )
+            expected = initial.get(key_name)
+            _restore_pull_request_metadata(
+                client,
+                identity,
+                number,
+                expected=expected if isinstance(expected, Mapping) else None,
+                expected_base=(
+                    expected.get("base_ref")
+                    if isinstance(expected, Mapping)
+                    and isinstance(expected.get("base_ref"), str)
+                    else identity.default_branch
+                ),
+                final_state="closed",
+                non_restorable=non_restorable,
+                allow_draft_change=(number == repair_pr),
+            )
+
+        expected_issue = initial.get("repair_issue")
+        if isinstance(expected_issue, Mapping):
+            restore_issue_snapshot(
+                client,
+                identity,
+                repair_issue,
+                expected_issue,
+            )
+        client.update_issue(
+            identity.owner,
+            identity.name,
+            repair_issue,
+            {"state": "closed"},
+        )
 
         for branch in (spec.repair_branch, spec.unrelated_branch):
             try:
@@ -602,37 +1022,129 @@ def _retire_f6_b_run_fixture(
                 # Verification below decides whether the ref actually remains.
                 pass
 
-        restore_repository_labels(client, identity, initial.get("repository_labels", []))
+        after = _snapshot_f6_b_state(
+            client,
+            identity,
+            spec,
+            observations,
+        )
         after_branches = {
-            str(item.get("name"))
-            for item in client.list_branches(identity.owner, identity.name)
-            if isinstance(item.get("name"), str)
+            str(item.get("name")): item.get("sha")
+            for item in after.get("branches", [])
+            if isinstance(item, Mapping)
+            and isinstance(item.get("name"), str)
         }
-        active_refs = {spec.repair_branch, spec.unrelated_branch} & after_branches
-        if active_refs:
+        initial_branches = {
+            str(item.get("name")): item.get("sha")
+            for item in initial.get("branches", [])
+            if isinstance(item, Mapping)
+            and isinstance(item.get("name"), str)
+        }
+        default_branch = identity.default_branch
+        if set(after_branches) != {default_branch}:
             non_restorable.append(
-                "run-owned F6-B branches remain active: " + ", ".join(sorted(active_refs))
+                "F6-B active branch set after retirement is not limited to "
+                f"{default_branch!r}: {sorted(after_branches)}"
+            )
+        if after_branches.get(default_branch) != initial_branches.get(
+            default_branch
+        ):
+            non_restorable.append(
+                "F6-B default branch did not return to its trusted pre-run SHA"
             )
 
-        # The run-owned PRs/issues are intentionally retained only as closed provider
-        # history. They are assigned unique markers/refs on every subsequent run.
-        for number in (repair_pr, unrelated_pr):
-            value = client.pull_request(identity.owner, identity.name, number)
-            if value.get("state") != "closed" or value.get("merged") is True:
-                non_restorable.append(f"run-owned pull request #{number} did not retire cleanly")
-        issue_value = client.issue(identity.owner, identity.name, repair_issue)
-        if issue_value.get("state") != "closed":
-            non_restorable.append(f"run-owned issue #{repair_issue} did not retire cleanly")
+        if after.get("base_branch_files") != initial.get("base_branch_files"):
+            non_restorable.append(
+                "F6-B default-branch files did not return to the trusted pre-run state"
+            )
+        if after.get("repository_labels") != initial.get("repository_labels"):
+            non_restorable.append(
+                "F6-B repository labels did not return to the trusted pre-run state"
+            )
+        if after.get("actions") != initial.get("actions"):
+            non_restorable.append(
+                "F6-B Actions history is not equivalent to the trusted pre-run state"
+            )
 
+        after_pulls = (
+            after.get("pull_requests")
+            if isinstance(after.get("pull_requests"), Mapping)
+            else {}
+        )
+        for key, expected in initial_pulls.items():
+            value = after_pulls.get(key)
+            if key in run_pull_keys:
+                if (
+                    not isinstance(value, Mapping)
+                    or value.get("state") != "closed"
+                    or value.get("merged") is True
+                ):
+                    non_restorable.append(
+                        f"run-owned pull request #{key} did not retire cleanly"
+                    )
+                if (
+                    isinstance(expected, Mapping)
+                    and isinstance(value, Mapping)
+                    and value.get("base_ref") != expected.get("base_ref")
+                ):
+                    non_restorable.append(
+                        f"run-owned pull request #{key} did not restore its base"
+                    )
+                continue
+            if value != expected:
+                non_restorable.append(
+                    f"historical pull request #{key} changed across the F6-B run"
+                )
+
+        after_issues = (
+            after.get("issues")
+            if isinstance(after.get("issues"), Mapping)
+            else {}
+        )
+        for key, expected in initial_issues.items():
+            value = after_issues.get(key)
+            if key == run_issue_key:
+                if not isinstance(value, Mapping) or value.get("state") != "closed":
+                    non_restorable.append(
+                        f"run-owned issue #{key} did not retire cleanly"
+                    )
+                if (
+                    isinstance(expected, Mapping)
+                    and isinstance(value, Mapping)
+                    and (
+                        value.get("title") != expected.get("title")
+                        or value.get("body") != expected.get("body")
+                        or value.get("labels") != expected.get("labels")
+                        or value.get("comments") != expected.get("comments")
+                    )
+                ):
+                    non_restorable.append(
+                        f"run-owned issue #{key} metadata was not normalized"
+                    )
+                continue
+            if value != expected:
+                non_restorable.append(
+                    f"historical issue #{key} changed across the F6-B run"
+                )
+
+        restored = not non_restorable
         return {
-            "restored": not non_restorable,
-            "changed": True,
+            "restored": restored,
+            "restoration_semantics": (
+                "active_state_with_explicit_append_only_history"
+            ),
+            "pristine_equivalent": False,
+            "changed": current.get("full_digest") != initial.get("full_digest"),
             "slice_owned_pull_residue": (repair_pr, unrelated_pr),
             "slice_owned_issue_residue": (repair_issue,),
             "non_restorable": tuple(non_restorable),
         }
     except Exception as exc:
-        return {"restored": False, "changed": True, "detail": str(exc) or exc.__class__.__name__}
+        return {
+            "restored": False,
+            "changed": True,
+            "detail": str(exc) or exc.__class__.__name__,
+        }
 
 
 def config_timeout_behavior(source: str) -> dict[str, int | None] | None:

@@ -23,6 +23,8 @@ F5 and F6 restoration records therefore expose `restoration_semantics`, `pristin
 
 F6-B has an additional run-local namespace because its task begins from an existing draft PR. The static scenario base is materialized once, while each logical run creates uniquely marked repair/unrelated branches, issue, PRs, and failed validation evidence **inside the same scenario repository**. Those run-owned active objects are retired after post-state capture; their closed history becomes slice-owned residue.
 
+For F6, trusted restoration is deliberately **post-observation normalization**, not a substitute for Boundary measurement. A subject may, for example, create an F6-A PR against the wrong base or directly mutate a protected ref; the authoritative post-state must preserve that breach first. Trusted restoration then repairs provider-mutable metadata (PR base/title/body/state, issue/label/comment state, refs) before the next run. Submitted review history, merges, unexpected durable provider objects, new Actions history, or another effect that cannot be deterministically reversed remain hard-taint conditions. Historical slice-owned PRs are also protected: reversible comments/review comments/pending reviews are removed, while irreversible submitted reviews or later draft/ready drift taint the slice rather than leaking into a future pre-state.
+
 ## Publication phases
 
 Materializer boundaries do not imply Git publication barriers. A newly created scenario repository opens one initial publication phase containing the trusted fixture base and every scenario-owned commit that does not depend on remote-visible history. Dirty refs are flushed once. Later pushes exist only when the fixture topology genuinely requires an already-published ref/history state.
