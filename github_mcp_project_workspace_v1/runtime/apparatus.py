@@ -230,11 +230,11 @@ class github_fixture_base_initializer:
 
 _QUARANTINE_FAILURE_PATTERNS = (
     re.compile(
-        r"Disposable run repository (?P<repository>[^ ]+) "
+        r"Disposable (?:run|scenario) repository (?P<repository>[^ ]+) "
         r"\(repository id=(?P<repository_id>[0-9]+)\) was quarantined"
     ),
     re.compile(
-        r"remote cleanup failed for disposable run repository "
+        r"remote cleanup failed for disposable (?:run|scenario) repository "
         r"(?P<repository>[^ ]+) "
         r"\(repository id=(?P<repository_id>[0-9]+)\)"
     ),

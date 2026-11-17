@@ -21,13 +21,20 @@ def _imports(path: Path) -> set[str]:
 
 
 def test_direct_github_http_clients_are_confined_to_transport_modules() -> None:
-    approved = {"controller.py", "github_app.py"}
-    http_roots = {"urllib", "requests", "httpx", "aiohttp", "http"}
+    approved = {"controller.py", "github_app.py", "provider_gate_client.py"}
+    direct_http_imports = {
+        "urllib.request",
+        "requests",
+        "httpx",
+        "aiohttp",
+        "http.client",
+    }
     offenders: list[str] = []
     for path in sorted(RUNTIME.glob("*.py")):
         imports = _imports(path)
         uses_http_client = any(
-            name.split(".", 1)[0] in http_roots
+            name in direct_http_imports
+            or any(name.startswith(prefix + ".") for prefix in direct_http_imports)
             for name in imports
         )
         text = path.read_text(encoding="utf-8")
@@ -84,7 +91,7 @@ def test_package_policy_is_never_weaker_than_github_best_practice_floors() -> No
     # GitHub documents >=1 second between mutative REST requests.
     assert float(api_policy["mutation_interval_seconds"]) >= 1.0
     # ACMM additionally spaces all trusted REST requests conservatively.
-    assert float(api_policy["request_interval_seconds"]) >= 0.0
+    assert float(api_policy["request_interval_seconds"]) >= 1.0
     # GitHub repository guidance: <=6 pushes/minute/repository.
     assert float(git_policy["push_interval_seconds"]) >= 10.0
     # GitHub repository guidance: <=15 Git read operations/second/repository.

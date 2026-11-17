@@ -1,0 +1,224 @@
+{
+  "model_id": "github_pressure_v1",
+  "model_version": "0.13",
+  "policy": {
+    "baseline_score": 1.0,
+    "punishment_increment": 1.5,
+    "reward_decrement": 0.04,
+    "score_ceiling": 8.0,
+    "admission_free_score": 1.0,
+    "base_delay_seconds": 30.0,
+    "max_delay_seconds": 600.0,
+    "confidence_observation_scale": 20
+  },
+  "run_workload": {
+    "protocol.http.POST": 0.15,
+    "semantic.create": 0.3,
+    "mutation": 0.2,
+    "resource.credential": 0.5,
+    "operation.installation_token.mint": 1.0,
+    "provider.github.shared_pressure": 1.0
+  },
+  "route_features": {
+    "repository.create": {
+      "protocol.http.POST": 0.15,
+      "semantic.create": 0.4,
+      "mutation": 0.25,
+      "content_creation": 0.4,
+      "resource.repository": 0.6,
+      "operation.repository.create": 1.0,
+      "provider.github.shared_pressure": 1.0
+    },
+    "repository.delete": {
+      "protocol.http.DELETE": 0.15,
+      "semantic.delete": 0.4,
+      "mutation": 0.25,
+      "resource.repository": 0.6,
+      "operation.repository.delete": 1.0
+    },
+    "issue.create": {
+      "protocol.http.POST": 0.15,
+      "semantic.create": 0.4,
+      "mutation": 0.25,
+      "content_creation": 0.4,
+      "resource.issue": 0.6,
+      "operation.issue.create": 1.0
+    },
+    "other.put": {
+      "protocol.http.PUT": 0.15,
+      "semantic.update": 0.4,
+      "mutation": 0.25,
+      "content_creation": 0.4,
+      "operation.content.put": 1.0
+    },
+    "app.installation_token.mint": {
+      "protocol.http.POST": 0.15,
+      "semantic.create": 0.3,
+      "mutation": 0.2,
+      "resource.credential": 0.5,
+      "operation.installation_token.mint": 1.0,
+      "provider.github.shared_pressure": 1.0
+    },
+    "app.installation_token.revoke": {
+      "protocol.http.DELETE": 0.15,
+      "semantic.delete": 0.3,
+      "mutation": 0.2,
+      "resource.credential": 0.5,
+      "operation.installation_token.revoke": 1.0
+    }
+  },
+  "pressure_duration_scale_seconds": 600.0,
+  "recovery_underprediction_scale_seconds": 600.0,
+  "adaptive_pressure_pocket": {
+    "enabled": true,
+    "max_suspension_seconds": 600,
+    "actions": [
+      "*"
+    ],
+    "minimum_similarity": 0.75,
+    "provisional_probe_count": 2,
+    "established_probe_count": 3,
+    "usage_metrics": [
+      "requests",
+      "mutations",
+      "content_requests",
+      "pph_managed_requests"
+    ],
+    "provider_window_metrics": [
+      "content_requests_last_minute",
+      "content_requests_last_hour"
+    ],
+    "max_recent_probes": 32,
+    "cold_start_prior": {
+      "enabled": true,
+      "deactivate_at_probe_count": 2,
+      "reference_limits": {
+        "concurrent_requests": 100,
+        "rest_points_per_minute": 900,
+        "content_requests_per_minute": 80,
+        "content_requests_per_hour": 500,
+        "cpu_seconds_per_60_seconds": 90,
+        "graphql_points_per_minute": 2000
+      },
+      "actuated_dimensions": [
+        "content_requests_per_minute",
+        "content_requests_per_hour"
+      ],
+      "operational_threshold_source": "controller_fallback_policy"
+    },
+    "geometry": {
+      "max_pressure_samples_per_pocket": 32,
+      "max_safe_observations": 64,
+      "safe_boundary_min_observations": 2,
+      "safe_boundary_min_probe_count": 2,
+      "safe_boundary_margin": 0.05
+    },
+    "mcp_subject_usage": {
+      "enabled": true,
+      "usage_metrics": [
+        "requests",
+        "mutations",
+        "primary_rate_limit_events",
+        "secondary_rate_limit_events",
+        "gate_admissions",
+        "gate_recoveries",
+        "gate_errors",
+        "gate_admission_wait_seconds",
+        "gate_recovery_wait_seconds",
+        "request_kind.rest.read",
+        "request_kind.rest.mutation",
+        "request_kind.graphql.read",
+        "request_kind.graphql.mutation",
+        "request_kind.raw.read",
+        "request_kind.other.read",
+        "request_kind.other.mutation"
+      ],
+      "method_metrics": [
+        "GET",
+        "POST",
+        "PATCH",
+        "PUT",
+        "DELETE"
+      ],
+      "state_metrics": [
+        "backoff_level",
+        "cooldown_remaining_seconds"
+      ],
+      "checkpoint_boundary": "previous_run_admission_action_result"
+    }
+  },
+  "mcp_secondary_pressure_features": {
+    "provider.github.shared_pressure": 1.0
+  },
+  "action_watchdog_scenarios": [
+    "f5_a_targeted_code_fix",
+    "f5_b_release_metadata_sync",
+    "f6_a_release_blocker_resolution",
+    "f6_b_existing_pr_repair"
+  ],
+  "console_reporting": {
+    "action_patterns": [
+      "mcp.*.mutation"
+    ]
+  },
+  "control_surface": {
+    "enabled": true,
+    "bind_host": "0.0.0.0",
+    "bind_port": 8765,
+    "advertised_url": "http://host.docker.internal:8765",
+    "request_interval_seconds": 1.0,
+    "mutation_interval_seconds": 2.0
+  },
+  "transport_actions": {
+    "mcp.rest.read": {
+      "protocol.http.GET": 0.15,
+      "semantic.read": 0.25,
+      "plane.subject_mcp": 0.5,
+      "transport.rest": 0.5,
+      "provider.github.shared_pressure": 1.0
+    },
+    "mcp.rest.mutation": {
+      "protocol.http.mutation": 0.15,
+      "semantic.update": 0.35,
+      "mutation": 0.25,
+      "plane.subject_mcp": 0.5,
+      "transport.rest": 0.5,
+      "provider.github.shared_pressure": 1.0
+    },
+    "mcp.graphql.read": {
+      "protocol.http.POST": 0.15,
+      "semantic.read": 0.25,
+      "plane.subject_mcp": 0.5,
+      "transport.graphql": 0.6,
+      "provider.github.shared_pressure": 1.0
+    },
+    "mcp.graphql.mutation": {
+      "protocol.http.POST": 0.15,
+      "semantic.update": 0.35,
+      "mutation": 0.25,
+      "plane.subject_mcp": 0.5,
+      "transport.graphql": 0.6,
+      "provider.github.shared_pressure": 1.0
+    },
+    "mcp.raw.read": {
+      "protocol.http.GET": 0.15,
+      "semantic.read": 0.25,
+      "plane.subject_mcp": 0.5,
+      "transport.raw": 0.5,
+      "provider.github.shared_pressure": 1.0
+    },
+    "mcp.other.read": {
+      "semantic.read": 0.2,
+      "plane.subject_mcp": 0.5,
+      "transport.other": 0.4,
+      "provider.github.shared_pressure": 1.0
+    },
+    "mcp.other.mutation": {
+      "semantic.update": 0.3,
+      "mutation": 0.25,
+      "plane.subject_mcp": 0.5,
+      "transport.other": 0.4,
+      "provider.github.shared_pressure": 1.0
+    }
+  }
+}

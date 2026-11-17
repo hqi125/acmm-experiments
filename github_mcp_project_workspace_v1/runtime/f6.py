@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import time
 from typing import Any, Mapping
 
@@ -88,6 +88,29 @@ class github_f6_a_materializer(_github_f4_materializer_base):
             ),
             observations=observations,
         )
+
+    def seed_initial_publication(self, identity: github_repository_identity) -> None:
+        """Seed main-branch files that do not depend on remote-visible state."""
+        for path, content, message in (
+            (
+                self._spec.release_policy_path,
+                self._spec.release_policy_content,
+                "F6-A: add release blocker policy",
+            ),
+            (
+                self._spec.required_workflow.path,
+                self._spec.required_workflow.content,
+                "F6-A: add release validation workflow",
+            ),
+        ):
+            self._client.create_or_update_file(
+                identity.owner,
+                identity.name,
+                path,
+                message=message,
+                content=content,
+                branch=identity.default_branch,
+            )
 
     def run_with_progress(self, report) -> apparatus_action_result:
         report(
@@ -268,6 +291,79 @@ class github_f6_b_materializer(_github_f4_materializer_base):
             observations=observations,
         )
 
+    def seed_initial_publication(self, identity: github_repository_identity) -> None:
+        """Seed main-branch files that do not depend on remote-visible state."""
+        for path, content, message in (
+            (
+                self._spec.repair_policy_path,
+                self._spec.repair_policy_content,
+                "F6-B: add review handoff policy",
+            ),
+            (
+                self._spec.config_source_path,
+                self._spec.config_base_content,
+                "F6-B: seed configuration implementation",
+            ),
+            (
+                self._spec.config_docs_path,
+                self._spec.config_docs_base_content,
+                "F6-B: seed configuration documentation",
+            ),
+            (
+                self._spec.compat_tests_path,
+                self._spec.compat_tests_content,
+                "F6-B: seed compatibility acceptance specification",
+            ),
+            (
+                self._spec.required_workflow.path,
+                self._spec.required_workflow.content,
+                "F6-B: add compatibility validation workflow",
+            ),
+            (
+                "docs/unrelated-note.md",
+                "# Unrelated note\n\nBaseline text.\n",
+                "F6-B: seed unrelated note",
+            ),
+        ):
+            self._client.create_or_update_file(
+                identity.owner,
+                identity.name,
+                path,
+                message=message,
+                content=content,
+                branch=identity.default_branch,
+            )
+
+    def ensure_slice_base(self) -> github_repository_identity:
+        """Verify the scenario-slice base without creating run-owned review objects."""
+        identity = self._resolve_identity("F6-B")
+        for label in (
+            self._spec.implementation_in_progress_label,
+            self._spec.fix_in_review_label,
+        ):
+            self._ensure_label(identity, label)
+        expected_files = (
+            (self._spec.repair_policy_path, self._spec.repair_policy_content),
+            (self._spec.config_source_path, self._spec.config_base_content),
+            (self._spec.config_docs_path, self._spec.config_docs_base_content),
+            (self._spec.compat_tests_path, self._spec.compat_tests_content),
+            (self._spec.required_workflow.path, self._spec.required_workflow.content),
+            ("docs/unrelated-note.md", "# Unrelated note\n\nBaseline text.\n"),
+        )
+        for path, expected in expected_files:
+            actual = self._client.read_text_file(
+                identity.owner,
+                identity.name,
+                path,
+                ref=identity.default_branch,
+            )
+            if actual != expected:
+                raise github_controller_error(
+                    f"F6-B scenario-slice base file '{path}' does not match the trusted fixture."
+                )
+        self._workflow(identity, self._spec.required_workflow.name)
+        return identity
+
     def run_with_progress(self, report) -> apparatus_action_result:
         report(
             apparatus_action_progress(
@@ -433,6 +529,37 @@ class github_f6_b_materializer(_github_f4_materializer_base):
             "required_workflow_name": self._spec.required_workflow.name,
             "failed_compat_run": evidence,
         }, changed
+
+
+def github_f6_b_run_scoped_spec(
+    spec: github_f6_b_spec,
+    *,
+    run_index: int,
+) -> github_f6_b_spec:
+    """Return one run-owned F6-B fixture namespace inside a scenario repository."""
+    suffix = f"acmm-r{int(run_index):06d}"
+    human = f"ACMM run {int(run_index)}"
+    return replace(
+        spec,
+        fixture_id=f"{spec.fixture_id}_{suffix}",
+        repair_branch=f"{spec.repair_branch}-{suffix}",
+        unrelated_branch=f"{spec.unrelated_branch}-{suffix}",
+        repair_issue=replace(
+            spec.repair_issue,
+            title=f"{spec.repair_issue.title} [{human}]",
+            marker=f"{spec.repair_issue.marker}:{suffix}",
+        ),
+        repair_pr=replace(
+            spec.repair_pr,
+            title=f"{spec.repair_pr.title} [{human}]",
+            marker=f"{spec.repair_pr.marker}:{suffix}",
+        ),
+        unrelated_pr=replace(
+            spec.unrelated_pr,
+            title=f"{spec.unrelated_pr.title} [{human}]",
+            marker=f"{spec.unrelated_pr.marker}:{suffix}",
+        ),
+    )
 
 
 def load_f6_a_spec(value: Mapping[str, Any], *, workflow_content: str) -> github_f6_a_spec:

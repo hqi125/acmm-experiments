@@ -2,9 +2,10 @@
 
 ## Status
 
-**F1-A and F1-B are frozen at the design level and scientifically runnable.** Both are instantiated into a
-fresh private repository for each scientific run through the typed disposable lifecycle. F1-B additionally seeds
-a deterministic completed Actions run on the release-candidate head before subject timing begins.
+**F1-A and F1-B are frozen at the design level and scientifically runnable.** Each scenario is instantiated once
+inside its scenario materialization repository. Logical runs reuse that repository under authoritative pre/post
+evidence and trusted restoration; any non-restorable mutation taints and retires the whole slice. F1-B additionally
+seeds a deterministic completed Actions run on the release-candidate head before subject timing begins.
 
 ## Construct
 

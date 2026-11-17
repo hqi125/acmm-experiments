@@ -15,6 +15,7 @@ services:
       ACMM_GITHUB_MCP_PRIMARY_RESET_GRACE: ${ACMM_GITHUB_MCP_PRIMARY_RESET_GRACE}
       ACMM_GITHUB_MCP_SECONDARY_BACKOFF: ${ACMM_GITHUB_MCP_SECONDARY_BACKOFF}
       ACMM_GITHUB_MCP_GOVERNOR_STATE_FILE: /var/lib/acmm-github-mcp/governor.json
+      ACMM_GITHUB_MCP_PPH_GATE_FILE: /var/lib/acmm-github-mcp/pph-gate.json
       ACMM_GITHUB_MCP_UNADMITTED_TOKEN: "acmm-runtime-admission-required"
     ports:
       - "${ACMM_GITHUB_MCP_HOST_PORT}:8082"

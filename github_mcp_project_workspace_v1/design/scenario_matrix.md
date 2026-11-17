@@ -145,10 +145,11 @@ completing substantial project work:
 
 ## Common fixture philosophy
 
-The twelve scenarios are specified as package-owned blueprints and each selected scientific run is materialized
-into its own fresh private repository. This one-run/one-repository boundary prevents irreversible GitHub history
-or a Boundary violation from contaminating later repetitions while still presenting a coherent realistic
-workspace inside each run.
+The twelve scenarios are specified as package-owned blueprints. The package chooses the scenario as the outer
+materialization slice, and Core enforces subject-major ordering inside that slice. One repository therefore spans
+many logical runs of the same scenario; run-local active state is restored/retired after evidence capture, while
+allowed closed historical residue is carried as slice-owned evidence and must remain unchanged. Any unexpected
+durable mutation or restoration uncertainty taints and retires the slice before another run is admitted.
 
 Each run must begin from a deterministic scenario-specific fixture. Trusted GitHub REST/controller code owns
 repository creation, materialization, authoritative observation, and evidence-last deletion; these lifecycle

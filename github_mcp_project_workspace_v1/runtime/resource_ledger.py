@@ -21,6 +21,8 @@ class github_resource_ledger:
         owner: str,
         name: str,
         full_name: str,
+        preparation_mode: str = "scenario_slice",
+        preparation_attempt: int = 1,
     ) -> None:
         value = self._load()
         repositories = value["repositories"]
@@ -35,6 +37,9 @@ class github_resource_ledger:
                 "owner": owner,
                 "name": name,
                 "full_name": full_name,
+                "preparation_mode": preparation_mode,
+                "preparation_attempt": preparation_attempt,
+                "preparation_state": "preparing",
                 "installation_attached": False,
                 "token_minted": False,
                 "token_fingerprint": None,

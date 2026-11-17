@@ -40,7 +40,7 @@
     "primary_reset_grace_seconds": 3.0,
     "provider_authoritative_rate_limits": true,
     "retry_after_grace_seconds": 3.0,
-    "request_interval_seconds": 0.25
+    "request_interval_seconds": 1.0
   },
   "github_app": {
     "app_id": 5713970,

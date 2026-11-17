@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from acmm.experiment_api import captured_evidence, observed_environment, prepared_environment
 
 from .controller import github_controller_client, github_controller_error, github_repository_identity
+from .slice_restore import restore_branch_refs, restore_issue_snapshot, restore_repository_labels
 from .f5 import github_f5_a_materializer, github_f5_a_spec, github_f5_b_materializer, github_f5_b_spec
 
 
@@ -88,6 +89,22 @@ class github_f5_a_fixture:
             )
         )
 
+    def finalize(self, scenario, handle, reset):
+        del scenario
+        del reset
+        if not isinstance(handle, github_f5_a_run_handle):
+            return {"restored": False, "detail": "invalid F5-A environment handle"}
+        return _restore_f5_slice(
+            self._client,
+            handle.identity,
+            self._spec,
+            handle.observations,
+            handle.initial_state,
+            snapshot=lambda: _snapshot_f5_a_state(
+                self._client, handle.identity, self._spec, handle.observations
+            ),
+        )
+
 
 class github_f5_b_fixture:
     def __init__(
@@ -148,6 +165,22 @@ class github_f5_b_fixture:
                     state,
                 ),
             )
+        )
+
+    def finalize(self, scenario, handle, reset):
+        del scenario
+        del reset
+        if not isinstance(handle, github_f5_b_run_handle):
+            return {"restored": False, "detail": "invalid F5-B environment handle"}
+        return _restore_f5_slice(
+            self._client,
+            handle.identity,
+            self._spec,
+            handle.observations,
+            handle.initial_state,
+            snapshot=lambda: _snapshot_f5_b_state(
+                self._client, handle.identity, self._spec, handle.observations
+            ),
         )
 
 
@@ -256,7 +289,10 @@ def _snapshot_common(
         number = item.get("number")
         if not isinstance(number, int):
             continue
-        pull_rows[str(number)] = _pull_snapshot(client, identity, number)
+        if str(item.get("state") or "") == "closed":
+            pull_rows[str(number)] = _pull_snapshot_from_catalog(item, number)
+        else:
+            pull_rows[str(number)] = _pull_snapshot(client, identity, number)
     return {
         "authoritative_source": "github_rest_api",
         "repository": {
@@ -274,6 +310,31 @@ def _snapshot_common(
                 for item in branches
             ),
             key=lambda item: item["name"],
+        ),
+        "issue_catalog": sorted(
+            (
+                {
+                    "number": int(item["number"]),
+                    "title": item.get("title"),
+                    "state": item.get("state"),
+                }
+                for item in issues
+                if isinstance(item.get("number"), int)
+            ),
+            key=lambda item: item["number"],
+        ),
+        "pull_request_catalog": sorted(
+            (
+                {
+                    "number": int(item["number"]),
+                    "title": item.get("title"),
+                    "state": item.get("state"),
+                    "draft": bool(item.get("draft", False)),
+                }
+                for item in pulls
+                if isinstance(item.get("number"), int)
+            ),
+            key=lambda item: item["number"],
         ),
         "repository_labels": sorted(
             (
@@ -296,6 +357,29 @@ def _snapshot_common(
             if isinstance(item.get("number"), int)
         },
         "pull_requests": pull_rows,
+    }
+
+
+def _pull_snapshot_from_catalog(item: Mapping[str, Any], number: int) -> dict[str, Any]:
+    """Snapshot immutable closed-PR residue from the list response only.
+
+    Closed historical PRs are slice-owned residue. Their list representation already
+    exposes the state/title/body/draft/head/base identity needed to detect later
+    mutation. Avoiding one detail read plus one compare per historical PR prevents
+    shared-repository verification from growing quadratically with the slice.
+    """
+    return {
+        "number": number,
+        "title": item.get("title"),
+        "body": item.get("body"),
+        "state": item.get("state"),
+        "draft": bool(item.get("draft", False)),
+        "merged": bool(item.get("merged") is True or item.get("merged_at")),
+        "head": _nested_optional_string(item, "head", "sha"),
+        "head_ref": _nested_optional_string(item, "head", "ref"),
+        "base": _nested_optional_string(item, "base", "sha"),
+        "base_ref": _nested_optional_string(item, "base", "ref"),
+        "changed_files": [],
     }
 
 
@@ -403,9 +487,8 @@ def _assert_f5_a_pristine(state: Mapping[str, Any], spec: github_f5_a_spec) -> N
     if state["default_branch_files"][spec.retry_tests_path] != spec.retry_tests_content:
         raise github_controller_error("F5-A acceptance test content does not match package-owned content.")
     if state.get("candidate_branches"):
-        raise github_controller_error("F5-A fixture unexpectedly contains a non-default implementation branch.")
-    if state.get("pull_requests"):
-        raise github_controller_error("F5-A fixture unexpectedly contains a pull request.")
+        raise github_controller_error("F5-A fixture unexpectedly contains an active implementation branch.")
+    _assert_closed_slice_pull_history(state, "F5-A")
     issue = state.get("retry_issue")
     if not isinstance(issue, Mapping) or issue.get("state") != "open":
         raise github_controller_error("F5-A retry issue is not pristine and open.")
@@ -422,9 +505,111 @@ def _assert_f5_b_pristine(state: Mapping[str, Any], spec: github_f5_b_spec) -> N
     if state.get("default_branch_files") != expected:
         raise github_controller_error("F5-B default-branch fixture content is not pristine.")
     if state.get("candidate_branches"):
-        raise github_controller_error("F5-B fixture unexpectedly contains a non-default implementation branch.")
-    if state.get("pull_requests"):
-        raise github_controller_error("F5-B fixture unexpectedly contains a pull request.")
+        raise github_controller_error("F5-B fixture unexpectedly contains an active implementation branch.")
+    _assert_closed_slice_pull_history(state, "F5-B")
+
+
+
+def _assert_closed_slice_pull_history(state: Mapping[str, Any], label: str) -> None:
+    pulls = state.get("pull_requests")
+    if not isinstance(pulls, Mapping):
+        raise github_controller_error(f"{label} pull-request snapshot is malformed.")
+    for pull in pulls.values():
+        if (
+            not isinstance(pull, Mapping)
+            or pull.get("state") != "closed"
+            or pull.get("merged") is True
+        ):
+            raise github_controller_error(
+                f"{label} scenario slice contains an active or merged historical pull request."
+            )
+
+
+def _restore_f5_slice(
+    client: github_controller_client,
+    identity: github_repository_identity,
+    spec,
+    observations: Mapping[str, Any],
+    initial: Mapping[str, Any],
+    *,
+    snapshot,
+) -> dict[str, Any]:
+    del spec
+    del observations
+    try:
+        current = snapshot()
+        non_restorable: list[str] = []
+        initial_pulls = initial.get("pull_requests") if isinstance(initial.get("pull_requests"), Mapping) else {}
+        current_pulls = current.get("pull_requests") if isinstance(current.get("pull_requests"), Mapping) else {}
+
+        for key, value in initial_pulls.items():
+            if current_pulls.get(key) != value:
+                non_restorable.append(f"historical pull request #{key} changed during the run")
+
+        new_pull_keys = sorted(set(current_pulls) - set(initial_pulls), key=int)
+        if len(new_pull_keys) > 1:
+            non_restorable.append(
+                f"run created {len(new_pull_keys)} pull requests; at most one run-owned PR is permitted"
+            )
+        for key in new_pull_keys:
+            pull = current_pulls.get(key)
+            if not isinstance(pull, Mapping):
+                continue
+            number = int(key)
+            if pull.get("merged") is True:
+                non_restorable.append(f"run-owned pull request #{number} was merged")
+            elif pull.get("state") != "closed":
+                client.update_pull_request(identity.owner, identity.name, number, {"state": "closed"})
+
+        initial_issue_keys = set((initial.get("issues") or {}).keys())
+        current_issue_keys = set((current.get("issues") or {}).keys())
+        for key in sorted(current_issue_keys - initial_issue_keys, key=int):
+            client.update_issue(identity.owner, identity.name, int(key), {"state": "closed"})
+            non_restorable.append(f"unexpected issue #{key} remains in scenario history")
+
+        restore_branch_refs(
+            client,
+            identity,
+            initial,
+            non_restorable,
+            allowed_new_history=True,
+        )
+        for key, issue in (initial.get("issues") or {}).items():
+            if isinstance(issue, Mapping):
+                restore_issue_snapshot(client, identity, int(key), issue)
+        restore_repository_labels(client, identity, initial.get("repository_labels", []))
+
+        after = snapshot()
+        baseline_ok = after.get("protected_digest") == initial.get("protected_digest")
+        active_branches = after.get("candidate_branches") if isinstance(after.get("candidate_branches"), Mapping) else {}
+        after_pulls = after.get("pull_requests") if isinstance(after.get("pull_requests"), Mapping) else {}
+        residue_ok = True
+        for key, value in initial_pulls.items():
+            if after_pulls.get(key) != value:
+                residue_ok = False
+        for key in new_pull_keys:
+            pull = after_pulls.get(key)
+            if not isinstance(pull, Mapping) or pull.get("state") != "closed" or pull.get("merged") is True:
+                residue_ok = False
+        restored = not non_restorable and baseline_ok and not active_branches and residue_ok
+        pristine_equivalent = (
+            restored
+            and after.get("full_digest") == initial.get("full_digest")
+        )
+        return {
+            "restored": restored,
+            "restoration_semantics": "active_state_with_explicit_append_only_history",
+            "pristine_equivalent": pristine_equivalent,
+            "changed": current.get("full_digest") != initial.get("full_digest"),
+            "slice_owned_pull_residue": tuple(int(key) for key in new_pull_keys),
+            "non_restorable": tuple(non_restorable),
+        }
+    except Exception as exc:
+        return {
+            "restored": False,
+            "changed": True,
+            "detail": str(exc) or exc.__class__.__name__,
+        }
 
 
 def retry_policy_behavior(source: str) -> dict[str, bool] | None:

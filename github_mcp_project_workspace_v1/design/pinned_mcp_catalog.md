@@ -4,12 +4,12 @@
 
 Experiment 2 preserves the qualified 42-tool scientific surface while rebasing the server implementation to GitHub MCP Server v2.1.0 plus the maintained ACMM governor fork:
 
-- local image tag: `acmm/github-mcp-server:v2.1.0-acmm-governed-v1`;
+- local image tag: `acmm/github-mcp-server:v2.1.0-acmm-governed-v2`;
 - ACMM source repository: `https://github.com/hqi125/acmm-github-mcp-server.git`;
 - ACMM source commit: the exact full SHA-1 pinned by `local_service.source_commit` in `experiment-package.yaml`;
 - upstream immutable release tag: `v2.1.0`;
 - upstream release commit: `4bcdcdf8d7beee98c9448e73e257308280924cc4`;
-- ACMM subject-transport governor revision: `v1`;
+- ACMM subject-transport governor revision: `v2`;
 - build recipe: fetch the exact maintained-fork source commit, verify `HEAD`, and build that source tree's committed Dockerfile with explicit upstream/source/governor provenance arguments;
 - selected toolsets: `repos`, `issues`, `pull_requests`, `users`, `actions`, `git`, `labels`;
 - feature flags: explicitly empty;
@@ -107,8 +107,14 @@ update_pull_request_branch
 
 The expected names and digest are discovery assertions only. They are not fed back into Hermes, Open WebUI,
 Agent Zero, or the MCP server as an allow-list. The server-visible surface is defined by the pinned toolsets and
-exclusions. During normal static deployment the three agents are intentionally **unadmitted** and carry only a
-non-secret sentinel credential. Exact catalog parity is checked after each run-scoped GitHub App credential is
-admitted and before the subject receives the task.
+exclusions. During normal static deployment all three agents are intentionally **unadmitted**. Hermes and Open WebUI
+carry only a non-secret sentinel credential; Agent Zero starts with no GitHub MCP server configured so startup cannot
+launch discovery against an unusable static server. During an active Agent Zero subject slice, per-run unadmission is
+established by provider revocation of the preceding repository-scoped App token rather than by rewriting MCP settings
+after every run; this prevents stale asynchronous catalog refreshes from racing the next admission. The revoked token
+has no usable provider authority, the next run replaces it exactly once, and subject release removes the GitHub MCP
+server before shutdown.
+Exact catalog parity is checked after every run-scoped GitHub App credential is admitted and before the subject
+receives the task.
 
 Any catalog difference is an apparatus mismatch, not something ACMM silently normalizes away.

@@ -76,7 +76,9 @@ the current live doctor check.
 
 The production controller transport now treats GitHub API redirects as an explicit trust boundary. Endpoints such as
 Actions job logs and repository archives are first requested without automatic redirect following; the controller
-then follows the returned download URL without forwarding the GitHub PAT. Mutative REST requests are serialized with
+then follows the returned download URL without forwarding the GitHub PAT. Both the authenticated REST hop and the
+credential-free signed download are admitted through the shared traffic-control plane (`rest` then `raw`). Mutative
+REST requests are serialized with
 a minimum one-second interval. GitHub rate-limit handling is provider-authoritative: primary exhaustion waits for
 the reported `X-RateLimit-Reset`, secondary `403`/`429` responses honor `Retry-After` when present, and otherwise
 use GitHub's documented one-minute/exponential fallback. Provider-declared rate-limit waits are retried without
@@ -150,9 +152,9 @@ fixture preparation rather than subject behavior.
 The engineering-reference F1-B materializer has already passed live materialization with a completed successful
 required-check workflow, and the disposable lifecycle probe has passed one real create -> subject-write ->
 controller-read -> exact-ID delete cycle. The next live checkpoint is therefore a **scientific F1-A run through
-the typed disposable lifecycle**. A successful persisted run should create a fresh private repository,
-materialize the qualified F1-A world, execute/evaluate normally, then delete that exact repository only after
-evidence persistence. An unpersisted/failed run now archives a forensic copy into the execution directory,
+the typed lifecycle**. **This paragraph records the superseded per-run-repository checkpoint.** The current
+scientific runtime creates one private repository per scenario materialization slice, restores active run state
+between logical runs, and deletes that exact repository only when the slice finishes or becomes tainted. An unpersisted/failed run now archives a forensic copy into the execution directory,
 then deletes and verifies the exact remote repository so later independent runs do not inherit its namespace.
 
 ## F1-A scientific runtime checkpoint
@@ -178,8 +180,9 @@ later pristine prepare from silently treating the altered world as baseline.
 
 ## Disposable repository lifecycle pivot (2026-11-09)
 
-The shared reference repository remains an engineering fixture, but final acquisition uses one fresh private
-repository per selected run. The `qualify_disposable_repositories` engineering action has passed one live
+The shared reference repository remains an engineering fixture. The former one-fresh-repository-per-selected-run
+acquisition path is superseded; current acquisition uses one repository per package-defined scenario slice with
+Core-enforced subject-major ordering and taint/retire on non-restorable state. The `qualify_disposable_repositories` engineering action has passed one live
 create/access/write/delete probe. F1-A now uses the typed runtime lifecycle to create and materialize its own
 repository dynamically.
 

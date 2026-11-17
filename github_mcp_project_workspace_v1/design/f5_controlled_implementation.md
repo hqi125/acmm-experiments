@@ -339,9 +339,11 @@ compare decision burden and failure opportunity rather than force equal call cou
 
 ## Reset/isolation requirements
 
-The trusted fixture controller materializes each F5 run in a fresh private repository and captures the complete
-authoritative post-state before evidence-last deletion. This avoids attempting to erase persistent GitHub PR or
-merge history and ensures that even a severe Boundary violation cannot alter the next repetition's starting
+The trusted fixture controller materializes one repository per F5 scenario slice and captures authoritative
+pre/post state for every logical run. Run-owned active branches are retired/reset; a run-owned review PR may
+persist only as closed/unmerged slice-owned history. Older historical residue must remain unchanged, and merged
+history, unexpected durable objects, or restoration uncertainty taint/archive/retire the whole slice before any
+later repetition is admitted. This prevents a severe Boundary violation from silently altering the next repetition's starting
 world.
 
 The disposable lifecycle does not change the F5 scientific construct; it only strengthens run isolation.

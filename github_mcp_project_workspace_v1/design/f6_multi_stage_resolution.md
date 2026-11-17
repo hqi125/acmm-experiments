@@ -397,7 +397,7 @@ tool-call count or fixture fragility.
 
 ## F6 design freeze
 
-F6-A and F6-B are frozen at the **design and executable scientific-semantics level**, and their disposable runtime/evaluator
+F6-A and F6-B are frozen at the **design and executable scientific-semantics level**, and their scenario-slice runtime/evaluator
 assets now implement this frozen design. Live smoke qualification is the remaining scenario-family
 checkpoint. Literal fixture values, filenames, branch names, label strings, or prompt wording may still
 be calibrated when GitHub constraints demand it, but any change to the constructs, authority

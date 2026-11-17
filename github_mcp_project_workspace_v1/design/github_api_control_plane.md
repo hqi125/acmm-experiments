@@ -42,17 +42,18 @@ The configured `60/minute` and `360/hour` content limits are therefore fallback 
 
 ## Subject MCP provider governor
 
-The subject-side boundary is integration-owned and preserves the scientific MCP surface. The Experiment Package fetches the exact `local_service.source_commit` from the maintained `hqi125/acmm-github-mcp-server` fork, verifies the checkout, and builds `acmm/github-mcp-server:v2.1.0-acmm-governed-v1` using that source tree's committed Dockerfile. The fork is based on upstream v2.1.0 commit `4bcdcdf8d7beee98c9448e73e257308280924cc4`; package apply/doctor verifies image labels for the exact upstream version/commit, ACMM source commit, and governor revision.
+The subject-side boundary is integration-owned and preserves the scientific MCP surface. The Experiment Package fetches the exact `local_service.source_commit` from the maintained `hqi125/acmm-github-mcp-server` fork, verifies the checkout, and builds `acmm/github-mcp-server:v2.1.0-acmm-governed-v2` using that source tree's committed Dockerfile. The fork is based on upstream v2.1.0 commit `4bcdcdf8d7beee98c9448e73e257308280924cc4`; package apply/doctor verifies image labels for the exact upstream version/commit, ACMM source commit, and governor revision.
 
-The subject transport is deliberately conservative because it is the last infrastructure boundary before GitHub:
+The subject transport is the last infrastructure boundary before GitHub. Under an active ACMM Provider Gate it is fail-closed and policy-light:
 
-- serialize all outbound GitHub HTTP requests process-wide;
-- keep at least 500 ms between all request starts;
-- keep at least two seconds between `POST`/`PATCH`/`PUT`/`DELETE` requests (GraphQL POSTs therefore receive the stricter treatment even when logically read-only);
-- honor `Retry-After` plus three seconds and primary reset timestamps plus three seconds;
-- use bounded 1/2/4/8/16-minute fallback cooldowns for secondary limits that provide no usable timing signal;
+- serialize outbound GitHub HTTP requests process-wide;
+- ask Core for admission before every classified REST/GraphQL/raw request;
+- skip the transport's ordinary 500 ms request spacing, two-second mutation spacing, and local cooldown sleeps while the Core gate is active, preventing double pacing;
+- return 403/429 feedback to the same Core decision so provider-directed recovery is actuated once by Core;
+- fail closed before GitHub if the active gate cannot be reached or authenticated;
+- outside an active gate, retain the conservative local spacing plus `Retry-After`, reset, and bounded 1/2/4/8/16-minute recovery as fallback protection;
 - persist only non-secret cooldown/backoff and aggregate traffic counters (request/mutation counts, method counts, and primary/secondary-limit event counts) to the integration resource volume so an MCP restart cannot forget an active provider block and later qualification can measure subject-plane load;
-- reject the package's non-secret unadmitted sentinel locally before it can generate any GitHub network request, eliminating background reconnect traffic between scientific runs;
+- reject the package's non-secret unadmitted sentinel locally before it can generate any GitHub network request; Agent Zero instead starts with no GitHub MCP server configured and uses provider revocation between live runs, eliminating startup/background discovery traffic from an unusable static server;
 - allow request-context cancellation to end a waiting MCP call without issuing another GitHub request; and
 - never persist the admitted installation token in governor state.
 
@@ -91,7 +92,7 @@ inside the execution directory. The artifact contains:
 - rolling content-window state at the end of the observation;
 - the latest primary-rate-limit headers observed from GitHub, separated by credential domain when present.
 
-This telemetry artifact covers the trusted controller plus App-token mint/revoke lifecycle calls. Subject MCP traffic is governed inside the MCP service and keeps its own non-secret cooldown/backoff state in the integration resource state directory; it is intentionally not merged into the controller's request counters because the two planes use different credential domains and transport stacks. Both planes honor provider rate-limit responses independently, and both stop issuing GitHub requests while their own provider cooldown is active.
+This telemetry artifact covers the trusted controller plus App-token mint/revoke lifecycle calls. Subject MCP traffic keeps a separate `mcp_subject_api_usage.json` evidence plane and non-secret transport state in the integration resource directory; the controller and subject counters are intentionally not merged because they use different credential domains and transport stacks. During an active logical run both planes enter the same Core Provider Gate, so admission and provider-directed recovery have one actuator even though evidence remains plane-specific. The controller/MCP local governors retain conservative cooldown/spacing behavior only as fallback when no Core gate is active.
 
 The artifact is refreshed after each normal finalization and after archive-then-delete failure handling,
 so useful request-volume evidence survives later interruption.
@@ -120,7 +121,7 @@ Admission precedence is:
 2. persisted provider cooldown/rate state carried by the existing governor;
 3. configured rolling content caps only where GitHub exposes no queryable secondary-limit status.
 
-The package never manufactures a secondary `remaining` value. A forecast larger than one configured content window is admitted only from a maximally clear local window and marked as requiring in-slice pacing; the existing per-request governor remains responsible for safe progress within the slice.
+The package never manufactures a secondary `remaining` value. A forecast larger than one configured content window is admitted only from a maximally clear local window and marked as requiring in-slice pacing. During an active logical run the Core Provider Gate is responsible for dynamic per-request progress; the controller/MCP governors provide fallback safety only when that gate is inactive.
 
 Cold start requires no CLI flag. With no historical sample, the first slice is recorded as `cold_start` and is admitted using current provider/cooldown state plus existing request-level controls. Its measured delta is appended to the in-memory history immediately and becomes a forecast sample for the next materialization in the same execution.
 
@@ -136,12 +137,12 @@ The GitHub controller currently owns these provider-specific rules:
 4. convergence of GitHub-created default labels into package-owned definitions before subject exposure;
 5. bounded eventual-consistency waits for package-owned list/discovery surfaces, routed through one poll
    scheduler with a two-second local floor and provider `X-Poll-Interval` support;
-6. non-redirecting Actions-log/archive API hops followed by credential-free signed-URL downloads;
+6. non-redirecting Actions-log/archive API hops followed by credential-free signed-URL downloads, with both hops admitted by the traffic-control plane (`rest` then `raw`);
 7. archive-then-delete invalid-run cleanup with exact repository-ID verification;
 8. provider-authoritative primary/secondary rate-limit interpretation with persistent cooldown state;
 9. session-level provider request telemetry with route-family breakdowns;
 10. credential-domain primary-rate snapshots, so controller/App primary state is never conflated;
-11. App-token mint/revoke pacing and telemetry under the same provider-scoped mutation/cooldown state;
+11. App-token mint/revoke admission and provider recovery through the universal Core Provider Gate, with controller telemetry retained separately;
 12. authenticated conditional GETs (`ETag`/`Last-Modified`) for repeated REST reads within one controller
    lifetime, so unchanged polling responses can use GitHub's conditional-request path;
 13. a provider-clear gate shared with remote Git fetch/`ls-remote`/push operations so a REST secondary block
@@ -159,11 +160,16 @@ The repository content/history plane is therefore separated from GitHub-native c
 
 Implemented controller behavior:
 
-1. **Git transport owns repository file writes and ref-addressed file reads.** The private disposable
-   repository is still created through REST at the start of its run, but package-owned commit graphs are
+1. **Git transport owns repository file writes and ref-addressed file reads.** The private scenario-slice
+   repository is created through REST once at materialization, while package-owned commit graphs are
    built locally in an authenticated Git workspace and pushed without using the Contents REST endpoint.
    Multiple package-owned commits are batched and published in one push whenever no intermediate remote
-   state is scientifically meaningful; the individual commits and commit messages remain intact. Ref- or
+   state is scientifically meaningful; the individual commits and commit messages remain intact. The lifecycle
+   defines an explicit **initial publication phase** for fresh disposable repositories: trusted fixture-base commits
+   and scenario-owned commits that have no remote dependency enter the same outer Git batch and are flushed once.
+   A materializer boundary is not a publication barrier. Additional pushes are permitted only after an explicit
+   semantic dependency on already-published refs/history (for example, create a branch from the published main
+   head and then populate that branch). Ref- or
    commit-addressed controller reads are fetched/read through Git as well. The existing
    `create_or_update_file()` controller contract is preserved, so scenario materializers do not encode
    transport choice. Fake/custom controller transports retain the REST path for deterministic tests.
@@ -172,11 +178,12 @@ Implemented controller behavior:
    process environment.
 3. **REST remains the GitHub collaboration/control plane.** Repository create/delete, issues, labels,
    pull requests, comments, reviews, Actions metadata, and lifecycle transitions remain API-managed.
-4. **Git transport is separately observable and provider-paced.** Execution telemetry carries Git command,
-   fetch, push, commit, file-read/write, ref-fingerprint, and wait counters alongside REST telemetry. Pushes
-   are spaced at least twelve seconds apart per repository (at most five/minute, stricter than GitHub's six),
-   and remote Git reads are spaced at least 100 ms apart per repository (at most ten/second, stricter than
-   GitHub's fifteen).
+4. **Git transport is separately observable but participates in the active-run Provider Gate.** Execution telemetry
+   carries Git command, fetch, push, commit, file-read/write, ref-fingerprint, and wait counters alongside REST
+   telemetry. During an active logical run, Git push/fetch/ls-remote receives Core admission/result accounting and
+   the same quiet 1-second request / 2-second mutation baseline used by the other gated planes. The historical
+   twelve-second push and 100 ms remote-read spacing remains only as a conservative fallback when no Core gate
+   owns the operation; it is never stacked on top of Core actuation.
 5. **Keep remote prefetch forbidden.** Lower request volume must not reintroduce future-run repositories
    while an active subject can discover them.
 
@@ -197,13 +204,14 @@ waiting, retries, and failure semantics are all explicit evidence rather than hi
 Two network behaviors are intentionally not treated as ordinary authenticated REST requests:
 
 - Actions job logs and repository archives first use the fully governed, non-redirecting REST endpoint. The
-  returned signed redirect target is then downloaded without the controller credential. This second hop is one
-  continuation of the logical download and is deliberately credential-free; it does not bypass the API governor
-  to issue another authenticated GitHub REST request.
-- Live subject MCP traffic is generated inside the pinned GitHub MCP Server. ACMM governs admission, token
-  lifetime, controller/App traffic, and provider cooldown before trusted Git operations, but does not claim to
-  pace HTTP requests inside that external server. Centralizing subject HTTP pacing would require a controlled
-  proxy or a modified MCP server and is outside the Experiment 2 package boundary.
+  returned signed redirect target is then downloaded without the controller credential. This second hop remains
+  inside the same traffic-control plane as a `raw` provider request: Core/governor admission, serialization, and
+  telemetry still apply even though no GitHub REST credential is forwarded to the signed download host.
+- Live subject MCP traffic is generated inside the pinned ACMM GitHub MCP Server fork. Governor v2 now provides
+  a synchronous fail-closed bridge to the Core Provider Gate: during an active logical run each REST/GraphQL/raw
+  request is admitted by Core and provider feedback/recovery returns on the same decision. The MCP governor skips
+  its own proactive spacing/cooldown sleeps while the gate is active and retains its conservative 1s/2s fallback
+  only when no ACMM gate is active.
 
 The package test suite contains a static best-practice audit that rejects new direct `urllib`/HTTP clients in
 scenario modules, direct remote Git commands outside the Git content plane, and scenario-local polling sleeps.
@@ -211,8 +219,9 @@ New provider interactions must therefore enter through the shared transport laye
 
 ## Measured F4 qualification profile
 
-The first governor-qualified six-cell F4 smoke completed with all six runs valid and all six disposable
-repositories deleted by exact identity. Trusted controller/probe traffic for that execution was:
+The first governor-qualified six-cell F4 smoke was recorded under the **historical per-run disposable-repository
+topology**. It completed with all six runs valid and all six repositories deleted by exact identity. Trusted
+controller/probe traffic for that execution was:
 
 - 695 REST requests total;
 - 90 mutative REST requests;
@@ -223,9 +232,10 @@ repositories deleted by exact identity. Trusted controller/probe traffic for tha
 - 48 Actions job-log API redirects;
 - 557 reads in the original coarse telemetry bucket.
 
-This is about 14 content-generating trusted requests and 116 trusted REST requests per scientific run
-before subject MCP traffic. Naively projecting that profile to 288 runs yields roughly 4,032 content
-mutations and 33,360 trusted REST requests. The projection is intentionally only a sizing signal because
+That historical topology produced about 14 content-generating trusted requests and 116 trusted REST requests per
+scientific run before subject MCP traffic. Its naive 288-run projection (roughly 4,032 content mutations and
+33,360 trusted REST requests) is retained only as historical sizing evidence; it is **not** the current scenario-slice
+traffic model. The profile remains useful because
 other scenario families have different fixtures and agents generate additional shared-user REST traffic.
 It is nevertheless sufficient to make two pre-acquisition requirements explicit:
 
@@ -240,8 +250,9 @@ collapsing them into one generic `read` counter.
 
 ## Measured F6 capstone profile before Git transport
 
-The final six-cell F6 family smoke completed with all six runs valid, all six repositories deleted by
-exact identity, and no secondary-limit event. Its trusted controller/probe traffic was:
+The historical six-cell F6 family smoke likewise used the older per-run repository topology. It completed with
+all six runs valid, all six repositories deleted by exact identity, and no secondary-limit event. Its trusted
+controller/probe traffic was:
 
 - 714 REST requests total;
 - 105 mutative REST requests;
@@ -282,3 +293,14 @@ repository timestamps do not cover every GitHub-native object with the precision
 This fast-path must not be used to justify ahead-of-time remote run repositories. Even a repository that later
 proves byte-for-byte untouched was still discoverable to another subject while it existed. The fingerprint is
 for cheaper verification of the **active run world**, not for relaxing cross-run visibility isolation.
+
+
+## Provider Pressure Heuristics
+
+The materialization/subject-slice resource forecast remains factual quota accounting, while Provider Pressure Heuristics (PPH) adds adaptive learned admission below provider-facing request paths. Core owns profile persistence, Event-PPH updates, generic APP probe lifecycle/suspension, active-run Provider Gate actuation, provider-recovery correlation, and immutable trajectory export. This package injects the GitHub feature model in `assets/provider_pressure.json`; see `design/provider_pressure_heuristics.md` for the complete model and F5-A/F5-B bootstrap rationale. During an active logical run the Core Provider Gate replaces local proactive governor pacing for participating requests; local governors remain fallback-only. PPH/APP still do not claim to reconstruct GitHub's hidden secondary-limit policy.
+
+### Scenario-slice provider lifecycle
+
+Provider-costly fixture construction follows the package-defined scenario materialization instead of a logical-run repository lifecycle. F1-F6 create one repository per scenario slice, publish the static scenario base at semantic Git-history barriers, and then execute many logical runs in Core's subject-major order. Repository creation therefore occurs once per slice rather than once per observation.
+
+The active-run Provider Gate now covers classified subject-MCP REST/GraphQL/raw requests, trusted controller/App REST requests, and Git smart-protocol admission/result accounting. APP observes a run-local controller+MCP burst window instead of using one special token-mint checkpoint, so burst-density evidence accumulates across the provider traffic that actually occurs between meaningful APP boundaries. Controller and subject-MCP usage remain separate evidence planes. Run-owned active GitHub objects are restored/retired after post-state capture; allowed closed/unmerged history remains slice-owned evidence, while unexpected durable mutation taints and retires the slice.

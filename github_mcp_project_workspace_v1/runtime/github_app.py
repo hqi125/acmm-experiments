@@ -230,16 +230,24 @@ class github_app_client:
                         self._governor.before_request(
                             method=method,
                             route=route,
+                            url=self._api_base + path,
                             content_generating=False,
                             primary_domain=primary_domain,
                             enforce_primary_headroom=enforce_primary_headroom,
+                            recovery_retry=secondary_attempt > 0,
                         )
-                        status, response_headers, body = self._transport(
-                            method,
-                            self._api_base + path,
-                            headers,
-                            data,
-                        )
+                        try:
+                            status, response_headers, body = self._transport(
+                                method,
+                                self._api_base + path,
+                                headers,
+                                data,
+                            )
+                        except BaseException as exc:
+                            self._governor.provider_request_error(
+                                f"{exc.__class__.__name__}: {exc}"
+                            )
+                            raise
                         self._governor.observe_response(
                             route=route,
                             status=status,
@@ -247,11 +255,13 @@ class github_app_client:
                             content_generating=False,
                             primary_domain=primary_domain,
                         )
-                        retry_delay = self._governor.rate_limit_delay(
+                        recovery = self._governor.rate_limit_recovery(
                             status=status,
                             headers=response_headers,
                             detail=_safe_detail(body),
                             primary_domain=primary_domain,
+                            route=route,
+                            attempt=secondary_attempt,
                         )
                 else:
                     status, response_headers, body = self._transport(
@@ -260,7 +270,7 @@ class github_app_client:
                         headers,
                         data,
                     )
-                    retry_delay = None
+                    recovery = None
             except Exception as exc:
                 if isinstance(exc, github_app_error):
                     raise
@@ -268,8 +278,12 @@ class github_app_client:
                     f"GitHub App request {method} {path} failed: {exc}"
                 ) from exc
 
-            if retry_delay is not None:
+            if recovery is not None:
                 if secondary_attempt < self._governor.policy.max_secondary_retries:
+                    self._governor.actuate_provider_recovery(
+                        recovery,
+                        attempt=secondary_attempt + 1,
+                    )
                     secondary_attempt += 1
                     continue
                 raise github_app_error(

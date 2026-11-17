@@ -2,33 +2,54 @@
 
 ## Purpose
 
-Experiment 2 originally created and retired one private GitHub repository for every logical run. That gives a strong provider-enforced repository boundary, but it also creates a dense stream of repository lifecycle operations that can trigger opaque GitHub secondary rate limiting during long campaigns.
+Experiment 2 no longer treats a logical scientific run as a GitHub repository lifetime. The original one-repository-per-run starter design was too provider-heavy and created avoidable repository lifecycle pressure. The current milestone instead lets the Experiment Package define an outer **materialization slice** and lets many logical runs execute inside that materialized workspace.
 
-The campaign now declares `scenario_id` as its materialization grouping coordinate. Core freezes that grouping in the campaign manifest, executes one materialization slice at a time, and uses subject-major ordering inside each slice. The package remains responsible for what a materialization means and for every provider-specific resource action.
+This package declares `scenario_id` as the materialization grouping coordinate. Core freezes those slices in the campaign plan, executes one slice at a time, and enforces **subject-major ordering inside every slice**. The package remains responsible for the provider-specific meaning of the slice and for trusted restoration/taint decisions.
 
-## Incremental qualification
+## Scenario-slice repository contract
 
-This revision shares provider state for the complete **F1-F4 families**. F1-A covers repository branches, issues, pull requests, labels, comments, reviews, and relevant Git content. F1-B extends the same model to release labels, milestones, candidate history, and GitHub Actions history. F2-A adds a bounded-mutation case: the subject may legitimately close/relabel/comment on the incoming issue, after which the package restores the exact pristine triage state before another observation. F2-B adds the deliberate no-op case and proves that accidental issue metadata/comment drift is likewise restored. F3-A/F3-B add cross-artifact reconciliation where the authorized correction is confined to issue record state and comments; the controller restores that state while treating unauthorized Git/PR/provider-history mutation as taint. F4-A/F4-B add stable completed Actions evidence: authorized diagnosis/alert comments and issue-state changes are restored, while any new workflow execution is non-restorable taint. The package creates one disposable repository when a qualified scenario materialization slice begins, reuses it across the selected runs in that scenario, mints and revokes a fresh repository-scoped GitHub App installation token for every run, restores the trusted baseline after every persisted run, and retires the repository when the slice ends.
+Every F1-F6 scenario materialization creates exactly one private disposable GitHub repository for the selected runs in that scenario slice. The repository is attached to the selected-repository GitHub App installation once for the slice. Every logical run still receives a fresh repository-scoped App installation token, and that token is revoked at the run boundary before trusted post-run observation. Agent Zero deliberately avoids a second per-run MCP settings rewrite after revocation; provider revocation is its authoritative between-run boundary, and the next admission replaces the dead credential before exact-catalog verification.
 
-F5-A/F5-B and F6-A/F6-B intentionally retain disposable-per-run repositories. Their successful terminal states create new Git commits and/or pull-request history (and F6-B advances an existing PR head), so exact provider-history restoration is not available even if visible refs can be force-reset. Keeping these scenarios run-isolated preserves repetition independence rather than weakening the taint definition merely to increase sharing.
+A run therefore has an isolated credential/admission window without requiring a new repository. `run_prepare()` fails closed if Core has not supplied the scenario materialization handle; there is intentionally no hidden one-repository-per-run fallback.
+
+The package distinguishes **active fixture state** from **slice-owned historical residue**. In this design, `restored=true` means the declared shared-run invariant was re-established; it does **not** mean the provider-visible repository is byte-for-byte or history-for-history identical to its first materialized state:
+
+- reversible branches, issue state, labels, comments, and other active fixture state are restored to the trusted baseline after each persisted run;
+- a run-owned review PR may remain only as closed, unmerged provider history after its active branch has been retired;
+- prior closed residue is included in the next run's authoritative pre-state and must remain unchanged;
+- mutation of historical residue, unexpected durable provider objects, merge history, or any other non-restorable cross-run contamination taints the whole slice, triggers forensic archival, and retires the repository.
+
+F5 and F6 restoration records therefore expose `restoration_semantics`, `pristine_equivalent`, and the explicit `slice_owned_pull_residue`. `pristine_equivalent=false` with `restored=true` is expected when a new closed/unmerged PR has become allowed append-only slice history. A truly pristine provider world is impossible on one reused GitHub repository once provider objects with non-erasable history have been created; obtaining that stronger invariant would require a fresh repository/world rather than restoration inside the shared slice.
+
+F6-B has an additional run-local namespace because its task begins from an existing draft PR. The static scenario base is materialized once, while each logical run creates uniquely marked repair/unrelated branches, issue, PRs, and failed validation evidence **inside the same scenario repository**. Those run-owned active objects are retired after post-state capture; their closed history becomes slice-owned residue.
+
+## Publication phases
+
+Materializer boundaries do not imply Git publication barriers. A newly created scenario repository opens one initial publication phase containing the trusted fixture base and every scenario-owned commit that does not depend on remote-visible history. Dirty refs are flushed once. Later pushes exist only when the fixture topology genuinely requires an already-published ref/history state.
+
+Current semantic publication shape:
+
+- F5-A: one initial push;
+- F5-B: one initial push;
+- F6-A: one initial-main push plus the required release-branch topology publication;
+- F6-B: one static initial-main push; run-scoped repair/unrelated branch publication occurs only when that run's in-repository fixture is created.
 
 ## Boundary and taint policy
 
-Shared materialization does not pretend GitHub provides path- or object-level authorization inside a repository. The subject continues to receive the same 42-tool MCP surface and a repository-scoped installation token. Intra-repository scope is therefore an experimental boundary, not a provider-enforced access boundary.
+Scenario sharing does not pretend GitHub offers path-level authorization. The subject still receives the full qualified 42-tool repository-scoped MCP surface. Isolation is established by trusted pre/post evidence, run-local namespaces, fresh per-run credentials, restoration, and hard taint on contamination.
 
-For shared F1-F4 scenarios, every run begins with a trusted baseline snapshot. After evidence is persisted, the package compares current protected state with that baseline. Reversible differences are restored from the trusted baseline. If the fixture reports any non-restorable difference, restoration failure, or other integrity uncertainty, the materialization is marked tainted, a forensic archive is persisted, the shared repository is retired, and execution stops rather than allowing later observations to inherit contaminated state.
+For engineering validation, Core may pass `--capture-environment-snapshots`. Experiment 2 then writes full GitHub repository diagnostic archives immediately after trusted run preparation and again after trusted restoration. These archives include repository metadata, branches, labels, issues/comments, pull requests/reviews/comments, default-branch commits, workflows/runs, and source archives for each branch. Snapshot collection is fully inside the trusted provider-traffic control plane: REST discovery requests, the initial archive endpoint, and credential-free redirect downloads are all serialized/admitted by the same governor/Core Provider Gate, with `traffic_purpose=diagnostic_snapshot` metadata so the injected validation workload remains distinguishable in gate telemetry. This switch is **off by default** because snapshot collection itself adds trusted GitHub API/archive traffic and can perturb the provider-pressure profile; it is intended for restoration validation/debugging, not final scientific acquisition. The ordinary `final_environment_state` evidence remains the authoritative pre-restoration scientific post-state.
 
-A run whose evidence is not durably persisted also taints and retires the materialization. A materialization interrupted outside a clean completed boundary is archived and retired during materialization finalization.
+A run whose evidence is not durably persisted taints and retires the slice. A materialization interrupted outside a clean boundary is archived and retired. A completed clean slice is detached from the App installation and deleted exactly once during materialization finalization.
 
 ## Scheduling invariant
 
-Materialization controls only the outer scheduling locality. Core always orders runs subject-major inside a materialization slice. The package does not expose an arbitrary nested scheduling language.
+Materialization controls the outer locality only:
 
-For this package revision:
+- package-defined outer key: `scenario_id` for this experiment;
+- one materialized repository may span many selected runs;
+- Core-defined inner order: subject-major within the slice;
+- the package does not define arbitrary nested scheduling;
+- no repository shard/pool is part of the current scientific lifecycle.
 
-- outer materialization key: `scenario_id`;
-- inner ordering: Core-defined subject-major ordering;
-- shared provider resource qualification: F1-A, F1-B, F2-A, F2-B, F3-A, F3-B, F4-A, and F4-B;
-- run-isolated by design: F5-A, F5-B, F6-A, and F6-B because successful observations necessarily create durable provider history.
-
-This is an incremental apparatus revision. Historical campaigns retain their original per-run repository semantics and must not be resumed into this revision.
+This slice-first lifecycle is the scalability milestone. Historical one-repository-per-run and prepared-isolated/shard implementations are superseded and must not be reintroduced as fallback execution paths.

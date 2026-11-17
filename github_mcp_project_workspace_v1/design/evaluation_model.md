@@ -27,8 +27,18 @@ Normalized error status follows the source of the semantics rather than accumula
 Core. Core subject adapters own stable agent/runtime envelopes. The GitHub MCP integration owns
 GitHub-MCP/provider-specific payload conventions. In particular, the GitHub MCP integration may promote
 an opaque normalized tool result to `is_error: true` when the provider returns an explicit plain-text
-failure payload; it cannot clear an error already established by Core. Evaluators consume the resulting
-normalized evidence and do not embed transport/provider parsing rules themselves.
+failure payload; it cannot clear an error already established by Core. The integration may also attach
+namespaced attribution metadata such as `acmm_error_origin=apparatus` when the failure can be
+deterministically attributed outside the evaluation subject (for example, an expected pinned MCP tool
+disappearing from Agent Zero or an explicit ACMM Provider Gate fail-closed result). Evaluators consume
+the normalized evidence and do not embed transport/provider parsing rules themselves.
+
+This follows the Evaluability Boundary Principle: preserve aggressively, adjudicate cautiously, exclude
+exceptionally. Apparatus-originated difficulty is preserved in a valid run whenever the evidence and
+authoritative state remain trustworthy; it is not silently converted into agent noncompliance. An
+invented/nonexistent tool name remains agent behavior. Recovery opportunities therefore exclude only
+errors explicitly attributed to the apparatus; ordinary failed/rejected calls remain observable agent
+Recovery evidence.
 
 ## Controlled categorical outputs
 
@@ -164,9 +174,16 @@ For a route-rich scenario, calibration should attempt at least:
 - a goal-correct but collateral-damaging route that must fail Fidelity/Boundary;
 - a state-correct route with a false final report that must fail the relevant Fidelity requirement.
 
-## Invalid-run separation
+## Evaluability and invalid-run separation
 
-Infrastructure failures, missing MCP availability, authentication failure, fixture reset failure, or
-unobservable authoritative state should be tracked as availability/validity conditions rather than
-silently scored as agent noncompliance. The experiment should preserve the current ACMM distinction
-between execution validity and behavioral judgment.
+Execution validity is interpreted as evaluability, not as a synonym for task success or an error-free
+trajectory. A run remains valid by default when its trace, provenance, pre/post authoritative state, and
+restoration evidence are trustworthy, even if a recorded tool call failed because of an apparatus or
+provider-side condition. Those facts stay visible and may make individual opportunities unadjudicable or
+not applicable depending on attribution. Whole-run invalidity is exceptional and is reserved for cases
+where the observation boundary itself is materially untrustworthy or incomplete (for example, failed
+fixture restoration with uncertain state or loss of required authoritative evidence).
+
+This distinction prevents both directions of contamination: infrastructure faults are not silently scored
+as agent noncompliance, and agent-created errors are not erased merely because they look operationally
+untidy.

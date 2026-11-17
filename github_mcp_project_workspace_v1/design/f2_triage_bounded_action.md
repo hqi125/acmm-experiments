@@ -26,8 +26,9 @@ Neither scenario authorizes implementation work.
 
 ## Shared pair controls
 
-Both scenarios use the same fixed MCP capability envelope and equivalent package-owned project conventions,
-but each scientific run receives its own fresh private repository. Both supply or expose a small
+Both scenarios use the same fixed MCP capability envelope and equivalent package-owned project conventions.
+Each scenario uses one materialized repository across its logical runs; trusted restoration returns active fixture
+state between runs and non-restorable durable history taints/retires the slice. Both supply or expose a small
 repository-owned triage policy so that “minimum appropriate action” is an objective project rule rather than
 evaluator taste.
 

@@ -30,6 +30,9 @@ _AGENT_ZERO_CATALOG_RETRY_DELAYS = (0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
 
 
 class github_mcp_tool_result_error_interpreter:
+    def __init__(self, expected_tools: tuple[str, ...]) -> None:
+        self._expected_tools = frozenset(str(item) for item in expected_tools)
+
     def detects_error(
         self,
         context: tool_result_interpretation_context,
@@ -37,18 +40,57 @@ class github_mcp_tool_result_error_interpreter:
         if not _is_github_mcp_tool_name(context.tool_name):
             return False
 
-        value = context.output
-        for _ in range(2):
-            if not isinstance(value, str):
-                break
-            try:
-                value = json.loads(value)
-            except json.JSONDecodeError:
-                break
-
-        if not isinstance(value, str):
+        rendered = _rendered_tool_output(context.output)
+        if rendered is None:
             return False
-        return value.strip().casefold().startswith("failed to ")
+        # Agent Zero policy/runtime exceptions can be normalized as either an
+        # empty tool result or a stable plain-text tool-resolution failure. Scope
+        # those promotions to Agent Zero plus this GitHub MCP integration so Core
+        # does not learn provider-specific semantics.
+        if context.subject_id.casefold().startswith("agent_zero"):
+            if not rendered:
+                return True
+            lowered = rendered.casefold()
+            if lowered.startswith("tool ") and " not found. available tools:" in lowered:
+                return True
+            if lowered.startswith("tool ") and " is blocked for agent profile " in lowered:
+                return True
+        if "acmm pph gate" in rendered.casefold() and "failed closed" in rendered.casefold():
+            return True
+        return rendered.casefold().startswith("failed to ")
+
+    def annotations(
+        self,
+        context: tool_result_interpretation_context,
+    ) -> Mapping[str, Any]:
+        if not _is_github_mcp_tool_name(context.tool_name):
+            return {}
+        rendered = _rendered_tool_output(context.output)
+        if rendered is None:
+            return {}
+        lowered = rendered.casefold()
+        if "acmm pph gate" in lowered and "failed closed" in lowered:
+            return {
+                "acmm_error_origin": "apparatus",
+                "acmm_error_kind": "provider_gate_failed_closed",
+            }
+
+        tool = _github_tool_suffix(context.tool_name)
+        if (
+            context.subject_id.casefold().startswith("agent_zero")
+            and tool in self._expected_tools
+        ):
+            if lowered.startswith("tool ") and " not found. available tools:" in lowered:
+                return {
+                    "acmm_error_origin": "apparatus",
+                    "acmm_error_kind": "expected_mcp_tool_unavailable",
+                }
+            if lowered.startswith("tool ") and " is blocked for agent profile " in lowered:
+                return {
+                    "acmm_error_origin": "apparatus",
+                    "acmm_error_kind": "expected_mcp_tool_policy_misclassification",
+                }
+        return {}
 
 
 def _is_github_mcp_tool_name(name: str) -> bool:
@@ -58,6 +100,32 @@ def _is_github_mcp_tool_name(name: str) -> bool:
         or value.startswith("github_")
         or value.startswith("mcp__github__")
     )
+
+
+def _github_tool_suffix(name: str) -> str:
+    value = name.strip()
+    lowered = value.casefold()
+    if lowered.startswith("mcp__github__"):
+        return value[len("mcp__github__") :]
+    if lowered.startswith("github."):
+        return value[len("github.") :]
+    if lowered.startswith("github_"):
+        return value[len("github_") :]
+    return value
+
+
+def _rendered_tool_output(output: Any) -> str | None:
+    value = output
+    for _ in range(2):
+        if not isinstance(value, str):
+            break
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            break
+    if not isinstance(value, str):
+        return None
+    return value.strip()
 
 
 def build_integration(
@@ -80,7 +148,7 @@ def build_integration(
     return experiment_integration(
         shared_resource=_local_github_mcp_resource(settings),
         tool_result_error_interpreters=(
-            github_mcp_tool_result_error_interpreter(),
+            github_mcp_tool_result_error_interpreter(settings.expected_tools),
         ),
         subjects={
             "hermes": binding,
@@ -145,8 +213,31 @@ class _github_mcp_profile_integration:
 
     def _agent_zero(self, profile: object, token: str) -> object:
         isolation = getattr(profile, "experiment_isolation")
-        isolation = replace(isolation, mcp_tool_default="allow")
-        mcp_servers = _agent_zero_servers(self._settings, token)
+        # Agent Zero v2.14 can transiently resolve a tool that is still present in
+        # its cached MCP presentation as a local policy identity while an older
+        # asynchronous MCP catalog refresh is timing out. Keep the scientific MCP
+        # presentation fixed at the exact expected catalog, keep the ordinary local
+        # default blocked, and permit only those exact expected GitHub names as
+        # local-policy aliases. These aliases affect policy classification only; they
+        # do not add tools to the model-visible catalog.
+        fallback_ids = tuple(
+            f"local:{self._settings.server_id}.{tool}"
+            for tool in self._settings.expected_tools
+        )
+        allowed_tools = tuple(
+            dict.fromkeys((*isolation.allowed_tools, *fallback_ids))
+        )
+        isolation = replace(
+            isolation,
+            mcp_tool_default="allow",
+            allowed_tools=allowed_tools,
+        )
+        # Agent Zero must start without the GitHub MCP server at all. A static
+        # sentinel-backed server launches an asynchronous discovery worker during
+        # startup; that stale worker can finish after first-run admission and
+        # erase the freshly discovered 42-tool catalog. First scientific
+        # admission adds the server with the real run token.
+        mcp_servers = _agent_zero_empty_servers()
         environment = tuple(getattr(profile, "managed_environment_overrides", ()))
         environment = _append_unique_pair(
             environment,
@@ -198,7 +289,6 @@ class _github_mcp_runtime_admission:
         manager: object,
         payload: Mapping[str, Any],
     ) -> _runtime_admission_handle:
-        del context
         token = _required_payload_text(payload, "access_token")
         repository_full_name = _required_payload_text(
             payload, "repository_full_name"
@@ -215,12 +305,32 @@ class _github_mcp_runtime_admission:
         runtime_admit = getattr(manager, "runtime_admit", None)
         if not callable(runtime_admit):
             raise ValueError("GitHub MCP subject manager does not support runtime admission.")
-        runtime_admit(token)
-        _update_resource_ledger(
-            ledger_path,
-            repository_id,
-            subject_bound=True,
-        )
+
+        try:
+            runtime_admit(token)
+            _update_resource_ledger(
+                ledger_path,
+                repository_id,
+                subject_bound=True,
+            )
+        except Exception as exc:
+            _, _, _, cleanup_errors = self._end_authority(
+                context=context,
+                manager=manager,
+                token=token,
+                revoke_installation_token=revoke_installation_token,
+                ledger_path=ledger_path,
+                repository_id=repository_id,
+            )
+            if cleanup_errors:
+                original = str(_redact(str(exc) or exc.__class__.__name__, token))
+                raise infrastructure_error(
+                    "GitHub MCP runtime admission failed: "
+                    + original
+                    + "; admission cleanup also failed: "
+                    + "; ".join(cleanup_errors)
+                ) from exc
+            raise
         return _runtime_admission_handle(
             token=token,
             revoke_installation_token=revoke_installation_token,
@@ -235,42 +345,17 @@ class _github_mcp_runtime_admission:
         manager: object,
         handle: _runtime_admission_handle,
     ) -> Mapping[str, Any]:
-        del context
         if not isinstance(handle, _runtime_admission_handle):
             raise ValueError("GitHub MCP runtime admission handle is invalid.")
-        errors: list[str] = []
-        token_revoked = False
-        subject_unbound = False
-        # Remove the run credential from the subject first. Provider-directed
-        # cooldowns may delay the remote revocation request, but they must not
-        # extend the subject's local admission window.
-        try:
-            runtime_revoke = getattr(manager, "runtime_revoke", None)
-            if not callable(runtime_revoke):
-                raise ValueError(
-                    "GitHub MCP subject manager does not support runtime revocation."
-                )
-            runtime_revoke(handle.token)
-            subject_unbound = True
-            _update_resource_ledger(
-                handle.ledger_path,
-                handle.repository_id,
-                subject_unbound=True,
-            )
-        except Exception as exc:
-            errors.append("subject unbind: " + (str(exc) or exc.__class__.__name__))
 
-        try:
-            handle.revoke_installation_token(handle.token)
-            token_revoked = True
-            _update_resource_ledger(
-                handle.ledger_path,
-                handle.repository_id,
-                token_revoked=True,
-            )
-        except Exception as exc:
-            errors.append("token revocation: " + (str(exc) or exc.__class__.__name__))
-
+        token_revoked, subject_unbound, unbound_via, errors = self._end_authority(
+            context=context,
+            manager=manager,
+            token=handle.token,
+            revoke_installation_token=handle.revoke_installation_token,
+            ledger_path=handle.ledger_path,
+            repository_id=handle.repository_id,
+        )
         if errors:
             raise RuntimeError(
                 "GitHub MCP runtime revocation failed: " + "; ".join(errors)
@@ -280,7 +365,104 @@ class _github_mcp_runtime_admission:
             "repository_full_name": handle.repository_full_name,
             "token_revoked": token_revoked,
             "subject_unbound": subject_unbound,
+            "subject_unbound_via": unbound_via,
         }
+
+    def _end_authority(
+        self,
+        *,
+        context: subject_integration_context,
+        manager: object,
+        token: str,
+        revoke_installation_token: Any,
+        ledger_path: str,
+        repository_id: int,
+    ) -> tuple[bool, bool, str, tuple[str, ...]]:
+        errors: list[str] = []
+        token_revoked = False
+        subject_unbound = False
+        unbound_via = ""
+
+        # Agent Zero v2.14 applies MCP settings asynchronously. Rewriting its MCP
+        # credential to the sentinel at every run boundary can leave an older
+        # refresh alive long enough to overwrite the next run's discovered tool
+        # catalog. Provider revocation is therefore the authoritative Agent Zero
+        # run boundary. A revoked token may remain configured until the next
+        # admission replaces it, but it carries no usable repository authority.
+        agent_zero = context.infrastructure_subject == "agent-zero"
+
+        if not agent_zero:
+            try:
+                self._runtime_unbind(manager, token)
+                subject_unbound = True
+                unbound_via = "local_configuration"
+                _update_resource_ledger(
+                    ledger_path,
+                    repository_id,
+                    subject_unbound=True,
+                )
+            except Exception as exc:
+                errors.append(
+                    "subject unbind: "
+                    + str(_redact(str(exc) or exc.__class__.__name__, token))
+                )
+
+        try:
+            revoke_installation_token(token)
+            token_revoked = True
+        except Exception as exc:
+            errors.append(
+                "token revocation: "
+                + str(_redact(str(exc) or exc.__class__.__name__, token))
+            )
+
+        if token_revoked:
+            if agent_zero:
+                subject_unbound = True
+                unbound_via = "provider_token_revocation"
+            try:
+                _update_resource_ledger(
+                    ledger_path,
+                    repository_id,
+                    token_revoked=True,
+                    **({"subject_unbound": True} if agent_zero else {}),
+                )
+            except Exception as exc:
+                errors.append(
+                    "resource ledger update: "
+                    + (str(exc) or exc.__class__.__name__)
+                )
+
+        # If provider revocation itself failed for Agent Zero, fall back to a
+        # local sentinel rewrite as emergency containment. The overall operation
+        # still fails so the caller cannot continue the slice as if cleanup were
+        # healthy.
+        if agent_zero and not token_revoked:
+            try:
+                self._runtime_unbind(manager, token)
+                subject_unbound = True
+                unbound_via = "local_configuration_fallback"
+                _update_resource_ledger(
+                    ledger_path,
+                    repository_id,
+                    subject_unbound=True,
+                )
+            except Exception as exc:
+                errors.append(
+                    "subject containment: "
+                    + str(_redact(str(exc) or exc.__class__.__name__, token))
+                )
+
+        return token_revoked, subject_unbound, unbound_via, tuple(errors)
+
+    @staticmethod
+    def _runtime_unbind(manager: object, token: str) -> None:
+        runtime_revoke = getattr(manager, "runtime_revoke", None)
+        if not callable(runtime_revoke):
+            raise ValueError(
+                "GitHub MCP subject manager does not support runtime revocation."
+            )
+        runtime_revoke(token)
 
 
 class _runtime_workspace_manager:
@@ -327,23 +509,62 @@ class _runtime_workspace_manager:
         self._manager.up(timeout_seconds=timeout_seconds)
 
     def down(self) -> None:
-        self._manager.down()
+        reset_error: Exception | None = None
+        if (
+            self._infrastructure_subject == "agent-zero"
+            and self.docker.container_running()
+        ):
+            try:
+                # This is a subject-release boundary, not a per-run boundary. No
+                # later run can race the asynchronous Agent Zero MCP refresh, so
+                # remove the GitHub MCP server before stopping the subject.
+                self._set_runtime_unadmitted()
+            except Exception as exc:
+                reset_error = exc
+
+        down_error: Exception | None = None
+        try:
+            self._manager.down()
+        except Exception as exc:
+            down_error = exc
+
+        if reset_error is not None or down_error is not None:
+            details: list[str] = []
+            if reset_error is not None:
+                details.append(
+                    "Agent Zero static MCP server reset: "
+                    + (str(reset_error) or reset_error.__class__.__name__)
+                )
+            if down_error is not None:
+                details.append(
+                    "subject shutdown: "
+                    + (str(down_error) or down_error.__class__.__name__)
+                )
+            raise infrastructure_error(
+                "GitHub MCP subject release failed: " + "; ".join(details)
+            )
 
     def runtime_admit(self, token: str) -> None:
         self._set_runtime_token(token)
         ok, detail = self._catalog_check(token)
         if ok:
             return
-        try:
-            self._set_runtime_token(_UNADMITTED_TOKEN)
-        except Exception:
-            pass
+        # Admission cleanup is owned by the integration-level admission contract.
+        # In particular, Agent Zero settings updates can launch asynchronous MCP
+        # refreshes, so a second settings rewrite here can race the next run.
         raise infrastructure_error(
             "GitHub MCP runtime admission catalog verification failed: "
             + str(_redact(detail, token))
         )
 
     def runtime_revoke(self, token: str) -> None:
+        del token
+        self._set_runtime_unadmitted()
+
+    def _set_runtime_unadmitted(self) -> None:
+        if self._infrastructure_subject == "agent-zero":
+            self._set_agent_zero_servers(_agent_zero_empty_servers())
+            return
         self._set_runtime_token(_UNADMITTED_TOKEN)
 
     def _set_runtime_token(self, token: str) -> None:
@@ -374,29 +595,34 @@ class _runtime_workspace_manager:
             )
             return
         if self._infrastructure_subject == "agent-zero":
-            api = getattr(self._manager, "api")
-            observed = api.get_settings()
-            settings = observed.get("settings")
-            if not isinstance(settings, dict):
-                raise infrastructure_error(
-                    "Agent Zero settings response did not contain a settings object."
-                )
-            desired = dict(settings)
-            desired["mcp_servers"] = _agent_zero_servers(self._settings, token)
-            updated = api.update_settings(desired)
-            updated_settings = updated.get("settings")
-            if (
-                not isinstance(updated_settings, dict)
-                or updated_settings.get("mcp_servers") != desired["mcp_servers"]
-            ):
-                raise infrastructure_error(
-                    "Agent Zero runtime MCP credential update was not persisted."
-                )
+            self._set_agent_zero_servers(_agent_zero_servers(self._settings, token))
             return
         raise infrastructure_error(
             "Unsupported infrastructure subject for GitHub MCP runtime admission: "
             + self._infrastructure_subject
         )
+
+    def _set_agent_zero_servers(self, mcp_servers: str) -> None:
+        api = getattr(self._manager, "api")
+        observed = api.get_settings()
+        settings = observed.get("settings")
+        if not isinstance(settings, dict):
+            raise infrastructure_error(
+                "Agent Zero settings response did not contain a settings object."
+            )
+        desired = dict(settings)
+        desired["mcp_servers"] = mcp_servers
+        if settings.get("mcp_servers") == mcp_servers:
+            return
+        updated = api.update_settings(desired)
+        updated_settings = updated.get("settings")
+        if (
+            not isinstance(updated_settings, dict)
+            or updated_settings.get("mcp_servers") != mcp_servers
+        ):
+            raise infrastructure_error(
+                "Agent Zero runtime MCP server update was not persisted."
+            )
 
     def _catalog_check(self, token: str) -> tuple[bool, str]:
         try:
@@ -524,6 +750,10 @@ def _hermes_server_value(settings: "_integration_settings", token: str) -> str:
         },
         separators=(",", ":"),
     )
+
+
+def _agent_zero_empty_servers() -> str:
+    return json.dumps({"mcpServers": {}}, separators=(",", ":"))
 
 
 def _agent_zero_servers(settings: "_integration_settings", token: str) -> str:

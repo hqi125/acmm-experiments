@@ -24,6 +24,12 @@ from .github_app import github_app_client
 from .git_content_plane import github_git_content_plane
 from .recovery import github_workspace_runtime_recovery
 from .resource_governor import github_execution_resource_governor
+from .mcp_usage import github_mcp_usage_reader
+from .provider_gate_client import github_provider_gate_client
+from .provider_pressure import (
+    github_provider_pressure_model,
+    load_github_provider_pressure_definition,
+)
 from .controller import (
     github_controller_client,
     github_controller_diagnostic,
@@ -91,6 +97,11 @@ _FIXTURE_IDS = (
 
 def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
     configuration = _load_controller_configuration(context)
+    pressure_definition, pressure_definition_sha256 = (
+        load_github_provider_pressure_definition(
+            context.resolve_resource("assets/provider_pressure.json")
+        )
+    )
     controller_token = context.resolve_package_secret("controller_access_token")
     github_app_private_key = context.resolve_package_secret("github_app_private_key")
     github_app_configuration = configuration["github_app"]
@@ -100,7 +111,7 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
     governor = github_api_governor(
         scope=governor_scope,
         policy=github_api_governor_policy(
-            request_interval_seconds=api_policy.get("request_interval_seconds", 0.25),
+            request_interval_seconds=api_policy.get("request_interval_seconds", 1.0),
             mutation_interval_seconds=api_policy["mutation_interval_seconds"],
             content_requests_per_minute=api_policy["content_requests_per_minute"],
             content_requests_per_hour=api_policy["content_requests_per_hour"],
@@ -133,6 +144,16 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         provider_context=lambda content_generating: governor.serialized_git_operation(
             content_generating=content_generating
         ),
+        provider_operation_context=(
+            lambda operation, content_generating, owner, name:
+            governor.serialized_git_operation(
+                content_generating=content_generating,
+                operation=operation,
+                owner=owner,
+                name=name,
+            )
+        ),
+        provider_gate_active=governor.provider_gate_active,
     )
     controller = github_controller_client(
         controller_token,
@@ -143,6 +164,24 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
     execution_resource_governor = github_execution_resource_governor(
         controller,
         governor,
+    )
+    integration_state_root = context.integration_state_roots.get("github_mcp")
+    if integration_state_root is None:
+        raise ValueError("GitHub MCP integration state root is unavailable.")
+    mcp_usage = github_mcp_usage_reader(
+        integration_state_root / "mcp-governor-state/governor.json"
+    )
+    provider_gate_client = github_provider_gate_client(
+        integration_state_root / "mcp-governor-state/pph-gate.json"
+    )
+    governor.set_provider_gate_client(provider_gate_client)
+    provider_pressure_model = github_provider_pressure_model(
+        controller,
+        governor,
+        mcp_usage=mcp_usage,
+        scope_id=governor_scope,
+        definition=pressure_definition,
+        definition_sha256=pressure_definition_sha256,
     )
     credentials_distinct = True
     diagnostic = github_controller_diagnostic(
@@ -217,6 +256,15 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         f5_b_spec=f5_b_spec,
         f6_a_spec=f6_a_spec,
         f6_b_spec=f6_b_spec,
+        run_admission_pressure_features=(
+            pressure_definition.get("route_features", {}).get(
+                "app.installation_token.mint",
+                {},
+            )
+            if isinstance(pressure_definition.get("route_features"), dict)
+            else {}
+        ),
+        mcp_usage=mcp_usage,
     )
     f1_a_materializer = github_f1_a_materializer(
         controller,
@@ -419,6 +467,7 @@ def build_runtime(context: experiment_runtime_context) -> experiment_runtime:
         ),
         lifecycle=disposable_lifecycle,
         resource_governor=execution_resource_governor,
+        provider_pressure_model=provider_pressure_model,
         apparatus_cleanup=quarantine_cleanup,
         recovery=github_workspace_runtime_recovery(
             controller,

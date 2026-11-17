@@ -11,6 +11,12 @@ import time
 import threading
 from typing import Any, Callable, Iterator, Mapping
 
+from .provider_gate_client import (
+    github_provider_gate_admission,
+    github_provider_gate_client,
+    github_provider_gate_error,
+)
+
 
 _STATE_SCHEMA_VERSION = "0.3"
 
@@ -25,7 +31,7 @@ _LOCAL_LOCKS: dict[str, threading.RLock] = {}
 
 @dataclass(frozen=True)
 class github_api_governor_policy:
-    request_interval_seconds: float = 0.25
+    request_interval_seconds: float = 1.0
     mutation_interval_seconds: float = 2.0
     content_requests_per_minute: int = 60
     content_requests_per_hour: int = 360
@@ -65,6 +71,26 @@ class github_api_governor_policy:
             raise ValueError("GitHub secondary backoff delays must be positive.")
 
 
+@dataclass(frozen=True)
+class github_rate_limit_recovery:
+    kind: str
+    wait_seconds: float
+    recommendation_source: str
+    status: int
+    primary_domain: str
+    route: str | None = None
+    metadata: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in {"primary", "secondary"}:
+            raise ValueError("GitHub recovery kind must be primary or secondary.")
+        if self.wait_seconds < 0:
+            raise ValueError("GitHub recovery wait must not be negative.")
+        if not self.recommendation_source.strip():
+            raise ValueError("GitHub recovery recommendation source must not be empty.")
+        object.__setattr__(self, "metadata", dict(self.metadata or {}))
+
+
 class github_api_governor:
     """Provider-scoped GitHub request pacing and secondary-limit state.
 
@@ -101,7 +127,33 @@ class github_api_governor:
         self._route_requests: dict[str, Counter[str]] = defaultdict(Counter)
         self._domain_requests: dict[str, Counter[str]] = defaultdict(Counter)
         self._progress: Callable[[str], None] | None = None
+        self._pressure_action: Callable[[str, Mapping[str, float], Mapping[str, Any]], Mapping[str, Any]] | None = None
+        self._pressure_pacing: Callable[[str, float, str, Mapping[str, float], Mapping[str, Any]], Mapping[str, Any]] | None = None
+        self._pressure_recovery: Callable[[str, float, str, str, str | None, Mapping[str, float], Mapping[str, Any]], Mapping[str, Any]] | None = None
+        self._pressure_action_result: Callable[[str, str, str | None, Mapping[str, float], Mapping[str, Any]], Mapping[str, Any]] | None = None
+        self._pressure_action_id: str | None = None
+        self._pressure_action_record: dict[str, Any] | None = None
+        self._pressure_features: dict[str, float] = {}
+        self._pressure_metadata: dict[str, Any] = {}
+        self._provider_gate_client: github_provider_gate_client | None = None
+        self._provider_gate_admission: github_provider_gate_admission | None = None
+        self._provider_gate_attempt: int = 0
+        self._provider_request_metadata: dict[str, Any] = {}
         self._state = self._load_state()
+
+    @contextmanager
+    def provider_request_scope(
+        self,
+        metadata: Mapping[str, Any] | None,
+    ) -> Iterator[None]:
+        previous = dict(self._provider_request_metadata)
+        merged = dict(previous)
+        merged.update(dict(metadata or {}))
+        self._provider_request_metadata = merged
+        try:
+            yield
+        finally:
+            self._provider_request_metadata = previous
 
     @contextmanager
     def serialized_provider_access(self) -> Iterator[None]:
@@ -123,15 +175,107 @@ class github_api_governor:
         self,
         *,
         content_generating: bool,
+        operation: str = "git.remote",
+        owner: str | None = None,
+        name: str | None = None,
     ) -> Iterator[None]:
-        """Serialize a remote Git operation with REST/App traffic and cooldowns."""
+        """Serialize and gate remote Git traffic without creating a second actuator."""
         with self.serialized_provider_access():
-            self.wait_for_provider_ready(content_generating=content_generating)
-            yield
+            gate_active = (
+                self._provider_gate_client is not None
+                and self._provider_gate_client.active()
+            )
+            admission = None
+            if gate_active:
+                repository = (
+                    f"{owner}/{name}"
+                    if owner and name
+                    else "provider-repository"
+                )
+                admission = self._provider_gate_client.admit(
+                    method=("POST" if content_generating else "GET"),
+                    url=f"https://github.com/{repository}.git",
+                    request_kind="git",
+                    metadata={
+                        **self._provider_request_metadata,
+                        "route": operation,
+                        "primary_domain": "controller",
+                        "content_generating": bool(content_generating),
+                        "baseline_mutation": bool(content_generating),
+                    },
+                )
+                if admission is None:
+                    raise github_provider_gate_error(
+                        "Provider Gate became inactive during Git admission."
+                    )
+                self._metrics["provider_gate_admissions"] += 1
+                self._metrics["pph_managed_requests"] += 1
+            else:
+                self.wait_for_provider_ready(content_generating=content_generating)
+                self._wait_for_request_spacing()
+                if content_generating:
+                    self._wait_for_mutation_spacing()
+                now = self._clock()
+                self._state["last_request_at"] = now
+                if content_generating:
+                    self._state["last_mutation_at"] = now
+                self._persist_state()
+            try:
+                yield
+            except BaseException as exc:
+                if admission is not None:
+                    assert self._provider_gate_client is not None
+                    self._provider_gate_client.feedback(
+                        admission,
+                        status=None,
+                        headers={},
+                        body="",
+                        error=f"{exc.__class__.__name__}: {exc}",
+                        attempt=0,
+                        metadata={
+                            **self._provider_request_metadata,
+                            "route": operation,
+                            "git_operation": True,
+                        },
+                    )
+                    self._metrics["provider_gate_errors"] += 1
+                raise
+            else:
+                if admission is not None:
+                    assert self._provider_gate_client is not None
+                    self._provider_gate_client.feedback(
+                        admission,
+                        status=200,
+                        headers={},
+                        body="",
+                        attempt=0,
+                        metadata={
+                            **self._provider_request_metadata,
+                            "route": operation,
+                            "git_operation": True,
+                        },
+                    )
+                    self._metrics["provider_gate_results"] += 1
+
+    def provider_gate_active(self) -> bool:
+        return bool(
+            self._provider_gate_client is not None
+            and self._provider_gate_client.active()
+        )
 
     @property
     def policy(self) -> github_api_governor_policy:
         return self._policy
+
+    def set_provider_gate_client(
+        self,
+        client: github_provider_gate_client | None,
+    ) -> None:
+        if self._provider_gate_admission is not None:
+            raise RuntimeError(
+                "Cannot replace GitHub Provider Gate client while a request is active."
+            )
+        self._provider_gate_client = client
 
     def set_progress_reporter(
         self,
@@ -139,34 +283,174 @@ class github_api_governor:
     ) -> None:
         self._progress = progress
 
+    @contextmanager
+    def provider_pressure_watchdog(
+        self,
+        *,
+        action: Callable[[str, Mapping[str, float], Mapping[str, Any]], Mapping[str, Any]] | None,
+        pacing: Callable[[str, float, str, Mapping[str, float], Mapping[str, Any]], Mapping[str, Any]] | None,
+        recovery: Callable[[str, float, str, str, str | None, Mapping[str, float], Mapping[str, Any]], Mapping[str, Any]] | None = None,
+        action_result: Callable[[str, str, str | None, Mapping[str, float], Mapping[str, Any]], Mapping[str, Any]] | None = None,
+        action_id: str,
+        features: Mapping[str, float],
+        metadata: Mapping[str, Any] | None = None,
+    ) -> Iterator[None]:
+        previous = (
+            self._pressure_action,
+            self._pressure_pacing,
+            self._pressure_recovery,
+            self._pressure_action_result,
+            self._pressure_action_id,
+            dict(self._pressure_action_record) if self._pressure_action_record is not None else None,
+            dict(self._pressure_features),
+            dict(self._pressure_metadata),
+        )
+        self._pressure_action = action
+        self._pressure_pacing = pacing
+        self._pressure_recovery = recovery
+        self._pressure_action_result = action_result
+        self._pressure_action_id = str(action_id)
+        self._pressure_action_record = None
+        self._pressure_features = {str(k): float(v) for k, v in features.items() if float(v) > 0}
+        self._pressure_metadata = dict(metadata or {})
+        try:
+            yield
+        except KeyboardInterrupt:
+            self._emit_pressure_action_result(
+                "interrupted",
+                {"exception_type": "KeyboardInterrupt"},
+                suppress_errors=True,
+            )
+            raise
+        except BaseException as exc:
+            self._emit_pressure_action_result(
+                "failure",
+                {
+                    "exception_type": exc.__class__.__name__,
+                    "exception_detail": str(exc),
+                },
+                suppress_errors=True,
+            )
+            raise
+        else:
+            self._emit_pressure_action_result("success", {})
+        finally:
+            (
+                self._pressure_action,
+                self._pressure_pacing,
+                self._pressure_recovery,
+                self._pressure_action_result,
+                self._pressure_action_id,
+                prior_action_record,
+                prior_features,
+                prior_metadata,
+            ) = previous
+            self._pressure_action_record = prior_action_record
+            self._pressure_features = prior_features
+            self._pressure_metadata = prior_metadata
+
     def before_request(
         self,
         *,
         method: str,
         route: str,
+        url: str | None = None,
         content_generating: bool,
         primary_domain: str = "controller",
         enforce_primary_headroom: bool = True,
+        recovery_retry: bool = False,
+        request_kind: str = "rest",
     ) -> None:
         domain = _primary_domain(primary_domain)
         method_upper = method.upper()
         mutation = method_upper in {"POST", "PATCH", "PUT", "DELETE"}
+        direct_managed = (
+            self._pressure_action is not None and self._pressure_action_id is not None
+        )
+        gate_active = False
+        if self._provider_gate_client is not None:
+            gate_active = self._provider_gate_client.active()
+
         self._refresh_state()
+        if gate_active:
+            if recovery_retry:
+                if self._provider_gate_admission is None:
+                    raise github_provider_gate_error(
+                        "Provider Gate retry has no active admission."
+                    )
+            else:
+                if self._provider_gate_admission is not None:
+                    raise github_provider_gate_error(
+                        "Provider Gate already has an active trusted-controller request."
+                    )
+                if not url:
+                    raise github_provider_gate_error(
+                        "Provider Gate managed request is missing its provider URL."
+                    )
+                admission = self._provider_gate_client.admit(
+                    method=method_upper,
+                    url=url,
+                    request_kind=str(request_kind or "rest"),
+                    metadata={
+                        **self._provider_request_metadata,
+                        "route": route,
+                        "primary_domain": domain,
+                        "content_generating": bool(content_generating),
+                        "baseline_mutation": mutation,
+                    },
+                )
+                if admission is None:
+                    raise github_provider_gate_error(
+                        "Provider Gate became inactive during managed admission."
+                    )
+                self._provider_gate_admission = admission
+                self._provider_gate_attempt = 0
+                self._metrics["provider_gate_admissions"] += 1
+        else:
+            # Provider-authoritative persisted cooldowns remain a fallback safety
+            # mechanism outside the active Core gate.  Inside the gate, recovery
+            # is already actuated synchronously by Core and must not be slept twice.
+            self._wait_for_provider_clear(
+                content_generating=content_generating, route=route
+            )
+            if self._policy.provider_authoritative_rate_limits:
+                self._wait_for_primary_exhaustion(domain)
 
-        self._wait_for_provider_clear(content_generating=content_generating)
-        if self._policy.provider_authoritative_rate_limits:
-            # A provider-reported remaining=0 is authoritative even for
-            # cleanup-critical requests that bypass the legacy headroom reserve.
-            self._wait_for_primary_exhaustion(domain)
-        elif enforce_primary_headroom:
-            self._wait_for_primary_headroom(domain)
-        if content_generating and not self._policy.provider_authoritative_rate_limits:
-            self._wait_for_content_budget()
+            if not direct_managed:
+                if (
+                    not self._policy.provider_authoritative_rate_limits
+                    and enforce_primary_headroom
+                ):
+                    self._wait_for_primary_headroom(domain)
+                if (
+                    content_generating
+                    and not self._policy.provider_authoritative_rate_limits
+                ):
+                    self._wait_for_content_budget()
+                self._wait_for_request_spacing()
+                if mutation:
+                    self._wait_for_mutation_spacing()
+            elif not recovery_retry:
+                record = self._pressure_action(
+                    self._pressure_action_id,
+                    self._pressure_features,
+                    {
+                        **self._provider_request_metadata,
+                        **self._pressure_metadata,
+                        "route": route,
+                        "method": method_upper,
+                        "primary_domain": domain,
+                        "request_kind": str(request_kind or "rest"),
+                    },
+                )
+                self._pressure_action_record = (
+                    dict(record) if isinstance(record, Mapping) else None
+                )
 
-        self._wait_for_request_spacing()
+        # These timestamps remain observational even when the Core gate owns
+        # proactive pacing. They support evidence and fallback operation.
         self._state["last_request_at"] = self._clock()
         if mutation:
-            self._wait_for_mutation_spacing()
             self._state["last_mutation_at"] = self._clock()
 
         if content_generating:
@@ -183,6 +467,14 @@ class github_api_governor:
             self._metrics["mutations"] += 1
         if content_generating:
             self._metrics["content_requests"] += 1
+        if gate_active:
+            self._metrics["pph_managed_requests"] += 1
+            if recovery_retry:
+                self._metrics["pph_recovery_retry_requests"] += 1
+        elif direct_managed:
+            self._metrics["pph_managed_requests"] += 1
+            if recovery_retry:
+                self._metrics["pph_recovery_retry_requests"] += 1
         self._route_requests[route]["requests"] += 1
         self._domain_requests[domain]["requests"] += 1
         if mutation:
@@ -220,50 +512,124 @@ class github_api_governor:
                 self._state["secondary_backoff_level"] = 0
         self._persist_state()
 
-    def rate_limit_delay(
+    def provider_request_error(
+        self,
+        detail: str,
+    ) -> None:
+        admission = self._provider_gate_admission
+        if admission is None:
+            return
+        try:
+            assert self._provider_gate_client is not None
+            self._provider_gate_client.cancel(admission, detail)
+        finally:
+            self._provider_gate_admission = None
+            self._provider_gate_attempt = 0
+        self._metrics["provider_gate_errors"] += 1
+
+    def rate_limit_recovery(
         self,
         *,
         status: int,
         headers: Mapping[str, str],
         detail: str,
         primary_domain: str = "controller",
-    ) -> float | None:
-        """Record a provider-directed GitHub rate-limit wait.
+        route: str | None = None,
+        attempt: int = 0,
+    ) -> github_rate_limit_recovery | None:
+        """Classify provider recovery, using Core when the synchronous gate is active."""
+        gate_admission = self._provider_gate_admission
+        if gate_admission is not None:
+            if self._provider_gate_client is None:
+                raise github_provider_gate_error(
+                    "Provider Gate admission exists without a gate client."
+                )
+            feedback = self._provider_gate_client.feedback(
+                gate_admission,
+                status=status,
+                headers=headers,
+                body=detail,
+                attempt=int(attempt),
+                metadata={
+                    **self._provider_request_metadata,
+                    "route": route,
+                    "primary_domain": _primary_domain(primary_domain),
+                },
+            )
+            if not feedback.retry:
+                self._provider_gate_admission = None
+                self._provider_gate_attempt = 0
+                self._metrics["provider_gate_results"] += 1
+                return None
+            recovery_record = dict(feedback.recovery)
+            wait_seconds = float(
+                recovery_record.get("provider_wait_seconds", 0.0) or 0.0
+            )
+            kind = str(
+                recovery_record.get("provider_recovery_kind") or "secondary"
+            )
+            source = str(
+                recovery_record.get("recommendation_source")
+                or "documented_fallback"
+            )
+            self._provider_gate_attempt = int(attempt) + 1
+            self._metrics["provider_gate_recoveries"] += 1
+            return github_rate_limit_recovery(
+                kind=(kind if kind in {"primary", "secondary"} else "secondary"),
+                wait_seconds=max(0.0, wait_seconds),
+                recommendation_source=source,
+                status=status,
+                primary_domain=_primary_domain(primary_domain),
+                route=route,
+                metadata={
+                    "gate_managed": True,
+                    "gate_recovery_record": recovery_record,
+                },
+            )
 
-        GitHub response headers are authoritative for primary-rate exhaustion.
-        Secondary limits have no queryable remaining counter, so Retry-After is
-        honored when present and GitHub's documented one-minute/exponential
-        fallback is used only after GitHub has explicitly returned a secondary
-        rate-limit response.
-        """
         if status not in {403, 429}:
             return None
 
         domain = _primary_domain(primary_domain)
         self._refresh_state()
         now = self._clock()
-        retry_after = _positive_header_float(headers, "Retry-After")
+        raw_retry_after = _positive_header_float(headers, "Retry-After")
+        retry_after = raw_retry_after
         if retry_after is not None:
             retry_after += self._policy.retry_after_grace_seconds
         remaining = _header_value(headers, "X-RateLimit-Remaining")
         reset_at = _positive_header_float(headers, "X-RateLimit-Reset")
 
-        # GitHub defines remaining=0 as primary-rate exhaustion. This takes
-        # precedence over textual secondary-limit heuristics.
         if remaining == "0":
             delay = retry_after
+            source = "retry_after" if delay is not None else "documented_fallback"
             if delay is None and reset_at is not None and reset_at > now:
                 delay = reset_at - now + self._policy.primary_reset_grace_seconds
+                source = "rate_reset"
             if delay is None:
                 delay = 60.0
             self._metrics["primary_rate_limit_events"] += 1
+            if route is not None:
+                self._route_requests[route]["primary_rate_limit_events"] += 1
             self._metrics[f"primary_rate_limit_events_{domain}"] += 1
             self._state["last_primary_limit_at"] = now
             self._state["last_primary_limit_domain"] = domain
             self._state["last_rate_limit_kind"] = "primary"
             self._state["last_rate_limit_delay_seconds"] = float(delay)
             self._persist_state()
-            return max(0.0, float(delay))
+            return github_rate_limit_recovery(
+                kind="primary",
+                wait_seconds=max(0.0, float(delay)),
+                recommendation_source=source,
+                status=status,
+                primary_domain=domain,
+                route=route,
+                metadata={
+                    "raw_retry_after_seconds": raw_retry_after,
+                    "retry_after_grace_seconds": self._policy.retry_after_grace_seconds,
+                    "rate_reset": reset_at,
+                },
+            )
 
         rendered = detail.casefold()
         secondary = (
@@ -276,6 +642,7 @@ class github_api_governor:
             return None
 
         delay = retry_after
+        source = "retry_after" if delay is not None else "documented_fallback"
         level = int(self._state.get("secondary_backoff_level", 0) or 0)
         if delay is None:
             index = min(level, len(self._policy.secondary_backoff_seconds) - 1)
@@ -286,8 +653,6 @@ class github_api_governor:
             now + float(delay),
         )
         self._state["secondary_block_until"] = block_until
-        # GitHub explicitly recommends stopping requests while secondary-limited.
-        # Even a content-creation block therefore pauses the entire trusted API plane.
         self._state["secondary_block_scope"] = "all"
         self._state["secondary_backoff_level"] = min(
             level + 1,
@@ -298,7 +663,105 @@ class github_api_governor:
         self._state["last_rate_limit_delay_seconds"] = float(delay)
         self._persist_state()
         self._metrics["secondary_rate_limit_events"] += 1
-        return max(0.0, block_until - now)
+        if route is not None:
+            self._route_requests[route]["secondary_rate_limit_events"] += 1
+        return github_rate_limit_recovery(
+            kind="secondary",
+            wait_seconds=max(0.0, block_until - now),
+            recommendation_source=source,
+            status=status,
+            primary_domain=domain,
+            route=route,
+            metadata={
+                "raw_retry_after_seconds": raw_retry_after,
+                "retry_after_grace_seconds": self._policy.retry_after_grace_seconds,
+                "secondary_backoff_level": level,
+            },
+        )
+
+    def actuate_provider_recovery(
+        self,
+        recovery: github_rate_limit_recovery,
+        *,
+        attempt: int,
+    ) -> Mapping[str, Any] | None:
+        if bool(dict(recovery.metadata or {}).get("gate_managed", False)):
+            # Core already actuated this recovery synchronously while handling
+            # Provider Gate feedback. Returning here prevents a second sleep.
+            self._metrics["pph_provider_recovery_events"] += 1
+            self._metrics["pph_provider_recovery_seconds"] += float(
+                recovery.wait_seconds
+            )
+            record = dict(recovery.metadata or {}).get("gate_recovery_record")
+            return dict(record) if isinstance(record, Mapping) else None
+        if self._pressure_recovery is None or self._pressure_action_id is None:
+            return None
+        action_record = self._pressure_action_record or {}
+        decision_id = action_record.get("decision_id")
+        record = self._pressure_recovery(
+            recovery.kind,
+            recovery.wait_seconds,
+            recovery.recommendation_source,
+            self._pressure_action_id,
+            str(decision_id) if decision_id is not None else None,
+            self._pressure_features,
+            {
+                **self._pressure_metadata,
+                "route": recovery.route,
+                "status": recovery.status,
+                "primary_domain": recovery.primary_domain,
+                "recovery_attempt": int(attempt),
+                **dict(recovery.metadata or {}),
+            },
+        )
+        self._metrics["pph_provider_recovery_events"] += 1
+        self._metrics["pph_provider_recovery_seconds"] += float(recovery.wait_seconds)
+        return dict(record) if isinstance(record, Mapping) else None
+
+    def remember_provider_recovery(
+        self,
+        *,
+        kind: str,
+        wait_seconds: float,
+    ) -> None:
+        """Persist provider-authoritative cooldown state without actuating it.
+
+        Core owns the active-run wait.  This persisted state protects fallback
+        traffic if the execution is interrupted before the provider window clears.
+        """
+        if str(kind) != "secondary" or float(wait_seconds) <= 0:
+            return
+        self._refresh_state()
+        now = self._clock()
+        wait = max(0.0, float(wait_seconds))
+        self._state["secondary_block_until"] = max(
+            float(self._state.get("secondary_block_until", 0.0) or 0.0),
+            now + wait,
+        )
+        self._state["secondary_block_scope"] = "all"
+        self._state["last_secondary_limit_at"] = now
+        self._state["last_rate_limit_kind"] = "secondary"
+        self._state["last_rate_limit_delay_seconds"] = wait
+        self._persist_state()
+
+    def rate_limit_delay(
+        self,
+        *,
+        status: int,
+        headers: Mapping[str, str],
+        detail: str,
+        primary_domain: str = "controller",
+        route: str | None = None,
+    ) -> float | None:
+        """Backward-compatible scalar view of rate_limit_recovery()."""
+        recovery = self.rate_limit_recovery(
+            status=status,
+            headers=headers,
+            detail=detail,
+            primary_domain=primary_domain,
+            route=route,
+        )
+        return None if recovery is None else recovery.wait_seconds
 
     def secondary_rate_limit_delay(
         self,
@@ -360,8 +823,15 @@ class github_api_governor:
             for domain, counter in sorted(self._domain_requests.items())
         }
         primary_rates = self._primary_rates_snapshot()
+        content_capacity = _content_capacity_snapshot(
+            timestamps,
+            now=now,
+            minute_limit=self._policy.content_requests_per_minute,
+            hour_limit=self._policy.content_requests_per_hour,
+        )
         return {
             "schema_version": "0.1",
+            "observed_at": now,
             "scope": self._scope,
             "policy": {
                 "request_interval_seconds": self._policy.request_interval_seconds,
@@ -389,6 +859,15 @@ class github_api_governor:
                 "content_requests_last_hour": sum(
                     1 for value in timestamps if value > now - 3600.0
                 ),
+                "content_minute_capacity_wait_seconds": content_capacity[
+                    "minute_wait_seconds"
+                ],
+                "content_hour_capacity_wait_seconds": content_capacity[
+                    "hour_wait_seconds"
+                ],
+                "content_capacity_wait_seconds": content_capacity[
+                    "wait_seconds"
+                ],
                 "secondary_block_until": float(
                     self._state.get("secondary_block_until", 0.0) or 0.0
                 ),
@@ -528,7 +1007,7 @@ class github_api_governor:
             )
             self._sleep(wait)
 
-    def _wait_for_provider_clear(self, *, content_generating: bool) -> None:
+    def _wait_for_provider_clear(self, *, content_generating: bool, route: str | None = None) -> None:
         while True:
             now = self._clock()
             block_until = float(
@@ -546,6 +1025,11 @@ class github_api_governor:
                 if scope == "content"
                 else "GitHub provider cooldown"
             )
+            self._emit_pressure_pacing(
+                "provider_secondary_pressure",
+                remaining,
+                {"route": route, "scope": scope, "label": label},
+            )
             self._report_wait(label, remaining)
             self._sleep(remaining)
             self._refresh_state()
@@ -560,14 +1044,13 @@ class github_api_governor:
                 for value in self._state.get("content_request_timestamps", ())
                 if isinstance(value, (int, float))
             )
-            minute = [value for value in timestamps if value > now - 60.0]
-            hour = [value for value in timestamps if value > now - 3600.0]
-            waits: list[float] = []
-            if len(minute) >= self._policy.content_requests_per_minute:
-                waits.append(minute[0] + 60.0 - now + 0.05)
-            if len(hour) >= self._policy.content_requests_per_hour:
-                waits.append(hour[0] + 3600.0 - now + 0.05)
-            wait = max((value for value in waits if value > 0), default=0.0)
+            capacity = _content_capacity_snapshot(
+                timestamps,
+                now=now,
+                minute_limit=self._policy.content_requests_per_minute,
+                hour_limit=self._policy.content_requests_per_hour,
+            )
+            wait = float(capacity["wait_seconds"])
             if wait <= 0:
                 return
             self._record_wait("content_budget_wait_seconds", wait)
@@ -597,7 +1080,7 @@ class github_api_governor:
         wait_before = float(self._metrics.get("wait_seconds", 0.0))
 
         self._refresh_state()
-        self._wait_for_provider_clear(content_generating=True)
+        self._wait_for_provider_clear(content_generating=True, route=None)
 
         content_limit = self._policy.content_requests_per_hour
         required_content = min(int(forecast_content_requests), content_limit)
@@ -702,7 +1185,7 @@ class github_api_governor:
     ) -> None:
         """Apply persisted provider-wide cooldown to non-REST GitHub traffic."""
         self._refresh_state()
-        self._wait_for_provider_clear(content_generating=content_generating)
+        self._wait_for_provider_clear(content_generating=content_generating, route=None)
 
     def _wait_for_request_spacing(self) -> None:
         interval = self._policy.request_interval_seconds
@@ -715,6 +1198,11 @@ class github_api_governor:
         remaining = float(last) + interval - now
         if remaining > 0:
             self._record_wait("request_spacing_wait_seconds", remaining)
+            self._emit_pressure_pacing(
+                "governor_request_spacing",
+                remaining,
+                {"label": "GitHub request spacing"},
+            )
             self._sleep(remaining)
 
     def _wait_for_mutation_spacing(self) -> None:
@@ -728,7 +1216,65 @@ class github_api_governor:
         remaining = float(last) + interval - now
         if remaining > 0:
             self._record_wait("mutation_spacing_wait_seconds", remaining)
+            self._emit_pressure_pacing(
+                "governor_mutation_spacing",
+                remaining,
+                {"label": "GitHub mutation spacing"},
+            )
             self._sleep(remaining)
+
+    def _emit_pressure_action_result(
+        self,
+        outcome: str,
+        metadata: Mapping[str, Any] | None = None,
+        *,
+        suppress_errors: bool = False,
+    ) -> None:
+        if (
+            self._pressure_action_result is None
+            or self._pressure_action_id is None
+            or self._pressure_action_record is None
+        ):
+            return
+        decision_id = self._pressure_action_record.get("decision_id")
+        try:
+            self._pressure_action_result(
+                outcome,
+                self._pressure_action_id,
+                str(decision_id) if decision_id is not None else None,
+                self._pressure_features,
+                {
+                    **self._pressure_metadata,
+                    "admission_decision": dict(self._pressure_action_record),
+                    **dict(metadata or {}),
+                },
+            )
+            self._metrics["pph_action_result_events"] += 1
+            self._metrics[f"pph_action_result_{outcome}"] += 1
+        except Exception:
+            self._metrics["pph_action_result_errors"] += 1
+            if not suppress_errors:
+                raise
+
+    def _emit_pressure_pacing(
+        self,
+        reason: str,
+        seconds: float,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        if (
+            self._pressure_pacing is None
+            or self._pressure_action_id is None
+            or seconds <= 0
+        ):
+            return
+        self._pressure_pacing(
+            str(reason),
+            float(seconds),
+            self._pressure_action_id,
+            self._pressure_features,
+            {**self._pressure_metadata, **dict(metadata or {})},
+        )
 
     def _report_wait(self, reason: str, seconds: float) -> None:
         if self._progress is None or seconds < 2.0:
@@ -824,15 +1370,44 @@ class github_api_governor:
 
 
 
+def _content_capacity_snapshot(
+    timestamps: tuple[float, ...] | list[float],
+    *,
+    now: float,
+    minute_limit: int,
+    hour_limit: int,
+) -> dict[str, float]:
+    ordered = sorted(float(value) for value in timestamps)
+    minute = [value for value in ordered if value > now - 60.0]
+    hour = [value for value in ordered if value > now - 3600.0]
+    minute_wait = 0.0
+    hour_wait = 0.0
+    if len(minute) >= minute_limit:
+        minute_wait = max(0.0, minute[0] + 60.0 - now + 0.05)
+    if len(hour) >= hour_limit:
+        hour_wait = max(0.0, hour[0] + 3600.0 - now + 0.05)
+    return {
+        "minute_wait_seconds": minute_wait,
+        "hour_wait_seconds": hour_wait,
+        "wait_seconds": max(minute_wait, hour_wait),
+    }
+
+
 def _approximate_duration(seconds: float) -> str:
     rounded = max(1, int(round(seconds)))
+    rendered_seconds = f"{rounded}s"
     if rounded < 60:
-        return f"{rounded}s"
-    minutes, remaining = divmod(rounded, 60)
-    if minutes < 60:
-        return f"{minutes}m {remaining:02d}s"
-    hours, minutes = divmod(minutes, 60)
-    return f"{hours}h {minutes:02d}m"
+        return rendered_seconds
+    hours, remainder = divmod(rounded, 3600)
+    minutes, seconds_part = divmod(remainder, 60)
+    parts: list[str] = []
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if seconds_part:
+        parts.append(f"{seconds_part}s")
+    return f"{rendered_seconds} ({''.join(parts)})"
 
 def _rate_integer(value: Any) -> int | None:
     try:

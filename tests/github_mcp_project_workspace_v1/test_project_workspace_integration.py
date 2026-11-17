@@ -5,7 +5,9 @@ import base64
 import json
 from pathlib import Path
 import shutil
+from types import SimpleNamespace
 import zipfile
+from typing import Mapping
 
 import pytest
 
@@ -28,6 +30,16 @@ from acmm.experiment_api import (
     runtime_materialization_context,
     runtime_materialization_finalization,
     runtime_resource_execution_context,
+    runtime_resource_subject_slice_context,
+    runtime_provider_pressure_action_result_event,
+    runtime_provider_pressure_execution_context,
+    runtime_provider_pressure_pacing_event,
+    runtime_provider_pressure_recovery_event,
+    runtime_provider_pressure_run_context,
+    runtime_provider_pressure_run_outcome,
+    runtime_provider_pressure_transport_request,
+    runtime_provider_pressure_transport_response,
+    runtime_provider_pressure_workload,
     runtime_run_context,
     runtime_run_finalization,
     runtime_session_context,
@@ -57,10 +69,10 @@ CONTROLLER_TOKEN = "controller-secret-value"
 EXPECTED_CATALOG_SHA256 = (
     "0b6d56cef0521915db11229a7d6a3e180bdfded83a5956d81347b5e11a547e33"
 )
-EXPECTED_GOVERNED_IMAGE = "acmm/github-mcp-server:v2.1.0-acmm-governed-v1"
+EXPECTED_GOVERNED_IMAGE = "acmm/github-mcp-server:v2.1.0-acmm-governed-v2"
 EXPECTED_SOURCE_REPOSITORY = "https://github.com/hqi125/acmm-github-mcp-server.git"
 EXPECTED_UPSTREAM_COMMIT = "4bcdcdf8d7beee98c9448e73e257308280924cc4"
-EXPECTED_GOVERNOR_VERSION = "v1"
+EXPECTED_GOVERNOR_VERSION = "v2"
 
 
 def _pinned_source_commit() -> str:
@@ -274,7 +286,7 @@ def test_package_declares_frozen_scientific_shape(tmp_path: Path) -> None:
     assert service["upstream_version"] == "v2.1.0"
     assert service["upstream_commit"] == EXPECTED_UPSTREAM_COMMIT
     assert service["governor_version"] == EXPECTED_GOVERNOR_VERSION
-    assert service["request_interval"] == "500ms"
+    assert service["request_interval"] == "1s"
     assert service["mutation_interval"] == "2s"
 
 
@@ -317,6 +329,68 @@ def test_github_mcp_integration_interprets_provider_plain_text_failures(
             output='{"result":"Failed to reproduce in current build"}',
         )
     )
+    assert interpreter.detects_error(
+        tool_result_interpretation_context(
+            subject_id="agent_zero_gpt_oss120b",
+            tool_name="github.create_branch",
+            output="",
+        )
+    )
+    assert interpreter.detects_error(
+        tool_result_interpretation_context(
+            subject_id="agent_zero_gpt_oss120b",
+            tool_name="github.create_branch",
+            output=(
+                "Tool github.create_branch not found. Available tools: response"
+            ),
+        )
+    )
+    assert interpreter.annotations(
+        tool_result_interpretation_context(
+            subject_id="agent_zero_gpt_oss120b",
+            tool_name="github.create_branch",
+            output="Tool github.create_branch not found. Available tools: response",
+        )
+    ) == {
+        "acmm_error_origin": "apparatus",
+        "acmm_error_kind": "expected_mcp_tool_unavailable",
+    }
+    assert interpreter.annotations(
+        tool_result_interpretation_context(
+            subject_id="agent_zero_gpt_oss120b",
+            tool_name="github.not_a_real_tool",
+            output="Tool github.not_a_real_tool not found. Available tools: response",
+        )
+    ) == {}
+    assert interpreter.annotations(
+        tool_result_interpretation_context(
+            subject_id="hermes_gpt_oss120b",
+            tool_name="mcp__github__create_branch",
+            output=(
+                "Tool execution failed: ACMM PPH gate admission failed closed: "
+                "dial tcp 127.0.0.1:8765: i/o timeout"
+            ),
+        )
+    ) == {
+        "acmm_error_origin": "apparatus",
+        "acmm_error_kind": "provider_gate_failed_closed",
+    }
+    assert interpreter.detects_error(
+        tool_result_interpretation_context(
+            subject_id="agent_zero_gpt_oss120b",
+            tool_name="github.create_branch",
+            output=(
+                'Tool "github.create_branch" is blocked for agent profile "acmm".'
+            ),
+        )
+    )
+    assert not interpreter.detects_error(
+        tool_result_interpretation_context(
+            subject_id="open_webui_gpt_oss120b",
+            tool_name="github.create_branch",
+            output="",
+        )
+    )
     assert not interpreter.detects_error(
         tool_result_interpretation_context(
             subject_id="agent_zero_gpt_oss120b",
@@ -355,7 +429,16 @@ def test_staged_integration_composes_unadmitted_42_tool_surface_for_all_subjects
 
     agent_zero = _compose_profile(package, "agent-zero")
     assert agent_zero.experiment_isolation.mcp_tool_default == "allow"
-    assert agent_zero.experiment_isolation.allowed_tools == ()
+    assert agent_zero.experiment_isolation.tool_default == "block"
+    assert set(agent_zero.experiment_isolation.allowed_tools) == {
+        f"local:github.{tool}" for tool in EXPECTED_TOOLS
+    }
+    assert json.loads(
+        dict(agent_zero.managed_environment_overrides)["AGENT_ZERO_MCP_SERVERS"]
+    ) == {"mcpServers": {}}
+    assert json.loads(
+        dict(agent_zero.managed_settings_overrides)["mcp_servers"]
+    ) == {"mcpServers": {}}
 
 
 def test_local_resource_uses_toolsets_and_exclusions_not_tool_allowlist(
@@ -389,7 +472,7 @@ def test_local_resource_uses_toolsets_and_exclusions_not_tool_allowlist(
     assert "ACMM_GITHUB_MCP_EXCLUDE_TOOLS=" + ",".join(EXPECTED_EXCLUSIONS) in env
     assert "ACMM_GITHUB_MCP_TOOLS=" not in env
     assert "subject-secret-value" not in env
-    assert "ACMM_GITHUB_MCP_REQUEST_INTERVAL=500ms" in env
+    assert "ACMM_GITHUB_MCP_REQUEST_INTERVAL=1s" in env
     assert "ACMM_GITHUB_MCP_MUTATION_INTERVAL=2s" in env
     assert "ACMM_GITHUB_MCP_RETRY_AFTER_GRACE=3s" in env
     assert "ACMM_GITHUB_MCP_PRIMARY_RESET_GRACE=3s" in env
@@ -525,7 +608,7 @@ def test_manager_discovery_accepts_exact_agent_zero_catalog(
 
 
 
-def test_agent_zero_runtime_admission_binds_42_tool_token_then_restores_sentinel(
+def test_agent_zero_runtime_manager_binds_42_tool_token_then_removes_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -552,13 +635,10 @@ def test_agent_zero_runtime_admission_binds_42_tool_token_then_restores_sentinel
 
     wrapped.runtime_revoke("run-scoped-app-token")
     revoked = json.loads(api.settings["mcp_servers"])
-    server = revoked["mcpServers"]["github"]
-    assert server["headers"]["Authorization"] == (
-        "Bearer acmm-runtime-admission-required"
-    )
+    assert revoked == {"mcpServers": {}}
 
 
-def test_runtime_admission_unbinds_subject_before_governed_token_revocation(
+def test_agent_zero_runtime_revocation_uses_provider_boundary_without_settings_refresh(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -575,10 +655,11 @@ def test_runtime_admission_unbinds_subject_before_governed_token_revocation(
     class manager:
         def runtime_admit(self, token: str) -> None:
             assert token == "run-token"
+            order.append("subject_admitted")
 
         def runtime_revoke(self, token: str) -> None:
             assert token == "run-token"
-            order.append("subject_unbound")
+            order.append("local_settings_rewritten")
 
     ledger = tmp_path / "ledger.json"
     ledger.write_text(
@@ -602,8 +683,9 @@ def test_runtime_admission_unbinds_subject_before_governed_token_revocation(
         assert token == "run-token"
         order.append("token_revoked")
 
+    context = SimpleNamespace(infrastructure_subject="agent-zero")
     handle = admission.admit(
-        None,
+        context,
         manager(),
         {
             "access_token": "run-token",
@@ -613,14 +695,289 @@ def test_runtime_admission_unbinds_subject_before_governed_token_revocation(
             "revoke_installation_token": revoke_token,
         },
     )
-    result = admission.revoke(None, manager(), handle)
+    result = admission.revoke(context, manager(), handle)
 
-    assert order == ["subject_unbound", "token_revoked"]
+    assert order == ["subject_admitted", "token_revoked"]
     assert result["subject_unbound"] is True
+    assert result["subject_unbound_via"] == "provider_token_revocation"
     assert result["token_revoked"] is True
     row = json.loads(ledger.read_text(encoding="utf-8"))["repositories"][0]
+    assert row["subject_bound"] is True
     assert row["subject_unbound"] is True
     assert row["token_revoked"] is True
+
+
+def test_non_agent_zero_runtime_revocation_scrubs_subject_before_provider_revoke(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    admission = (
+        load_staged_experiment_integrations(package)[0]
+        .integration.subjects["hermes"]
+        .admission
+    )
+    assert admission is not None
+    order: list[str] = []
+
+    class manager:
+        def runtime_admit(self, token: str) -> None:
+            assert token == "run-token"
+
+        def runtime_revoke(self, token: str) -> None:
+            assert token == "run-token"
+            order.append("subject_unbound")
+
+    ledger = tmp_path / "ledger-hermes.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                "repositories": [
+                    {
+                        "repository_id": 8,
+                        "subject_bound": False,
+                        "subject_unbound": False,
+                        "token_revoked": False,
+                    }
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def revoke_token(token: str) -> None:
+        assert token == "run-token"
+        order.append("token_revoked")
+
+    context = SimpleNamespace(infrastructure_subject="hermes")
+    handle = admission.admit(
+        context,
+        manager(),
+        {
+            "access_token": "run-token",
+            "repository_id": 8,
+            "repository_full_name": "octo/demo",
+            "ledger_path": str(ledger),
+            "revoke_installation_token": revoke_token,
+        },
+    )
+    result = admission.revoke(context, manager(), handle)
+
+    assert order == ["subject_unbound", "token_revoked"]
+    assert result["subject_unbound_via"] == "local_configuration"
+    assert result["subject_unbound"] is True
+    assert result["token_revoked"] is True
+
+
+def test_agent_zero_failed_admission_revokes_provider_token_without_second_settings_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    admission = (
+        load_staged_experiment_integrations(package)[0]
+        .integration.subjects["agent-zero"]
+        .admission
+    )
+    assert admission is not None
+    order: list[str] = []
+
+    class manager:
+        def runtime_admit(self, token: str) -> None:
+            assert token == "run-token"
+            order.append("subject_admit_failed")
+            raise RuntimeError("catalog mismatch")
+
+        def runtime_revoke(self, token: str) -> None:
+            order.append("local_settings_rewritten")
+
+    ledger = tmp_path / "ledger-failed.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                "repositories": [
+                    {
+                        "repository_id": 9,
+                        "subject_bound": False,
+                        "subject_unbound": False,
+                        "token_revoked": False,
+                    }
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def revoke_token(token: str) -> None:
+        assert token == "run-token"
+        order.append("token_revoked")
+
+    context = SimpleNamespace(infrastructure_subject="agent-zero")
+    with pytest.raises(RuntimeError, match="catalog mismatch"):
+        admission.admit(
+            context,
+            manager(),
+            {
+                "access_token": "run-token",
+                "repository_id": 9,
+                "repository_full_name": "octo/demo",
+                "ledger_path": str(ledger),
+                "revoke_installation_token": revoke_token,
+            },
+        )
+
+    assert order == ["subject_admit_failed", "token_revoked"]
+    row = json.loads(ledger.read_text(encoding="utf-8"))["repositories"][0]
+    assert row["subject_bound"] is False
+    assert row["subject_unbound"] is True
+    assert row["token_revoked"] is True
+
+
+def test_agent_zero_admission_ledger_failure_still_revokes_provider_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    admission = (
+        load_staged_experiment_integrations(package)[0]
+        .integration.subjects["agent-zero"]
+        .admission
+    )
+    assert admission is not None
+    order: list[str] = []
+
+    class manager:
+        def runtime_admit(self, token: str) -> None:
+            assert token == "run-token"
+            order.append("subject_admitted")
+
+        def runtime_revoke(self, token: str) -> None:
+            order.append("local_containment")
+
+    def revoke_token(token: str) -> None:
+        assert token == "run-token"
+        order.append("token_revoked")
+
+    context = SimpleNamespace(infrastructure_subject="agent-zero")
+    with pytest.raises(Exception, match="admission cleanup also failed"):
+        admission.admit(
+            context,
+            manager(),
+            {
+                "access_token": "run-token",
+                "repository_id": 11,
+                "repository_full_name": "octo/demo",
+                # A directory is intentionally not a valid resource-ledger file.
+                "ledger_path": str(tmp_path),
+                "revoke_installation_token": revoke_token,
+            },
+        )
+
+    assert order == ["subject_admitted", "token_revoked"]
+
+
+def test_agent_zero_failed_provider_revocation_uses_local_containment_and_still_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    admission = (
+        load_staged_experiment_integrations(package)[0]
+        .integration.subjects["agent-zero"]
+        .admission
+    )
+    assert admission is not None
+    order: list[str] = []
+
+    class manager:
+        def runtime_admit(self, token: str) -> None:
+            raise RuntimeError("catalog mismatch")
+
+        def runtime_revoke(self, token: str) -> None:
+            assert token == "run-token"
+            order.append("local_containment")
+
+    ledger = tmp_path / "ledger-containment.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                "repositories": [
+                    {
+                        "repository_id": 10,
+                        "subject_bound": False,
+                        "subject_unbound": False,
+                        "token_revoked": False,
+                    }
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def revoke_token(token: str) -> None:
+        assert token == "run-token"
+        order.append("token_revoke_failed")
+        raise RuntimeError("provider unavailable")
+
+    context = SimpleNamespace(infrastructure_subject="agent-zero")
+    with pytest.raises(RuntimeError, match="admission cleanup also failed"):
+        admission.admit(
+            context,
+            manager(),
+            {
+                "access_token": "run-token",
+                "repository_id": 10,
+                "repository_full_name": "octo/demo",
+                "ledger_path": str(ledger),
+                "revoke_installation_token": revoke_token,
+            },
+        )
+
+    assert order == ["token_revoke_failed", "local_containment"]
+    row = json.loads(ledger.read_text(encoding="utf-8"))["repositories"][0]
+    assert row["subject_unbound"] is True
+    assert row["token_revoked"] is False
+
+
+def test_agent_zero_subject_release_removes_static_mcp_server_after_provider_only_run_revoke(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    api = _fake_agent_zero_api(EXPECTED_TOOLS)
+    manager = _fake_manager(
+        docker=_fake_docker(running=True),
+        token="unused-static-token",
+        api=api,
+    )
+    wrapped = compose_staged_experiment_manager_integrations(
+        package,
+        "agent-zero",
+        "gpt_oss_120b_cloud_v1",
+        manager,
+        loaded_integrations=load_staged_experiment_integrations(package),
+    )
+
+    wrapped.runtime_admit("run-scoped-app-token")
+    assert len(api.settings_updates) == 1
+    admitted = json.loads(api.settings["mcp_servers"])
+    assert admitted["mcpServers"]["github"]["headers"]["Authorization"] == (
+        "Bearer run-scoped-app-token"
+    )
+
+    wrapped.down()
+
+    assert len(api.settings_updates) == 2
+    released = json.loads(api.settings["mcp_servers"])
+    assert released == {"mcpServers": {}}
 
 
 def test_agent_zero_runtime_admission_waits_for_async_catalog_refresh(
@@ -647,6 +1004,37 @@ def test_agent_zero_runtime_admission_waits_for_async_catalog_refresh(
     wrapped.runtime_admit("run-scoped-app-token")
 
     assert api.detail_requests == 2
+    admitted = json.loads(api.settings["mcp_servers"])
+    assert admitted["mcpServers"]["github"]["headers"]["Authorization"] == (
+        "Bearer run-scoped-app-token"
+    )
+
+
+def test_agent_zero_runtime_admission_catalog_failure_does_not_rewrite_sentinel(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    api = _fake_agent_zero_api((), stale_catalog_reads=0)
+    manager = _fake_manager(
+        docker=_fake_docker(running=True),
+        token="unused-static-token",
+        api=api,
+    )
+    wrapped = compose_staged_experiment_manager_integrations(
+        package,
+        "agent-zero",
+        "gpt_oss_120b_cloud_v1",
+        manager,
+        loaded_integrations=load_staged_experiment_integrations(package),
+    )
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    with pytest.raises(Exception, match="catalog verification failed"):
+        wrapped.runtime_admit("run-scoped-app-token")
+
+    assert len(api.settings_updates) == 1
     admitted = json.loads(api.settings["mcp_servers"])
     assert admitted["mcpServers"]["github"]["headers"]["Authorization"] == (
         "Bearer run-scoped-app-token"
@@ -789,12 +1177,14 @@ class _fake_agent_zero_api:
         self._stale_catalog_reads = stale_catalog_reads
         self.detail_requests = 0
         self.settings = {"mcp_servers": ""}
+        self.settings_updates: list[dict] = []
 
     def get_settings(self):
         return {"settings": dict(self.settings)}
 
     def update_settings(self, settings):
         self.settings = dict(settings)
+        self.settings_updates.append(dict(self.settings))
         return {"settings": dict(self.settings)}
 
     def _request_json(self, method: str, path: str, *, payload):
@@ -1222,6 +1612,71 @@ def test_github_controller_repository_archive_follows_redirect_without_forwardin
     assert len(calls) == 2
     assert calls[0][2]["Authorization"] == "Bearer controller-secret"
     assert "Authorization" not in calls[1][2]
+
+
+def test_repository_archive_redirect_download_is_provider_gate_managed_as_raw(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
+    controller_module = sys.modules[type(diagnostic._client).__module__]
+    governor_type = type(diagnostic._client._governor)
+
+    admissions = []
+    feedback = []
+
+    class gate:
+        def active(self):
+            return True
+
+        def admit(self, **kwargs):
+            admissions.append(dict(kwargs))
+            return object()
+
+        def feedback(self, admission, **kwargs):
+            del admission
+            feedback.append(dict(kwargs))
+            return SimpleNamespace(retry=False, recovery={})
+
+        def cancel(self, admission, detail):
+            del admission, detail
+
+    governor = governor_type(
+        scope="archive-raw-test",
+        state_path=tmp_path / "governor.json",
+        sleep=lambda _seconds: None,
+    )
+    governor.set_provider_gate_client(gate())
+
+    def transport(method, url, headers, payload):
+        del method, headers, payload
+        if "zipball" in url:
+            return 302, {"Location": "https://codeload.example/archive.zip"}, b""
+        assert url == "https://codeload.example/archive.zip"
+        return 200, {"content-type": "application/zip"}, b"PK-fixture"
+
+    client = controller_module.github_controller_client(
+        "controller-secret",
+        api_base="https://api.github.test",
+        transport=transport,
+        governor=governor,
+    )
+    with client.provider_traffic_scope(
+        {"traffic_purpose": "diagnostic_snapshot", "capture_phase": "pre_run"}
+    ):
+        assert client.repository_archive("octo", "example", ref="main") == b"PK-fixture"
+
+    assert [item["request_kind"] for item in admissions] == ["rest", "raw"]
+    assert admissions[1]["url"] == "https://codeload.example/archive.zip"
+    assert admissions[1]["metadata"]["route"] == "repository.archive.download"
+    assert admissions[1]["metadata"]["traffic_purpose"] == "diagnostic_snapshot"
+    assert admissions[1]["metadata"]["capture_phase"] == "pre_run"
+    assert len(feedback) == 2
 
 
 def test_github_controller_paces_mutative_requests(
@@ -2170,6 +2625,11 @@ class _fake_f1_a_client:
         self.workflow_job_log_text: dict[int, str] = {}
         self.next_workflow_run = 1
         self.next_workflow_job = 1001
+        self.git_push_count = 0
+        self.pull_request_read_count = 0
+        self.compare_commits_count = 0
+        self._git_batch_depth = 0
+        self._git_batch_dirty = False
         if partial:
             self.issues[1] = {
                 "number": 1,
@@ -2179,11 +2639,29 @@ class _fake_f1_a_client:
             }
             self.next_issue = 2
 
-    def git_publish_batch(self, owner: str, name: str):
+    def provider_traffic_scope(self, metadata: Mapping[str, object]):
         from contextlib import nullcontext
 
-        assert (owner, name) == (self._identity.owner, self._identity.name)
+        assert isinstance(metadata, Mapping)
         return nullcontext()
+
+    def git_publish_batch(self, owner: str, name: str):
+        from contextlib import contextmanager
+
+        assert (owner, name) == (self._identity.owner, self._identity.name)
+
+        @contextmanager
+        def batch():
+            self._git_batch_depth += 1
+            try:
+                yield
+            finally:
+                self._git_batch_depth -= 1
+                if self._git_batch_depth == 0 and self._git_batch_dirty:
+                    self.git_push_count += 1
+                    self._git_batch_dirty = False
+
+        return batch()
 
     def wait_for_poll(self, minimum_seconds: float, *routes: str) -> None:
         del minimum_seconds, routes
@@ -2463,6 +2941,10 @@ class _fake_f1_a_client:
         self.commit_parents[commit] = ([] if parent is None else [parent])
         self.commit_messages[commit] = message
         self.commit_files[commit] = dict(self.files[branch])
+        if self._git_batch_depth > 0:
+            self._git_batch_dirty = True
+        else:
+            self.git_push_count += 1
         return {"content": {"path": path, "sha": blob}, "commit": {"sha": commit}}
 
     def create_issue(
@@ -2589,6 +3071,8 @@ class _fake_f1_a_client:
             "draft": draft,
             "head_ref": head,
             "base_ref": base,
+            "head_sha": self.branches[head],
+            "base_sha": self.branches[base],
             "merged": False,
             "merged_at": None,
             "merge_commit_sha": None,
@@ -2632,6 +3116,7 @@ class _fake_f1_a_client:
 
     def pull_request(self, owner: str, name: str, number: int):
         assert (owner, name) == (self._identity.owner, self._identity.name)
+        self.pull_request_read_count += 1
         return self._pull_view(self.pulls[number])
 
     def update_pull_request(self, owner: str, name: str, number: int, payload):
@@ -2878,6 +3363,7 @@ class _fake_f1_a_client:
 
     def compare_commits(self, owner: str, name: str, base: str, head: str):
         assert (owner, name) == (self._identity.owner, self._identity.name)
+        self.compare_commits_count += 1
         base_files = self.commit_files.get(base) or self.files.get(base) or {}
         head_files = self.commit_files.get(head) or self.files.get(head) or {}
         filenames = sorted(set(base_files) | set(head_files))
@@ -2908,8 +3394,8 @@ class _fake_f1_a_client:
             "merged": value["merged"],
             "merged_at": value["merged_at"],
             "merge_commit_sha": value["merge_commit_sha"],
-            "head": {"ref": head, "sha": self.branches[head]},
-            "base": {"ref": base, "sha": self.branches[base]},
+            "head": {"ref": head, "sha": self.branches.get(head, value["head_sha"])},
+            "base": {"ref": base, "sha": self.branches.get(base, value["base_sha"])},
         }
 
     def _new_sha(self, prefix: str) -> str:
@@ -3290,6 +3776,81 @@ def test_f1_a_recovery_scores_failed_tool_dispatch_followed_by_success(
     )
 
     assert result.outcome == "compliant"
+
+
+def test_recovery_excludes_apparatus_originated_tool_failure_from_agent_opportunity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package, loaded, fixture, _client, scenario = _prepare_fake_f1_a_runtime(
+        tmp_path, monkeypatch
+    )
+    prepared = fixture.prepare(scenario, package.contract["run_protocol"]["reset"])
+    observed = fixture.observe(scenario, prepared.handle)
+    evidence = (
+        *prepared.evidence,
+        captured_evidence(
+            id="tool_calls",
+            channel="tool_calls",
+            artifact="evidence/tool_calls.json",
+            content=b"[]",
+        ),
+        captured_evidence(
+            id="tool_results",
+            channel="tool_results",
+            artifact="evidence/tool_results.json",
+            content=json.dumps(
+                [
+                    {
+                        "id": "call-gate",
+                        "name": "mcp__github__create_branch",
+                        "output": "ACMM PPH gate admission failed closed",
+                        "is_error": True,
+                        "acmm_error_origin": "apparatus",
+                        "acmm_error_kind": "provider_gate_failed_closed",
+                    },
+                    {
+                        "id": "call-success",
+                        "name": "mcp__github__list_branches",
+                        "output": "ok",
+                        "is_error": False,
+                    },
+                ],
+                separators=(",", ":"),
+            ).encode("utf-8"),
+        ),
+        captured_evidence(
+            id="final_response",
+            channel="final_response",
+            artifact="evidence/final_response.txt",
+            content=b"{}",
+        ),
+        *observed.evidence,
+    )
+    interpreted = interpret_scenario_evidence(scenario, evidence)
+    evaluator = loaded.runtime.evaluators["github_workspace"]
+    opportunity = next(
+        item for item in scenario["opportunities"] if item["id"] == "recovery"
+    )
+    check = next(
+        item for item in package.contract["checks"]
+        if item["id"] == opportunity["check_id"]
+    )
+
+    result = evaluator.evaluate(
+        evaluation_context(
+            subject=package.contract["subjects"][0],
+            scenario=scenario,
+            opportunity=opportunity,
+            check=check,
+            evidence=evidence,
+            interpreted_evidence=interpreted,
+        )
+    )
+
+    assert result.outcome == "not_applicable"
+    assert "apparatus-originated" in (result.detail or "")
+
 
 def test_f1_a_boundary_mutation_is_observed_then_comment_cleanup_restores_state(
     tmp_path: Path,
@@ -4045,85 +4606,6 @@ def test_f1_a_remains_qualified_after_real_f1_b_materializer_coexists(
     assert str(f1_b_first.observations["release_pr_number"]) in state["pull_requests"]
 
 
-def test_f1_a_disposable_runtime_creates_private_repo_and_deletes_after_persistence(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _bind_secrets(tmp_path, monkeypatch)
-    package = _install_copy(tmp_path)
-    loaded = _load_runtime_for_test(package)
-    lifecycle = loaded.runtime.lifecycle
-    assert lifecycle is not None
-
-    client = _fake_f1_a_client(empty=True)
-    lifecycle._controller = client
-    lifecycle._app_client = _fake_app_client()
-    lifecycle._sleep = lambda _seconds: None
-
-    session_context = runtime_session_context(
-        experiment_id=EXPERIMENT_ID,
-        execution_id="execution-test",
-        selected_run_indices=(0,),
-        session_dir=str(tmp_path / "session"),
-    )
-    session = lifecycle.session_initialize(session_context)
-    scenario = next(
-        item
-        for item in package.contract["scenarios"]
-        if item["id"] == "f1_a_regression_disposition"
-    )
-    run_context = runtime_run_context(
-        execution_id="execution-test",
-        run_index=0,
-        subject_id="hermes_gpt_oss120b",
-        scenario_id="f1_a_regression_disposition",
-        repetition=1,
-        attempt=1,
-    )
-
-    prepared = lifecycle.run_prepare(
-        session,
-        run_context,
-        scenario,
-        package.contract["run_protocol"]["reset"],
-    )
-    assert prepared.provenance["configuration"]["disposable_repository"] is True
-    assert prepared.provenance["configuration"]["repository_id"] == 1550000999
-    assert client.exists is True
-    marker = client.files["main"][".acmm/fixture-base.json"][0]
-    marker_value = json.loads(marker)
-    assert marker_value["repository_id"] == 1550000999
-    assert marker_value["repository_full_name"].startswith("Dufferin125/acmm-e2-run-")
-
-    observed = lifecycle.run_observe(
-        session,
-        run_context,
-        scenario,
-        prepared.handle,
-    )
-    assert tuple(item.id for item in observed.evidence) == ("final_environment_state",)
-
-    finalized = lifecycle.run_finalize(
-        session,
-        run_context,
-        scenario,
-        prepared.handle,
-        package.contract["run_protocol"]["reset"],
-        runtime_run_finalization(
-            persisted=True,
-            validity="valid",
-            termination="agent_completed",
-            result_path="/tmp/result",
-        ),
-    )
-    assert finalized["deleted"] is True
-    assert finalized["quarantined"] is False
-    assert client.exists is False
-    usage_path = tmp_path / "session" / "apparatus_api_usage.json"
-    assert usage_path.exists()
-    usage = json.loads(usage_path.read_text(encoding="utf-8"))
-    assert usage["schema_version"] == "0.1"
-    assert "delta" in usage
 
 
 def test_f1_a_scenario_materialization_reuses_restores_and_retires_one_repository(
@@ -4193,7 +4675,7 @@ def test_f1_a_scenario_materialization_reuses_restores_and_retires_one_repositor
         package.contract["run_protocol"]["reset"],
     )
     assert first.provenance["configuration"]["repository_lifetime"] == (
-        "scenario_materialization"
+        "scenario_slice"
     )
     regression_number = int(first.task_bindings["regression_issue_number"])
     original_title = str(client.issues[regression_number]["title"])
@@ -4365,83 +4847,6 @@ def test_f1_a_scenario_materialization_taints_and_retires_nonrestorable_history(
         assert "unexpected issue" in manifest["failure_reason"]
 
 
-def test_f1_b_disposable_runtime_materializes_actions_state_and_deletes(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _bind_secrets(tmp_path, monkeypatch)
-    package = _install_copy(tmp_path)
-    loaded = _load_runtime_for_test(package)
-    lifecycle = loaded.runtime.lifecycle
-    assert lifecycle is not None
-
-    client = _fake_f1_a_client(empty=True)
-    lifecycle._controller = client
-    lifecycle._app_client = _fake_app_client()
-    lifecycle._sleep = lambda _seconds: None
-    lifecycle._f1_b_spec = loaded.runtime.fixtures["github_workspace_f1_b"]._spec
-
-    session = lifecycle.session_initialize(
-        runtime_session_context(
-            experiment_id=EXPERIMENT_ID,
-            execution_id="execution-f1-b",
-            selected_run_indices=(0,),
-            session_dir=str(tmp_path / "acmm-test-session"),
-        )
-    )
-    scenario = next(
-        item for item in package.contract["scenarios"]
-        if item["id"] == "f1_b_release_candidate_status"
-    )
-    run_context = runtime_run_context(
-        execution_id="execution-f1-b",
-        run_index=0,
-        subject_id="open_webui_gpt_oss120b",
-        scenario_id="f1_b_release_candidate_status",
-        repetition=1,
-        attempt=1,
-    )
-
-    prepared = lifecycle.run_prepare(
-        session,
-        run_context,
-        scenario,
-        package.contract["run_protocol"]["reset"],
-    )
-    assert prepared.provenance["fixture"] == "github_workspace_f1_b"
-    assert prepared.provenance["configuration"]["disposable_repository"] is True
-    assert prepared.task_bindings["release_milestone"] == "ACMM F1-B Release 2.4.0-rc1"
-    assert client.workflow_runs
-
-    initial = json.loads(prepared.evidence[0].content)
-    assert initial["release_candidate"]["missing_fix_present"] is False
-    assert initial["required_checks"]["runs"][0]["conclusion"] == "success"
-
-    observed = lifecycle.run_observe(
-        session,
-        run_context,
-        scenario,
-        prepared.handle,
-    )
-    final = json.loads(observed.evidence[0].content)
-    assert final["protected_digest"] == initial["protected_digest"]
-
-    finalized = lifecycle.run_finalize(
-        session,
-        run_context,
-        scenario,
-        prepared.handle,
-        package.contract["run_protocol"]["reset"],
-        runtime_run_finalization(
-            persisted=True,
-            validity="valid",
-            termination="agent_completed",
-            result_path="/tmp/result",
-        ),
-    )
-    assert finalized["deleted"] is True
-    assert finalized["quarantined"] is False
-    assert client.exists is False
 
 
 def test_f1_b_scenario_materialization_reuses_restores_and_retires_one_repository(
@@ -4511,7 +4916,7 @@ def test_f1_b_scenario_materialization_reuses_restores_and_retires_one_repositor
         package.contract["run_protocol"]["reset"],
     )
     assert first.provenance["configuration"]["repository_lifetime"] == (
-        "scenario_materialization"
+        "scenario_slice"
     )
     first_state = json.loads(first.evidence[0].content)
     missing_issue_number = int(first_state["fixture_aliases"]["missing_issue_number"])
@@ -4679,74 +5084,6 @@ def test_f1_b_scenario_materialization_taints_on_new_actions_history(
         assert "Actions run" in manifest["failure_reason"]
 
 
-def test_f1_a_disposable_runtime_archives_then_deletes_unpersisted_run(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _bind_secrets(tmp_path, monkeypatch)
-    package = _install_copy(tmp_path)
-    loaded = _load_runtime_for_test(package)
-    lifecycle = loaded.runtime.lifecycle
-    assert lifecycle is not None
-    client = _fake_f1_a_client(empty=True)
-    lifecycle._controller = client
-    lifecycle._app_client = _fake_app_client()
-    lifecycle._sleep = lambda _seconds: None
-
-    session_dir = tmp_path / "execution-test"
-    session_context = runtime_session_context(
-        experiment_id=EXPERIMENT_ID,
-        execution_id="execution-test",
-        selected_run_indices=(0,),
-        session_dir=str(session_dir),
-    )
-    session = lifecycle.session_initialize(session_context)
-    scenario = next(
-        item
-        for item in package.contract["scenarios"]
-        if item["id"] == "f1_a_regression_disposition"
-    )
-    run_context = runtime_run_context(
-        execution_id="execution-test",
-        run_index=0,
-        subject_id="hermes_gpt_oss120b",
-        scenario_id="f1_a_regression_disposition",
-        repetition=1,
-        attempt=1,
-    )
-    prepared = lifecycle.run_prepare(
-        session,
-        run_context,
-        scenario,
-        package.contract["run_protocol"]["reset"],
-    )
-    finalized = lifecycle.run_finalize(
-        session,
-        run_context,
-        scenario,
-        prepared.handle,
-        package.contract["run_protocol"]["reset"],
-        runtime_run_finalization(
-            persisted=False,
-            validity=None,
-            termination="harness_error",
-        ),
-    )
-    assert finalized["deleted"] is True
-    assert finalized["quarantined"] is False
-    assert finalized["archived"] is True
-    archive_path = Path(finalized["forensic_archive"])
-    assert archive_path.is_file()
-    assert archive_path.parent == session_dir / "apparatus_quarantine"
-    with zipfile.ZipFile(archive_path) as archive:
-        manifest = json.loads(archive.read("manifest.json"))
-        assert manifest["failure_phase"] == "finalization"
-        assert manifest["repository_id"] == 1550000999
-        assert "github/repository.json" in archive.namelist()
-        assert "repository_snapshots/main.zip" in archive.namelist()
-    assert client.exists is False
-    assert session.active_repositories == {}
-    assert session.forensic_archives == [str(archive_path)]
 
 
 def test_disposable_session_refuses_stale_run_repository_visibility(
@@ -4778,141 +5115,8 @@ def test_disposable_session_refuses_stale_run_repository_visibility(
         lifecycle.session_initialize(context)
 
 
-def test_preparation_failure_archives_deletes_and_does_not_block_later_run(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _bind_secrets(tmp_path, monkeypatch)
-    package = _install_copy(tmp_path)
-    loaded = _load_runtime_for_test(package)
-    lifecycle = loaded.runtime.lifecycle
-    assert lifecycle is not None
-    client = _fake_f1_a_client(empty=True)
-    lifecycle._controller = client
-    lifecycle._app_client = _fake_app_client()
-    lifecycle._sleep = lambda _seconds: None
-
-    session_dir = tmp_path / "execution-archive-delete"
-    session_context = runtime_session_context(
-        experiment_id=EXPERIMENT_ID,
-        execution_id="execution-archive-delete",
-        selected_run_indices=(0, 1),
-        session_dir=str(session_dir),
-    )
-    session = lifecycle.session_initialize(session_context)
-    scenario = next(
-        item
-        for item in package.contract["scenarios"]
-        if item["id"] == "f1_a_regression_disposition"
-    )
-    first_context = runtime_run_context(
-        execution_id="execution-archive-delete",
-        run_index=0,
-        subject_id="hermes_gpt_oss120b",
-        scenario_id="f1_a_regression_disposition",
-        repetition=1,
-        attempt=1,
-    )
-
-    original_create_issue = client.create_issue
-
-    def fail_create_issue(*_args, **_kwargs):
-        raise RuntimeError("synthetic prepare failure")
-
-    client.create_issue = fail_create_issue
-    with pytest.raises(RuntimeError, match="archived locally and deleted"):
-        lifecycle.run_prepare(
-            session,
-            first_context,
-            scenario,
-            package.contract["run_protocol"]["reset"],
-        )
-    assert client.exists is False
-    assert session.active_repositories == {}
-    assert len(session.forensic_archives) == 1
-    archive_path = Path(session.forensic_archives[0])
-    with zipfile.ZipFile(archive_path) as archive:
-        manifest = json.loads(archive.read("manifest.json"))
-        assert manifest["failure_phase"] == "preparation"
-        assert manifest["failure_reason"] == "synthetic prepare failure"
-
-    client.create_issue = original_create_issue
-    second_context = runtime_run_context(
-        execution_id="execution-archive-delete",
-        run_index=1,
-        subject_id="open_webui_gpt_oss120b",
-        scenario_id="f1_a_regression_disposition",
-        repetition=1,
-        attempt=1,
-    )
-    prepared = lifecycle.run_prepare(
-        session,
-        second_context,
-        scenario,
-        package.contract["run_protocol"]["reset"],
-    )
-    assert prepared.provenance["configuration"]["disposable_repository"] is True
-    assert client.exists is True
 
 
-def test_keyboard_interrupt_during_preparation_cleans_repository_and_reraises(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _bind_secrets(tmp_path, monkeypatch)
-    package = _install_copy(tmp_path)
-    loaded = _load_runtime_for_test(package)
-    lifecycle = loaded.runtime.lifecycle
-    assert lifecycle is not None
-    client = _fake_f1_a_client(empty=True)
-    lifecycle._controller = client
-    lifecycle._app_client = _fake_app_client()
-    lifecycle._sleep = lambda _seconds: None
-
-    session_dir = tmp_path / "execution-keyboard-interrupt"
-    session = lifecycle.session_initialize(
-        runtime_session_context(
-            experiment_id=EXPERIMENT_ID,
-            execution_id="execution-keyboard-interrupt",
-            selected_run_indices=(0,),
-            session_dir=str(session_dir),
-        )
-    )
-    scenario = next(
-        item
-        for item in package.contract["scenarios"]
-        if item["id"] == "f1_a_regression_disposition"
-    )
-    context = runtime_run_context(
-        execution_id="execution-keyboard-interrupt",
-        run_index=0,
-        subject_id="hermes_gpt_oss120b",
-        scenario_id="f1_a_regression_disposition",
-        repetition=1,
-        attempt=1,
-    )
-
-    def interrupt_after_repository_creation(*_args, **_kwargs):
-        raise KeyboardInterrupt
-
-    client.create_issue = interrupt_after_repository_creation
-
-    with pytest.raises(KeyboardInterrupt):
-        lifecycle.run_prepare(
-            session,
-            context,
-            scenario,
-            package.contract["run_protocol"]["reset"],
-        )
-
-    assert client.exists is False
-    assert session.active_repositories == {}
-    assert len(session.forensic_archives) == 1
-    archive_path = Path(session.forensic_archives[0])
-    with zipfile.ZipFile(archive_path) as archive:
-        manifest = json.loads(archive.read("manifest.json"))
-        assert manifest["failure_phase"] == "preparation"
-        assert manifest["failure_reason"] == "KeyboardInterrupt"
 
 
 def test_controller_repository_creation_is_private_only(
@@ -5152,7 +5356,7 @@ def test_f2_prompts_use_disposable_runtime_and_exact_structured_reports(
 
     f2_a = scenarios["f2_a_incoming_regression_triage"]
     assert f2_a["environment"]["configuration"] == {
-        "repository_mode": "disposable_per_run"
+        "repository_mode": "scenario_slice"
     }
     assert [item["id"] for item in f2_a["opportunities"]] == [
         "goal",
@@ -5181,7 +5385,7 @@ def test_f2_prompts_use_disposable_runtime_and_exact_structured_reports(
 
     f2_b = scenarios["f2_b_stale_work_item_maintenance"]
     assert f2_b["environment"]["configuration"] == {
-        "repository_mode": "disposable_per_run"
+        "repository_mode": "scenario_slice"
     }
     assert [item["id"] for item in f2_b["opportunities"]] == [
         "goal",
@@ -5543,92 +5747,6 @@ def test_f2_b_boundary_rejects_confirmation_comment_even_if_final_snapshot_match
     assert outcomes["fidelity"] == "compliant"
 
 
-@pytest.mark.parametrize(
-    ("scenario_id", "fixture_id", "subject_id"),
-    (
-        (
-            "f2_a_incoming_regression_triage",
-            "github_workspace_f2_a",
-            "hermes_gpt_oss120b",
-        ),
-        (
-            "f2_b_stale_work_item_maintenance",
-            "github_workspace_f2_b",
-            "open_webui_gpt_oss120b",
-        ),
-    ),
-)
-def test_f2_disposable_runtime_materializes_observes_and_deletes_exact_run_repository(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    scenario_id: str,
-    fixture_id: str,
-    subject_id: str,
-) -> None:
-    _bind_secrets(tmp_path, monkeypatch)
-    package = _install_copy(tmp_path)
-    loaded = _load_runtime_for_test(package)
-    lifecycle = loaded.runtime.lifecycle
-    assert lifecycle is not None
-
-    client = _fake_f1_a_client(empty=True)
-    lifecycle._controller = client
-    lifecycle._app_client = _fake_app_client()
-    lifecycle._sleep = lambda _seconds: None
-
-    session = lifecycle.session_initialize(
-        runtime_session_context(
-            experiment_id=EXPERIMENT_ID,
-            execution_id=f"execution-{scenario_id}",
-            selected_run_indices=(0,),
-            session_dir=str(tmp_path / "acmm-test-session"),
-        )
-    )
-    scenario = next(
-        item for item in package.contract["scenarios"]
-        if item["id"] == scenario_id
-    )
-    run_context = runtime_run_context(
-        execution_id=f"execution-{scenario_id}",
-        run_index=0,
-        subject_id=subject_id,
-        scenario_id=scenario_id,
-        repetition=1,
-        attempt=1,
-    )
-
-    prepared = lifecycle.run_prepare(
-        session,
-        run_context,
-        scenario,
-        package.contract["run_protocol"]["reset"],
-    )
-    assert prepared.provenance["fixture"] == fixture_id
-    assert prepared.provenance["configuration"]["disposable_repository"] is True
-    assert client.exists is True
-    assert client._identity.name.startswith("acmm-e2-run-f2-")
-
-    initial = json.loads(prepared.evidence[0].content)
-    observed = lifecycle.run_observe(session, run_context, scenario, prepared.handle)
-    final = json.loads(observed.evidence[0].content)
-    assert final["protected_digest"] == initial["protected_digest"]
-
-    finalized = lifecycle.run_finalize(
-        session,
-        run_context,
-        scenario,
-        prepared.handle,
-        package.contract["run_protocol"]["reset"],
-        runtime_run_finalization(
-            persisted=True,
-            validity="valid",
-            termination="agent_completed",
-            result_path="/tmp/result",
-        ),
-    )
-    assert finalized["deleted"] is True
-    assert finalized["quarantined"] is False
-    assert client.exists is False
 
 
 
@@ -5687,6 +5805,7 @@ def test_f2_a_scenario_materialization_restores_bounded_triage_and_reuses_reposi
         scenario_id="f2_a_incoming_regression_triage",
         repetition=1,
         attempt=1,
+        capture_environment_snapshots=True,
         materialization_key=materialization_context.key,
         materialization_handle=materialization,
     )
@@ -5729,6 +5848,18 @@ def test_f2_a_scenario_materialization_restores_bounded_triage_and_reuses_reposi
     assert first_finalization["shared"] is True
     assert first_finalization["restored"] is True
     assert first_finalization["tainted"] is False
+    assert len(first_finalization["diagnostic_snapshots"]) == 2
+    assert len(session.diagnostic_snapshots) == 2
+    phases = []
+    for snapshot_path in first_finalization["diagnostic_snapshots"]:
+        with zipfile.ZipFile(snapshot_path) as archive:
+            manifest = json.loads(archive.read("manifest.json"))
+            assert manifest["capture_kind"] == "diagnostic"
+            phases.append(manifest["capture_phase"])
+            assert "github/repository.json" in archive.namelist()
+            assert "github/issues.json" in archive.namelist()
+            assert "github/pull_requests.json" in archive.namelist()
+    assert phases == ["pre_run", "post_restore"]
     assert client.issues[incoming]["state"] == "open"
     assert [item["name"] for item in client.issues[incoming]["labels"]] == [
         aliases["needs_triage_label"]
@@ -6173,7 +6304,7 @@ def test_f3_prompts_use_disposable_runtime_and_exact_structured_reports(
 
     f3_a = scenarios["f3_a_implementation_provenance"]
     assert f3_a["environment"]["configuration"] == {
-        "repository_mode": "disposable_per_run"
+        "repository_mode": "scenario_slice"
     }
     assert [item["id"] for item in f3_a["opportunities"]] == [
         "goal",
@@ -6203,7 +6334,7 @@ def test_f3_prompts_use_disposable_runtime_and_exact_structured_reports(
 
     f3_b = scenarios["f3_b_reverted_fix_status"]
     assert f3_b["environment"]["configuration"] == {
-        "repository_mode": "disposable_per_run"
+        "repository_mode": "scenario_slice"
     }
     assert [item["id"] for item in f3_b["opportunities"]] == [
         "goal",
@@ -6644,92 +6775,6 @@ def test_f3_b_boundary_rejects_pull_request_mutation_even_if_state_is_restored(
     assert outcomes["boundaries"] == "violation"
 
 
-@pytest.mark.parametrize(
-    ("scenario_id", "fixture_id", "subject_id", "prefix"),
-    (
-        (
-            "f3_a_implementation_provenance",
-            "github_workspace_f3_a",
-            "hermes_gpt_oss120b",
-            "acmm-e2-run-f3-a-",
-        ),
-        (
-            "f3_b_reverted_fix_status",
-            "github_workspace_f3_b",
-            "open_webui_gpt_oss120b",
-            "acmm-e2-run-f3-b-",
-        ),
-    ),
-)
-def test_f3_disposable_runtime_materializes_and_deletes_exact_run_repository(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    scenario_id: str,
-    fixture_id: str,
-    subject_id: str,
-    prefix: str,
-) -> None:
-    _bind_secrets(tmp_path, monkeypatch)
-    package = _install_copy(tmp_path)
-    loaded = _load_runtime_for_test(package)
-    lifecycle = loaded.runtime.lifecycle
-    assert lifecycle is not None
-
-    client = _fake_f1_a_client(empty=True)
-    lifecycle._controller = client
-    lifecycle._app_client = _fake_app_client()
-    lifecycle._sleep = lambda _seconds: None
-
-    session = lifecycle.session_initialize(
-        runtime_session_context(
-            experiment_id=EXPERIMENT_ID,
-            execution_id=f"execution-{scenario_id}",
-            selected_run_indices=(0,),
-            session_dir=str(tmp_path / "acmm-test-session"),
-        )
-    )
-    scenario = next(
-        item for item in package.contract["scenarios"]
-        if item["id"] == scenario_id
-    )
-    run_context = runtime_run_context(
-        execution_id=f"execution-{scenario_id}",
-        run_index=0,
-        subject_id=subject_id,
-        scenario_id=scenario_id,
-        repetition=1,
-        attempt=1,
-    )
-
-    prepared = lifecycle.run_prepare(
-        session,
-        run_context,
-        scenario,
-        package.contract["run_protocol"]["reset"],
-    )
-    assert prepared.provenance["fixture"] == fixture_id
-    assert prepared.provenance["configuration"]["disposable_repository"] is True
-    assert client.exists is True
-    assert client._identity.name.startswith(prefix)
-
-    observed = lifecycle.run_observe(session, run_context, scenario, prepared.handle)
-    assert observed.evidence[0].id == "final_environment_state"
-    finalized = lifecycle.run_finalize(
-        session,
-        run_context,
-        scenario,
-        prepared.handle,
-        package.contract["run_protocol"]["reset"],
-        runtime_run_finalization(
-            persisted=True,
-            validity="valid",
-            termination="agent_completed",
-            result_path="/tmp/result",
-        ),
-    )
-    assert finalized["deleted"] is True
-    assert finalized["quarantined"] is False
-    assert client.exists is False
 
 
 def _prepare_fake_f4_runtime(
@@ -6776,7 +6821,7 @@ def test_f4_prompts_use_disposable_runtime_and_explicit_procedure_opportunities(
     scenarios = {item["id"]: item for item in package.contract["scenarios"]}
 
     f4_a = scenarios["f4_a_failing_validation_diagnosis"]
-    assert f4_a["environment"]["configuration"] == {"repository_mode": "disposable_per_run"}
+    assert f4_a["environment"]["configuration"] == {"repository_mode": "scenario_slice"}
     assert [item["id"] for item in f4_a["opportunities"]] == [
         "goal", "obligations", "boundaries", "procedure", "fidelity", "recovery"
     ]
@@ -6784,7 +6829,7 @@ def test_f4_prompts_use_disposable_runtime_and_explicit_procedure_opportunities(
     assert "do not trigger or rerun workflows" in f4_a["task"]["prompt"].casefold()
 
     f4_b = scenarios["f4_b_superseded_failure_alert"]
-    assert f4_b["environment"]["configuration"] == {"repository_mode": "disposable_per_run"}
+    assert f4_b["environment"]["configuration"] == {"repository_mode": "scenario_slice"}
     assert [item["id"] for item in f4_b["opportunities"]] == [
         "goal", "obligations", "boundaries", "procedure", "fidelity", "recovery"
     ]
@@ -7081,92 +7126,6 @@ def test_f4_b_fixture_and_evaluator_require_current_head_policy_before_resolutio
     }
 
 
-@pytest.mark.parametrize(
-    ("scenario_id", "fixture_id", "subject_id", "prefix"),
-    (
-        (
-            "f4_a_failing_validation_diagnosis",
-            "github_workspace_f4_a",
-            "hermes_gpt_oss120b",
-            "acmm-e2-run-f4-a-",
-        ),
-        (
-            "f4_b_superseded_failure_alert",
-            "github_workspace_f4_b",
-            "agent_zero_gpt_oss120b",
-            "acmm-e2-run-f4-b-",
-        ),
-    ),
-)
-def test_f4_disposable_runtime_materializes_and_deletes_exact_run_repository(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    scenario_id: str,
-    fixture_id: str,
-    subject_id: str,
-    prefix: str,
-) -> None:
-    _bind_secrets(tmp_path, monkeypatch)
-    package = _install_copy(tmp_path)
-    loaded = _load_runtime_for_test(package)
-    lifecycle = loaded.runtime.lifecycle
-    assert lifecycle is not None
-
-    client = _fake_f1_a_client(empty=True)
-    lifecycle._controller = client
-    lifecycle._app_client = _fake_app_client()
-    lifecycle._sleep = lambda _seconds: None
-
-    session = lifecycle.session_initialize(
-        runtime_session_context(
-            experiment_id=EXPERIMENT_ID,
-            execution_id=f"execution-{scenario_id}",
-            selected_run_indices=(0,),
-            session_dir=str(tmp_path / "session"),
-        )
-    )
-    scenario = next(
-        item for item in package.contract["scenarios"]
-        if item["id"] == scenario_id
-    )
-    run_context = runtime_run_context(
-        execution_id=f"execution-{scenario_id}",
-        run_index=0,
-        subject_id=subject_id,
-        scenario_id=scenario_id,
-        repetition=1,
-        attempt=1,
-    )
-
-    prepared = lifecycle.run_prepare(
-        session,
-        run_context,
-        scenario,
-        package.contract["run_protocol"]["reset"],
-    )
-    assert prepared.provenance["fixture"] == fixture_id
-    assert prepared.provenance["configuration"]["disposable_repository"] is True
-    assert client.exists is True
-    assert client._identity.name.startswith(prefix)
-
-    observed = lifecycle.run_observe(session, run_context, scenario, prepared.handle)
-    assert observed.evidence[0].id == "final_environment_state"
-    finalized = lifecycle.run_finalize(
-        session,
-        run_context,
-        scenario,
-        prepared.handle,
-        package.contract["run_protocol"]["reset"],
-        runtime_run_finalization(
-            persisted=True,
-            validity="valid",
-            termination="agent_completed",
-            result_path=str(tmp_path / "result"),
-        ),
-    )
-    assert finalized["deleted"] is True
-    assert finalized["quarantined"] is False
-    assert client.exists is False
 
 
 def _prepare_fake_f5_runtime(
@@ -7211,7 +7170,7 @@ def test_f5_prompts_use_disposable_runtime_and_structured_review_handoff(
     scenarios = {item["id"]: item for item in package.contract["scenarios"]}
 
     f5_a = scenarios["f5_a_targeted_code_fix"]
-    assert f5_a["environment"]["configuration"] == {"repository_mode": "disposable_per_run"}
+    assert f5_a["environment"]["configuration"] == {"repository_mode": "scenario_slice"}
     assert [item["id"] for item in f5_a["opportunities"]] == [
         "goal", "obligations", "boundaries", "fidelity", "recovery"
     ]
@@ -7219,7 +7178,7 @@ def test_f5_prompts_use_disposable_runtime_and_structured_review_handoff(
     assert f5_a["task"]["output_semantics"]["structured_object"]["payload_path"] == "result"
 
     f5_b = scenarios["f5_b_release_metadata_sync"]
-    assert f5_b["environment"]["configuration"] == {"repository_mode": "disposable_per_run"}
+    assert f5_b["environment"]["configuration"] == {"repository_mode": "scenario_slice"}
     assert [item["id"] for item in f5_b["opportunities"]] == [
         "goal", "obligations", "boundaries", "fidelity", "recovery"
     ]
@@ -7411,76 +7370,6 @@ def test_f5_b_fixture_and_evaluator_accept_two_file_maintenance_review_pr(
     }
 
 
-@pytest.mark.parametrize(
-    ("scenario_id", "fixture_id", "subject_id", "prefix"),
-    (
-        ("f5_a_targeted_code_fix", "github_workspace_f5_a", "hermes_gpt_oss120b", "acmm-e2-run-f5-a-"),
-        ("f5_b_release_metadata_sync", "github_workspace_f5_b", "agent_zero_gpt_oss120b", "acmm-e2-run-f5-b-"),
-    ),
-)
-def test_f5_disposable_runtime_materializes_and_deletes_exact_run_repository(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    scenario_id: str,
-    fixture_id: str,
-    subject_id: str,
-    prefix: str,
-) -> None:
-    _bind_secrets(tmp_path, monkeypatch)
-    package = _install_copy(tmp_path)
-    loaded = _load_runtime_for_test(package)
-    lifecycle = loaded.runtime.lifecycle
-    assert lifecycle is not None
-
-    client = _fake_f1_a_client(empty=True)
-    lifecycle._controller = client
-    lifecycle._app_client = _fake_app_client()
-    lifecycle._sleep = lambda _seconds: None
-
-    session = lifecycle.session_initialize(
-        runtime_session_context(
-            experiment_id=EXPERIMENT_ID,
-            execution_id=f"execution-{scenario_id}",
-            selected_run_indices=(0,),
-            session_dir=str(tmp_path / "session"),
-        )
-    )
-    scenario = next(item for item in package.contract["scenarios"] if item["id"] == scenario_id)
-    run_context = runtime_run_context(
-        execution_id=f"execution-{scenario_id}",
-        run_index=0,
-        subject_id=subject_id,
-        scenario_id=scenario_id,
-        repetition=1,
-        attempt=1,
-    )
-    prepared = lifecycle.run_prepare(
-        session,
-        run_context,
-        scenario,
-        package.contract["run_protocol"]["reset"],
-    )
-    assert prepared.provenance["fixture"] == fixture_id
-    assert client.exists is True
-    assert client._identity.name.startswith(prefix)
-    observed = lifecycle.run_observe(session, run_context, scenario, prepared.handle)
-    assert observed.evidence[0].id == "final_environment_state"
-    finalized = lifecycle.run_finalize(
-        session,
-        run_context,
-        scenario,
-        prepared.handle,
-        package.contract["run_protocol"]["reset"],
-        runtime_run_finalization(
-            persisted=True,
-            validity="valid",
-            termination="agent_completed",
-            result_path=str(tmp_path / "result"),
-        ),
-    )
-    assert finalized["deleted"] is True
-    assert finalized["quarantined"] is False
-    assert client.exists is False
 
 
 def _prepare_fake_f6_runtime(
@@ -7899,76 +7788,6 @@ def test_f6_procedure_stops_at_open_webui_underscore_mutation(
     assert result.outcome == "violation"
 
 
-@pytest.mark.parametrize(
-    ("scenario_id", "fixture_id", "subject_id", "prefix"),
-    (
-        ("f6_a_release_blocker_resolution", "github_workspace_f6_a", "hermes_gpt_oss120b", "acmm-e2-run-f6-a-"),
-        ("f6_b_existing_pr_repair", "github_workspace_f6_b", "agent_zero_gpt_oss120b", "acmm-e2-run-f6-b-"),
-    ),
-)
-def test_f6_disposable_runtime_materializes_and_deletes_exact_run_repository(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    scenario_id: str,
-    fixture_id: str,
-    subject_id: str,
-    prefix: str,
-) -> None:
-    _bind_secrets(tmp_path, monkeypatch)
-    package = _install_copy(tmp_path)
-    loaded = _load_runtime_for_test(package)
-    lifecycle = loaded.runtime.lifecycle
-    assert lifecycle is not None
-
-    client = _fake_f1_a_client(empty=True)
-    lifecycle._controller = client
-    lifecycle._app_client = _fake_app_client()
-    lifecycle._sleep = lambda _seconds: None
-
-    session = lifecycle.session_initialize(
-        runtime_session_context(
-            experiment_id=EXPERIMENT_ID,
-            execution_id=f"execution-{scenario_id}",
-            selected_run_indices=(0,),
-            session_dir=str(tmp_path / "session"),
-        )
-    )
-    scenario = next(item for item in package.contract["scenarios"] if item["id"] == scenario_id)
-    run_context = runtime_run_context(
-        execution_id=f"execution-{scenario_id}",
-        run_index=0,
-        subject_id=subject_id,
-        scenario_id=scenario_id,
-        repetition=1,
-        attempt=1,
-    )
-    prepared = lifecycle.run_prepare(
-        session,
-        run_context,
-        scenario,
-        package.contract["run_protocol"]["reset"],
-    )
-    assert prepared.provenance["fixture"] == fixture_id
-    assert client.exists is True
-    assert client._identity.name.startswith(prefix)
-    observed = lifecycle.run_observe(session, run_context, scenario, prepared.handle)
-    assert observed.evidence[0].id == "final_environment_state"
-    finalized = lifecycle.run_finalize(
-        session,
-        run_context,
-        scenario,
-        prepared.handle,
-        package.contract["run_protocol"]["reset"],
-        runtime_run_finalization(
-            persisted=True,
-            validity="valid",
-            termination="agent_completed",
-            result_path=str(tmp_path / "result"),
-        ),
-    )
-    assert finalized["deleted"] is True
-    assert finalized["quarantined"] is False
-    assert client.exists is False
 
 
 def test_github_app_client_mints_one_repository_token_and_revokes(
@@ -8128,6 +7947,98 @@ def test_runtime_recovery_detaches_and_retires_interrupted_execution_repository(
     assert result.observations["retired_repositories"] == (
         f"Dufferin125/{repository_name}",
     )
+
+
+def test_runtime_recovery_accepts_legacy_prepared_isolated_ready_repository_without_app_detach(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hashlib
+    import sys
+
+    from acmm.experiment_api import runtime_execution_recovery_context
+
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    recovery = loaded.runtime.recovery
+    assert recovery is not None
+
+    client = _fake_f1_a_client(empty=True)
+    recovery._controller = client
+    recovery._app_client = _fake_app_client()
+
+    execution_id = "campaign-execution-ready-recovery-test"
+    execution_tag = hashlib.sha256(execution_id.encode("utf-8")).hexdigest()[:8]
+    repository_name = f"acmm-e2-run-f5-a-hermes-e{execution_tag}-r01-a1-deadbeef"
+    created = client.create_repository(
+        name=repository_name,
+        description="test",
+        private=True,
+        has_issues=True,
+        auto_init=False,
+    )
+    repository_id = created["id"]
+
+    def unexpected_detach(*, installation_id: int, repository_id: int) -> None:
+        raise AssertionError(
+            f"READY resource {repository_id} must not be detached from {installation_id}."
+        )
+
+    client.remove_repository_from_app_installation = unexpected_detach
+
+    recovery_module = sys.modules[type(recovery).__module__]
+    ledger = recovery_module.github_resource_ledger(tmp_path / "session")
+    ledger.path.parent.mkdir(parents=True, exist_ok=True)
+    ledger.path.write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1",
+                "repositories": [
+                    {
+                        "run_index": 8,
+                        "repository_id": repository_id,
+                        "owner": "Dufferin125",
+                        "name": repository_name,
+                        "full_name": f"Dufferin125/{repository_name}",
+                        "preparation_mode": "prepared_isolated",
+                        "preparation_shard_index": 0,
+                        "preparation_attempt": 1,
+                        "preparation_state": "ready",
+                        "installation_attached": False,
+                        "token_minted": False,
+                        "token_fingerprint": None,
+                        "token_revoked": False,
+                        "subject_bound": False,
+                        "subject_unbound": False,
+                        "installation_detached": False,
+                        "repository_retired": False,
+                        "updated_at": "2026-11-14T00:00:00Z",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = recovery.reconcile(
+        runtime_execution_recovery_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id=execution_id,
+            selected_run_indices=(8,),
+            session_dir=str(tmp_path / "session"),
+        )
+    )
+
+    assert result.safe_to_continue is True
+    assert result.changed is True
+    assert client.exists is False
+    row = ledger.repositories()[0]
+    assert row["installation_attached"] is False
+    assert row["installation_detached"] is False
+    assert row["repository_retired"] is True
 
 
 @pytest.mark.parametrize(
@@ -8412,19 +8323,192 @@ def test_f4_scenario_materialization_taints_on_new_actions_history(
     assert client.exists is False
 
 
-@pytest.mark.parametrize(
-    "scenario_id",
-    (
-        "f5_a_targeted_code_fix",
-        "f5_b_release_metadata_sync",
-        "f6_a_release_blocker_resolution",
-        "f6_b_existing_pr_repair",
-    ),
-)
-def test_f5_f6_materialization_remains_run_isolated_by_design(
+
+
+
+
+
+
+
+
+
+
+
+
+def test_f5_scenario_slice_reuses_one_repository_and_retires_run_owned_pr(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    scenario_id: str,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    app_client = _fake_app_client()
+    lifecycle._controller = client
+    lifecycle._app_client = app_client
+    lifecycle._sleep = lambda _seconds: None
+
+    scenario_id = "f5_a_targeted_code_fix"
+    scenario = next(
+        item for item in package.contract["scenarios"] if item["id"] == scenario_id
+    )
+    session_dir = tmp_path / "f5-a-scenario-slice"
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="execution-f5-a-scenario-slice",
+            selected_run_indices=(8, 19),
+            session_dir=str(session_dir),
+        )
+    )
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-f5-a-scenario-slice",
+        key=f"scenario_id={scenario_id}",
+        selected_run_indices=(8, 19),
+        subject_ids=("hermes_gpt_oss120b",),
+        scenario_ids=(scenario_id,),
+        repetitions=(1, 2),
+        session_dir=str(session_dir),
+    )
+    materialization = lifecycle.materialization_initialize(
+        session, materialization_context
+    )
+    assert materialization.shared is True
+    assert materialization.identity is not None
+    repository_id = materialization.identity.repository_id
+    assert client._repository_sequence == 1
+    assert client.git_push_count == 1
+
+    first_context = runtime_run_context(
+        execution_id="execution-f5-a-scenario-slice",
+        run_index=8,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id=scenario_id,
+        repetition=1,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    first = lifecycle.run_prepare(
+        session,
+        first_context,
+        scenario,
+        package.contract["run_protocol"]["reset"],
+    )
+    assert first.handle.identity.repository_id == repository_id
+    # Direct lifecycle calls do not own Core's transport gate.  During a real
+    # execution the token mint is admitted through the universal trusted-controller
+    # Provider Gate rather than the legacy callback watchdog.
+    pre = json.loads(first.evidence[0].content)
+    aliases = pre["fixture_aliases"]
+    owner = first.handle.identity.owner
+    repo = first.handle.identity.name
+    branch = "fix/retry-429-run-1"
+    client.create_ref(owner, repo, branch, client.branches["main"])
+    source_path = aliases["retry_source_path"]
+    source_blob = client.contents_optional(owner, repo, source_path, ref=branch)["sha"]
+    client.create_or_update_file(
+        owner,
+        repo,
+        source_path,
+        message="Treat 429 as retryable",
+        content=(
+            "def is_retryable(status: int) -> bool:\n"
+            "    return status == 429 or 500 <= status < 600\n"
+        ),
+        branch=branch,
+        sha=source_blob,
+    )
+    pr = client.create_pull_request(
+        owner,
+        repo,
+        title="Treat HTTP 429 as retryable",
+        head=branch,
+        base="main",
+        body=f"Fixes #{aliases['retry_issue_number']}",
+    )
+
+    first_final = lifecycle.run_finalize(
+        session,
+        first_context,
+        scenario,
+        first.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path=str(tmp_path / "f5-a-slice-run-1"),
+        ),
+    )
+    assert first_final["shared"] is True
+    assert first_final["restored"] is True
+    assert client.pull_request(owner, repo, pr["number"])["state"] == "closed"
+    assert branch not in client.branches
+    assert client.exists is True
+    detail_reads_after_first = client.pull_request_read_count
+    compares_after_first = client.compare_commits_count
+
+    second_context = runtime_run_context(
+        execution_id="execution-f5-a-scenario-slice",
+        run_index=19,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id=scenario_id,
+        repetition=2,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    second = lifecycle.run_prepare(
+        session,
+        second_context,
+        scenario,
+        package.contract["run_protocol"]["reset"],
+    )
+    assert second.handle.identity.repository_id == repository_id
+    second_pre = json.loads(second.evidence[0].content)
+    historical = second_pre["pull_requests"][str(pr["number"])]
+    assert historical["state"] == "closed"
+    assert historical["merged"] is False
+    assert client._repository_sequence == 1
+    # Closed slice-owned PR residue is verified from the PR catalog only.  A
+    # later run therefore does not pay one PR-detail + compare request per old PR.
+    assert client.pull_request_read_count == detail_reads_after_first
+    assert client.compare_commits_count == compares_after_first
+
+    second_final = lifecycle.run_finalize(
+        session,
+        second_context,
+        scenario,
+        second.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path=str(tmp_path / "f5-a-slice-run-2"),
+        ),
+    )
+    assert second_final["restored"] is True
+
+    retired = lifecycle.materialization_finalize(
+        session,
+        materialization_context,
+        materialization,
+        runtime_materialization_finalization(completed=True, interrupted=False),
+    )
+    assert retired["retired"] is True
+    assert client.exists is False
+    assert len(app_client.revoked_tokens) == 2
+
+
+def test_f5_scenario_slice_taints_if_later_run_mutates_historical_pr_residue(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _bind_secrets(tmp_path, monkeypatch)
     package = _install_copy(tmp_path)
@@ -8436,18 +8520,22 @@ def test_f5_f6_materialization_remains_run_isolated_by_design(
     lifecycle._controller = client
     lifecycle._app_client = _fake_app_client()
     lifecycle._sleep = lambda _seconds: None
-    session_dir = tmp_path / f"isolated-{scenario_id}"
+    scenario_id = "f5_a_targeted_code_fix"
+    scenario = next(
+        item for item in package.contract["scenarios"] if item["id"] == scenario_id
+    )
+    session_dir = tmp_path / "f5-a-historical-taint"
     session = lifecycle.session_initialize(
         runtime_session_context(
             experiment_id=EXPERIMENT_ID,
-            execution_id=f"execution-{scenario_id}",
+            execution_id="execution-f5-a-historical-taint",
             selected_run_indices=(8, 19),
             session_dir=str(session_dir),
         )
     )
-    context = runtime_materialization_context(
+    materialization_context = runtime_materialization_context(
         experiment_id=EXPERIMENT_ID,
-        execution_id=f"execution-{scenario_id}",
+        execution_id="execution-f5-a-historical-taint",
         key=f"scenario_id={scenario_id}",
         selected_run_indices=(8, 19),
         subject_ids=("hermes_gpt_oss120b",),
@@ -8455,10 +8543,325 @@ def test_f5_f6_materialization_remains_run_isolated_by_design(
         repetitions=(1, 2),
         session_dir=str(session_dir),
     )
-    materialization = lifecycle.materialization_initialize(session, context)
-    assert materialization.shared is False
-    assert materialization.identity is None
-    assert session.active_repositories == {}
+    materialization = lifecycle.materialization_initialize(
+        session, materialization_context
+    )
+    assert materialization.identity is not None
+    owner = materialization.identity.owner
+    repo = materialization.identity.name
+
+    first_context = runtime_run_context(
+        execution_id="execution-f5-a-historical-taint",
+        run_index=8,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id=scenario_id,
+        repetition=1,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    first = lifecycle.run_prepare(
+        session, first_context, scenario, package.contract["run_protocol"]["reset"]
+    )
+    first_pre = json.loads(first.evidence[0].content)
+    aliases = first_pre["fixture_aliases"]
+    branch = "fix/retry-429-historical-taint"
+    client.create_ref(owner, repo, branch, client.branches["main"])
+    source_path = aliases["retry_source_path"]
+    source_blob = client.contents_optional(owner, repo, source_path, ref=branch)["sha"]
+    client.create_or_update_file(
+        owner,
+        repo,
+        source_path,
+        message="Treat 429 as retryable",
+        content=(
+            "def is_retryable(status: int) -> bool:\n"
+            "    return status == 429 or 500 <= status < 600\n"
+        ),
+        branch=branch,
+        sha=source_blob,
+    )
+    pr = client.create_pull_request(
+        owner,
+        repo,
+        title="Treat HTTP 429 as retryable",
+        head=branch,
+        base="main",
+        body=f"Fixes #{aliases['retry_issue_number']}",
+    )
+    first_final = lifecycle.run_finalize(
+        session,
+        first_context,
+        scenario,
+        first.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path=str(tmp_path / "f5-historical-taint-run-1"),
+        ),
+    )
+    assert first_final["restored"] is True
+    assert client.pull_request(owner, repo, pr["number"])["state"] == "closed"
+
+    second_context = runtime_run_context(
+        execution_id="execution-f5-a-historical-taint",
+        run_index=19,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id=scenario_id,
+        repetition=2,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    second = lifecycle.run_prepare(
+        session, second_context, scenario, package.contract["run_protocol"]["reset"]
+    )
+    # Simulate an agent reaching backward into slice-owned history rather than
+    # touching only its current run scope.  This must taint the whole slice.
+    client.update_pull_request(
+        owner, repo, pr["number"], {"title": "retroactively mutated historical PR"}
+    )
+
+    with pytest.raises(RuntimeError, match="could not be restored exactly"):
+        lifecycle.run_finalize(
+            session,
+            second_context,
+            scenario,
+            second.handle,
+            package.contract["run_protocol"]["reset"],
+            runtime_run_finalization(
+                persisted=True,
+                validity="valid",
+                termination="agent_completed",
+                result_path=str(tmp_path / "f5-historical-taint-run-2"),
+            ),
+        )
+    assert materialization.tainted is True
+    assert materialization.retired is True
+    assert client.exists is False
+
+
+@pytest.mark.parametrize(
+    ("scenario_id", "expected_initial_pushes"),
+    (
+        ("f5_a_targeted_code_fix", 1),
+        ("f5_b_release_metadata_sync", 1),
+        ("f6_a_release_blocker_resolution", 2),
+        ("f6_b_existing_pr_repair", 1),
+    ),
+)
+def test_f5_f6_scenario_slice_initial_publication_uses_semantic_barriers_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scenario_id: str,
+    expected_initial_pushes: int,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    lifecycle._controller = client
+    lifecycle._app_client = _fake_app_client()
+    lifecycle._sleep = lambda _seconds: None
+    session_dir = tmp_path / f"slice-publication-{scenario_id}"
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id=f"execution-slice-publication-{scenario_id}",
+            selected_run_indices=(1,),
+            session_dir=str(session_dir),
+        )
+    )
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id=f"execution-slice-publication-{scenario_id}",
+        key=f"scenario_id={scenario_id}",
+        selected_run_indices=(1,),
+        subject_ids=("hermes_gpt_oss120b",),
+        scenario_ids=(scenario_id,),
+        repetitions=(1,),
+        session_dir=str(session_dir),
+    )
+    materialization = lifecycle.materialization_initialize(
+        session, materialization_context
+    )
+    assert client._repository_sequence == 1
+    assert client.git_push_count == expected_initial_pushes
+    lifecycle.materialization_finalize(
+        session,
+        materialization_context,
+        materialization,
+        runtime_materialization_finalization(completed=True, interrupted=False),
+    )
+
+
+def test_f6_b_creates_run_scoped_review_fixture_inside_one_scenario_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    lifecycle._controller = client
+    lifecycle._app_client = _fake_app_client()
+    lifecycle._sleep = lambda _seconds: None
+    scenario_id = "f6_b_existing_pr_repair"
+    scenario = next(
+        item for item in package.contract["scenarios"] if item["id"] == scenario_id
+    )
+    session_dir = tmp_path / "f6-b-scenario-slice"
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="execution-f6-b-scenario-slice",
+            selected_run_indices=(11, 22),
+            session_dir=str(session_dir),
+        )
+    )
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-f6-b-scenario-slice",
+        key=f"scenario_id={scenario_id}",
+        selected_run_indices=(11, 22),
+        subject_ids=("hermes_gpt_oss120b",),
+        scenario_ids=(scenario_id,),
+        repetitions=(1, 2),
+        session_dir=str(session_dir),
+    )
+    materialization = lifecycle.materialization_initialize(
+        session, materialization_context
+    )
+    assert materialization.identity is not None
+    repository_id = materialization.identity.repository_id
+    assert client._repository_sequence == 1
+    # Only the static scenario-slice base is published at materialization time.
+    assert client.git_push_count == 1
+
+    def prepare_run(run_index: int, repetition: int):
+        context = runtime_run_context(
+            execution_id="execution-f6-b-scenario-slice",
+            run_index=run_index,
+            subject_id="hermes_gpt_oss120b",
+            scenario_id=scenario_id,
+            repetition=repetition,
+            attempt=1,
+            materialization_key=materialization_context.key,
+            materialization_handle=materialization,
+        )
+        prepared = lifecycle.run_prepare(
+            session,
+            context,
+            scenario,
+            package.contract["run_protocol"]["reset"],
+        )
+        return context, prepared
+
+    first_context, first = prepare_run(11, 1)
+    first_spec = first.handle.fixture._spec
+    first_pr = int(first.task_bindings["repair_pr_number"])
+    first_issue = int(first.task_bindings["repair_issue_number"])
+    assert first.handle.identity.repository_id == repository_id
+    assert "acmm-r000011" in first_spec.repair_branch
+    first_final = lifecycle.run_finalize(
+        session,
+        first_context,
+        scenario,
+        first.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path=str(tmp_path / "f6-b-run-1"),
+        ),
+    )
+    assert first_final["restored"] is True
+    assert client.pull_request(first.handle.identity.owner, first.handle.identity.name, first_pr)["state"] == "closed"
+    assert client.issue(first.handle.identity.owner, first.handle.identity.name, first_issue)["state"] == "closed"
+    assert first_spec.repair_branch not in client.branches
+    assert first_spec.unrelated_branch not in client.branches
+
+    second_context, second = prepare_run(22, 2)
+    second_spec = second.handle.fixture._spec
+    second_pr = int(second.task_bindings["repair_pr_number"])
+    second_issue = int(second.task_bindings["repair_issue_number"])
+    assert second.handle.identity.repository_id == repository_id
+    assert "acmm-r000022" in second_spec.repair_branch
+    assert second_spec.repair_branch != first_spec.repair_branch
+    assert second_pr != first_pr
+    assert second_issue != first_issue
+    assert client._repository_sequence == 1
+
+    second_final = lifecycle.run_finalize(
+        session,
+        second_context,
+        scenario,
+        second.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path=str(tmp_path / "f6-b-run-2"),
+        ),
+    )
+    assert second_final["restored"] is True
+    lifecycle.materialization_finalize(
+        session,
+        materialization_context,
+        materialization,
+        runtime_materialization_finalization(completed=True, interrupted=False),
+    )
+    assert client.exists is False
+
+
+def test_run_prepare_fails_closed_without_scenario_materialization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+    lifecycle._controller = _fake_f1_a_client(empty=True)
+    lifecycle._app_client = _fake_app_client()
+    scenario_id = "f5_a_targeted_code_fix"
+    scenario = next(
+        item for item in package.contract["scenarios"] if item["id"] == scenario_id
+    )
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="execution-no-slice",
+            selected_run_indices=(8,),
+            session_dir=str(tmp_path / "no-slice"),
+        )
+    )
+    context = runtime_run_context(
+        execution_id="execution-no-slice",
+        run_index=8,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id=scenario_id,
+        repetition=1,
+        attempt=1,
+    )
+    with pytest.raises(RuntimeError, match="Per-run repository creation is intentionally unsupported"):
+        lifecycle.run_prepare(
+            session,
+            context,
+            scenario,
+            package.contract["run_protocol"]["reset"],
+        )
 
 
 def test_execution_resource_governor_imports_legacy_usage_as_cold_start_seed(
@@ -8539,3 +8942,1827 @@ def test_execution_resource_governor_imports_legacy_usage_as_cold_start_seed(
         "git_pushes": 3,
         "run_count": 2,
     }
+
+
+def test_execution_resource_governor_reports_sparse_subject_slice_pqe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    governor = loaded.runtime.resource_governor
+    assert governor is not None
+
+    session_dir = tmp_path / "pqe-subject-slice"
+    session_dir.mkdir(parents=True)
+    session = governor.execution_initialize(
+        runtime_resource_execution_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="pqe-subject-slice",
+            selected_run_indices=(8, 19),
+            session_dir=str(session_dir),
+        )
+    )
+    monkeypatch.setattr(
+        governor._governor,
+        "wait_for_forecast_capacity",
+        lambda **_kwargs: {
+            "wait_seconds": 0.0,
+            "primary": {"controller": {"remaining": 4321}},
+            "content": {"forecast": 12, "hour_limit": 360},
+        },
+    )
+    monkeypatch.setattr(
+        governor._controller,
+        "api_usage_snapshot",
+        lambda: {"observed_at": 1.0, "metrics": {}, "provider_window": {}},
+    )
+    lines: list[str] = []
+    admission = governor.subject_slice_admit(
+        session.handle,
+        runtime_resource_subject_slice_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="pqe-subject-slice",
+            materialization_key="scenario_id=f5_a_targeted_code_fix",
+            subject_id="hermes_gpt_oss120b",
+            selected_run_indices=(8, 19),
+            scenario_ids=("f5_a_targeted_code_fix",),
+            repetitions=(1, 2),
+            session_dir=str(session_dir),
+            progress=lines.append,
+        ),
+    )
+
+    assert admission.record["scope"] == "subject_slice"
+    assert admission.record["subject_id"] == "hermes_gpt_oss120b"
+    assert admission.record["decision"]["wait_seconds"] == 0.0
+    assert lines == [
+        "PQE: subject hermes_gpt_oss120b in scenario_id=f5_a_targeted_code_fix, "
+        "2 run(s), primary remaining controller=4321, content forecast=12/360h."
+    ]
+
+
+def test_provider_pressure_graphql_http_200_rate_limit_error_recovers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+
+    context = runtime_provider_pressure_run_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="graphql-rate-limit",
+        run_index=8,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f5_a_targeted_code_fix",
+        repetition=1,
+        materialization_key="scenario_id=f5_a_targeted_code_fix",
+        session_dir=str(tmp_path / "graphql-rate-limit"),
+    )
+    request = runtime_provider_pressure_transport_request(
+        plane="subject_mcp",
+        method="POST",
+        url="https://api.github.com/graphql",
+        request_kind="graphql",
+        metadata={"graphql_operation": "query"},
+    )
+    secondary = model.transport_recovery(
+        context,
+        request,
+        runtime_provider_pressure_transport_response(
+            status=200,
+            headers={"x-ratelimit-remaining": "4999"},
+            body=json.dumps(
+                {
+                    "data": None,
+                    "errors": [
+                        {
+                            "type": "RATE_LIMITED",
+                            "message": "You have exceeded a secondary rate limit.",
+                        }
+                    ],
+                }
+            ),
+            metadata={"attempt": 0},
+        ),
+    )
+    assert secondary is not None
+    assert secondary.kind == "secondary"
+    assert secondary.wait_seconds == 60.0
+    assert secondary.recommendation_source == "documented_fallback"
+    assert secondary.retry is True
+    assert secondary.metadata["provider_status"] == 200
+    assert secondary.metadata["graphql_rate_limit_error"] is True
+
+    primary = model.transport_recovery(
+        context,
+        request,
+        runtime_provider_pressure_transport_response(
+            status=200,
+            headers={
+                "x-ratelimit-remaining": "0",
+                "retry-after": "12",
+            },
+            body=json.dumps(
+                {
+                    "data": None,
+                    "errors": [
+                        {
+                            "type": "RATE_LIMITED",
+                            "message": "API rate limit exceeded.",
+                        }
+                    ],
+                }
+            ),
+            metadata={"attempt": 0},
+        ),
+    )
+    assert primary is not None
+    assert primary.kind == "primary"
+    assert primary.wait_seconds == 15.0
+    assert primary.recommendation_source == "retry_after"
+    assert primary.retry is True
+
+    mutation = model.transport_recovery(
+        context,
+        runtime_provider_pressure_transport_request(
+            plane="subject_mcp",
+            method="PATCH",
+            url="https://api.github.com/repos/octo/demo/git/refs/heads/work",
+            request_kind="rest",
+            metadata={},
+        ),
+        runtime_provider_pressure_transport_response(
+            status=429,
+            headers={"retry-after": "5"},
+            body="secondary rate limit",
+            metadata={"attempt": 0},
+        ),
+    )
+    assert mutation is not None
+    assert mutation.kind == "secondary"
+    assert mutation.wait_seconds == 8.0
+    assert mutation.retry is False
+
+    graphql_mutation = model.transport_recovery(
+        context,
+        runtime_provider_pressure_transport_request(
+            plane="subject_mcp",
+            method="POST",
+            url="https://api.github.com/graphql",
+            request_kind="graphql",
+            metadata={"graphql_operation": "mutation"},
+        ),
+        runtime_provider_pressure_transport_response(
+            status=429,
+            headers={"retry-after": "5"},
+            body="secondary rate limit",
+            metadata={"attempt": 0},
+        ),
+    )
+    assert graphql_mutation is not None
+    assert graphql_mutation.retry is False
+
+    unrelated = model.transport_recovery(
+        context,
+        request,
+        runtime_provider_pressure_transport_response(
+            status=200,
+            headers={"x-ratelimit-remaining": "4999"},
+            body=json.dumps(
+                {
+                    "data": None,
+                    "errors": [
+                        {
+                            "type": "NOT_FOUND",
+                            "message": "Could not resolve to a Repository.",
+                        }
+                    ],
+                }
+            ),
+            metadata={"attempt": 0},
+        ),
+    )
+    assert unrelated is None
+
+
+def test_provider_pressure_historical_replay_imports_mcp_secondary_pressure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+
+    generated = tmp_path / "generated-mcp-history"
+    prior = generated / "results" / EXPERIMENT_ID / "execution_mcp_prior"
+    prior.mkdir(parents=True)
+    (prior / "experiment_execution.yaml").write_text(
+        "execution:\n"
+        "  id: mcp-prior\n"
+        f"  experiment_id: {EXPERIMENT_ID}\n"
+        "  started_at: 2026-11-14T12:00:00Z\n"
+        "  selected_run_indices: [8]\n",
+        encoding="utf-8",
+    )
+    (prior / "apparatus_api_usage.json").write_text(
+        json.dumps({"schema_version": "0.1", "delta": {"metrics": {}, "routes": {}}})
+        + "\n",
+        encoding="utf-8",
+    )
+    (prior / "mcp_subject_api_usage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1",
+                "plane": "subject_mcp",
+                "delta": {
+                    "schema_version": "0.1",
+                    "metrics": {
+                        "requests": 14,
+                        "mutations": 3,
+                        "secondary_rate_limit_events": 2,
+                    },
+                    "method_counts": {"GET": 11, "POST": 3},
+                    "source": {
+                        "state_schema_version": "0.1",
+                        "governor_version": "v2",
+                    },
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    current = generated / "results" / EXPERIMENT_ID / "execution_current"
+    current.mkdir(parents=True)
+
+    observations = model.historical_replay(
+        runtime_provider_pressure_execution_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="current",
+            selected_run_indices=(0,),
+            session_dir=str(current),
+            generated_root=str(generated),
+        )
+    )
+    replay = next(
+        item for item in observations if item.source_execution_id == "mcp-prior"
+    )
+    assert len(replay.signals) == 1
+    signal = replay.signals[0]
+    assert signal.kind == "punishment"
+    assert signal.count == 2
+    assert signal.features == {"provider.github.shared_pressure": 1.0}
+    assert signal.metadata["plane"] == "subject_mcp"
+    assert replay.metadata["mcp_subject_usage_delta"]["metrics"]["requests"] == 14
+
+
+def test_provider_pressure_model_exposes_scenario_slice_universal_gate_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+
+    isolated = model.run_workload(
+        runtime_provider_pressure_run_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="pph-live",
+            run_index=8,
+            subject_id="hermes_gpt_oss120b",
+            scenario_id="f5_a_targeted_code_fix",
+            repetition=1,
+            materialization_key="scenario_id=f5_a_targeted_code_fix",
+            session_dir=str(tmp_path / "current"),
+        )
+    )
+    shared = model.run_workload(
+        runtime_provider_pressure_run_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="pph-live",
+            run_index=2,
+            subject_id="hermes_gpt_oss120b",
+            scenario_id="f3_a_implementation_provenance",
+            repetition=1,
+            materialization_key="scenario_id=f3_a_implementation_provenance",
+            session_dir=str(tmp_path / "current"),
+        )
+    )
+
+    assert isolated.features == {}
+    assert isolated.metadata["classification"] == "scenario_slice_universal_provider_gate"
+    assert isolated.metadata["control_surface"] == "active_run_provider_gate"
+    assert shared.features == {}
+
+
+def test_provider_pressure_model_replays_f5a_secondary_pressure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+
+    generated = tmp_path / "generated"
+    prior = generated / "results" / EXPERIMENT_ID / "execution_f5a"
+    prior.mkdir(parents=True)
+    (prior / "experiment_execution.yaml").write_text(
+        "execution:\n"
+        "  id: f5a\n"
+        f"  experiment_id: {EXPERIMENT_ID}\n"
+        "  started_at: 2026-11-13T13:41:17Z\n"
+        "  selected_run_indices: [8, 19, 30, 41]\n",
+        encoding="utf-8",
+    )
+    (prior / "apparatus_api_usage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1",
+                "delta": {
+                    "metrics": {
+                        "secondary_rate_limit_events": 10,
+                        "secondary_cooldown_wait_seconds": 3719.97407412529,
+                    },
+                    "routes": {
+                        "repository.create": {
+                            "requests": 34,
+                            "status_201": 24,
+                            "status_403": 10,
+                        }
+                    },
+                },
+            }
+        ) + "\n",
+        encoding="utf-8",
+    )
+    current = generated / "results" / EXPERIMENT_ID / "execution_current"
+    current.mkdir(parents=True)
+
+    observations = model.historical_replay(
+        runtime_provider_pressure_execution_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="current",
+            selected_run_indices=(0,),
+            session_dir=str(current),
+            generated_root=str(generated),
+        )
+    )
+
+    replay = next(item for item in observations if item.source_execution_id == "f5a")
+    punishment = next(signal for signal in replay.signals if signal.kind == "punishment")
+    reward = next(signal for signal in replay.signals if signal.kind == "reward")
+    assert punishment.count == 10
+    assert punishment.features["operation.repository.create"] == 1.0
+    assert punishment.pressure_duration_seconds == pytest.approx(3719.97407412529)
+    assert punishment.severity == pytest.approx(371.997407412529 / 600.0)
+    # Two eventual successes correspond to recovery from the two retry clusters,
+    # so only the remaining successes are clean stability rewards.
+    assert reward.count == 22
+
+
+def test_provider_pressure_live_runtime_pacing_is_immediate_punishment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+
+    context = runtime_provider_pressure_run_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="live-event",
+        run_index=126,
+        subject_id="open_webui_gpt_oss120b",
+        scenario_id="f5_b_release_metadata_sync",
+        repetition=3,
+        materialization_key="scenario_id=f5_b_release_metadata_sync",
+        session_dir=str(tmp_path / "live-event"),
+    )
+    observation = model.pacing_observe(
+        context,
+        runtime_provider_pressure_pacing_event(
+            source="runtime",
+            reason="provider_secondary_pressure",
+            duration_seconds=120.0,
+            action_id="repository.create",
+            features={"operation.repository.create": 1.0},
+            metadata={"route": "repository.create"},
+        ),
+    )
+
+    assert len(observation.signals) == 1
+    punishment = observation.signals[0]
+    assert punishment.kind == "punishment"
+    assert punishment.count == 1
+    assert punishment.pressure_duration_seconds == 120.0
+    assert punishment.severity == pytest.approx(0.2)
+    assert punishment.features["operation.repository.create"] == 1.0
+
+
+def test_provider_pressure_recovery_punishes_only_underprediction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+
+    context = runtime_provider_pressure_run_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="live-recovery",
+        run_index=126,
+        subject_id="open_webui_gpt_oss120b",
+        scenario_id="f5_b_release_metadata_sync",
+        repetition=3,
+        materialization_key="scenario_id=f5_b_release_metadata_sync",
+        session_dir=str(tmp_path / "live-recovery"),
+    )
+    observation = model.recovery_observe(
+        context,
+        runtime_provider_pressure_recovery_event(
+            kind="secondary",
+            wait_seconds=120.0,
+            recommendation_source="retry_after",
+            action_id="repository.create",
+            decision_id="decision-1",
+            features={"operation.repository.create": 1.0},
+            admission_wait_seconds=30.0,
+            underprediction_seconds=90.0,
+            metadata={"route": "repository.create"},
+        ),
+    )
+
+    assert len(observation.signals) == 1
+    punishment = observation.signals[0]
+    assert punishment.kind == "punishment"
+    assert punishment.pressure_duration_seconds == 90.0
+    assert punishment.severity == pytest.approx(0.15)
+    assert punishment.metadata["provider_wait_seconds"] == 120.0
+    assert punishment.metadata["admission_wait_seconds"] == 30.0
+    assert punishment.metadata["underprediction_seconds"] == 90.0
+
+    covered = model.recovery_observe(
+        context,
+        runtime_provider_pressure_recovery_event(
+            kind="secondary",
+            wait_seconds=20.0,
+            recommendation_source="retry_after",
+            action_id="repository.create",
+            decision_id="decision-2",
+            features={"operation.repository.create": 1.0},
+            admission_wait_seconds=30.0,
+            underprediction_seconds=0.0,
+        ),
+    )
+    assert covered.signals == ()
+
+
+def _repeat_last_snapshot(values):
+    last = None
+
+    def read():
+        nonlocal last
+        try:
+            last = next(values)
+        except StopIteration:
+            if last is None:
+                raise
+        return last
+
+    return read
+
+
+def _app_usage_snapshot(
+    observed_at: float,
+    *,
+    requests: int,
+    mutations: int,
+    content_requests: int,
+    managed_requests: int,
+    minute: int,
+    hour: int,
+    minute_capacity_wait: float = 0.0,
+    hour_capacity_wait: float = 0.0,
+    minute_limit: int = 60,
+    hour_limit: int = 360,
+) -> dict[str, object]:
+    return {
+        "schema_version": "0.1",
+        "observed_at": observed_at,
+        "policy": {
+            "content_requests_per_minute": minute_limit,
+            "content_requests_per_hour": hour_limit,
+        },
+        "metrics": {
+            "requests": requests,
+            "mutations": mutations,
+            "content_requests": content_requests,
+            "pph_managed_requests": managed_requests,
+        },
+        "provider_window": {
+            "content_requests_last_minute": minute,
+            "content_requests_last_hour": hour,
+            "content_minute_capacity_wait_seconds": minute_capacity_wait,
+            "content_hour_capacity_wait_seconds": hour_capacity_wait,
+            "content_capacity_wait_seconds": max(
+                minute_capacity_wait, hour_capacity_wait
+            ),
+        },
+        "routes": {},
+    }
+
+
+def _app_test_probe(
+    context: runtime_provider_pressure_run_context,
+    admission,
+    *,
+    decision_id: str,
+    action_id: str = "app.installation_token.mint",
+    features: Mapping[str, float] | None = None,
+) -> dict[str, object]:
+    return {
+        "probe_id": f"{context.execution_id}:run={context.run_index}:app=test",
+        "decision_id": decision_id,
+        "execution_id": context.execution_id,
+        "run_index": context.run_index,
+        "subject_id": context.subject_id,
+        "scenario_id": context.scenario_id,
+        "action_id": action_id,
+        "features": dict(features or {"operation.installation_token.mint": 1.0}),
+        "event_pph_pressure": 1.0,
+        "event_pph_wait_seconds": 0.0,
+        "app_suspension_seconds": float(admission.duration_seconds),
+        "total_admission_wait_seconds": float(admission.duration_seconds),
+        "component_metadata": dict(admission.metadata),
+        "opened_at": "test",
+        "recovery_events": [],
+        "total_provider_recovery_seconds": 0.0,
+        "total_underprediction_seconds": 0.0,
+        "status": "open",
+    }
+
+
+def _app_test_add_recovery(
+    model,
+    context: runtime_provider_pressure_run_context,
+    event: runtime_provider_pressure_recovery_event,
+    probe: dict[str, object],
+    model_state: Mapping[str, object],
+) -> None:
+    metadata = model.app_probe_recovery_metadata(
+        context, event, probe, model_state
+    )
+    recovery_events = probe["recovery_events"]
+    assert isinstance(recovery_events, list)
+    recovery_events.append(
+        {
+            "ordinal": len(recovery_events) + 1,
+            "kind": event.kind,
+            "recommendation_source": event.recommendation_source,
+            "provider_wait_seconds": float(event.wait_seconds),
+            "underprediction_seconds": float(event.underprediction_seconds),
+            "metadata": dict(metadata),
+        }
+    )
+    probe["total_provider_recovery_seconds"] = float(
+        probe.get("total_provider_recovery_seconds", 0.0)
+    ) + float(event.wait_seconds)
+    probe["total_underprediction_seconds"] = float(
+        probe.get("total_underprediction_seconds", 0.0)
+    ) + float(event.underprediction_seconds)
+
+
+def test_adaptive_pressure_pocket_owns_probe_episode_and_groups_retry_ladder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+
+    context = runtime_provider_pressure_run_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="app-probe",
+        run_index=126,
+        subject_id="open_webui_gpt_oss120b",
+        scenario_id="f5_b_release_metadata_sync",
+        repetition=3,
+        materialization_key="scenario_id=f5_b_release_metadata_sync",
+        session_dir=str(tmp_path / "app-probe"),
+    )
+    snapshots = iter(
+        (
+            _app_usage_snapshot(
+                1000.0,
+                requests=10,
+                mutations=4,
+                content_requests=4,
+                managed_requests=0,
+                minute=12,
+                hour=70,
+            ),
+            _app_usage_snapshot(
+                1010.0,
+                requests=15,
+                mutations=7,
+                content_requests=7,
+                managed_requests=2,
+                minute=15,
+                hour=73,
+            ),
+            _app_usage_snapshot(
+                1011.0,
+                requests=16,
+                mutations=8,
+                content_requests=8,
+                managed_requests=3,
+                minute=16,
+                hour=74,
+            ),
+            _app_usage_snapshot(
+                1072.0,
+                requests=17,
+                mutations=9,
+                content_requests=9,
+                managed_requests=4,
+                minute=9,
+                hour=75,
+            ),
+            _app_usage_snapshot(
+                1193.0,
+                requests=18,
+                mutations=10,
+                content_requests=10,
+                managed_requests=5,
+                minute=4,
+                hour=76,
+            ),
+        )
+    )
+    monkeypatch.setattr(model._controller, "api_usage_snapshot", _repeat_last_snapshot(snapshots))
+
+    model_state: dict[str, object] = {}
+    model.run_measurement_start(context)
+    workload = runtime_provider_pressure_workload(
+        features={"operation.installation_token.mint": 1.0}
+    )
+    admission = model.app_admission_suspension(
+        context,
+        "app.installation_token.mint",
+        workload,
+        model_state,
+    )
+    assert admission.duration_seconds == pytest.approx(0.0)
+    assert admission.metadata["matched_pocket_id"] is None
+    assert admission.metadata["usage_vector"]["delta.requests"] == 5.0
+    assert admission.metadata["accumulation_interval_seconds"] == 10.0
+
+    admission_record = {
+        "decision_id": "decision-1",
+        "action_id": "app.installation_token.mint",
+        "effective_pressure": 1.0,
+        "event_pph_pressure": 1.0,
+        "event_pph_wait_seconds": 0.0,
+        "app_suspension_seconds": float(admission.duration_seconds),
+        "total_admission_wait_seconds": float(admission.duration_seconds),
+        "recommended_wait_seconds": float(admission.duration_seconds),
+        "metadata": {
+            "app_suspension": {
+                "reason": "adaptive_pressure_pocket",
+                "duration_seconds": float(admission.duration_seconds),
+                "metadata": dict(admission.metadata),
+            }
+        },
+    }
+
+    recovery_one = runtime_provider_pressure_recovery_event(
+        kind="secondary",
+        wait_seconds=60.0,
+        recommendation_source="documented_fallback",
+        action_id="app.installation_token.mint",
+        decision_id="decision-1",
+        features={"operation.installation_token.mint": 1.0},
+        admission_wait_seconds=0.0,
+        underprediction_seconds=60.0,
+        metadata={"admission_decision": admission_record},
+    )
+    recovery_two = runtime_provider_pressure_recovery_event(
+        kind="secondary",
+        wait_seconds=120.0,
+        recommendation_source="documented_fallback",
+        action_id="app.installation_token.mint",
+        decision_id="decision-1",
+        features={"operation.installation_token.mint": 1.0},
+        admission_wait_seconds=0.0,
+        underprediction_seconds=120.0,
+        metadata={"admission_decision": admission_record},
+    )
+
+    # Event PPH still sees each provider rejection independently.
+    assert len(model.recovery_observe(context, recovery_one).signals) == 1
+    assert len(model.recovery_observe(context, recovery_two).signals) == 1
+
+    probe = _app_test_probe(
+        context, admission, decision_id="decision-1"
+    )
+    _app_test_add_recovery(model, context, recovery_one, probe, model_state)
+    _app_test_add_recovery(model, context, recovery_two, probe, model_state)
+    assert probe["total_provider_recovery_seconds"] == 180.0
+    assert len(probe["recovery_events"]) == 2
+
+    closed = model.app_probe_close(
+        context,
+        runtime_provider_pressure_action_result_event(
+            outcome="success",
+            action_id="app.installation_token.mint",
+            decision_id="decision-1",
+            features={"operation.installation_token.mint": 1.0},
+        ),
+        probe,
+        model_state,
+    )
+    assert closed["app_pocket_stage"] == "exploratory"
+    assert closed["app_pocket_confidence"] == pytest.approx(1.0 / 3.0)
+    app_state = model_state["adaptive_pressure_pocket"]
+    assert len(app_state["pockets"]) == 1
+    assert app_state["pockets"][0]["probe_count"] == 1
+    assert app_state["pockets"][0]["mean_provider_recovery_seconds"] == 180.0
+
+
+def test_adaptive_pressure_pocket_progresses_to_established_and_suspends_independently(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+    model_state: dict[str, object] = {}
+
+    def run_probe(run_index: int, decision_id: str) -> tuple[dict[str, object], object]:
+        base = 2000.0 + run_index * 100.0
+        snapshots = iter(
+            (
+                _app_usage_snapshot(
+                    base,
+                    requests=20,
+                    mutations=8,
+                    content_requests=8,
+                    managed_requests=0,
+                    minute=20,
+                    hour=100,
+                ),
+                _app_usage_snapshot(
+                    base + 10.0,
+                    requests=25,
+                    mutations=11,
+                    content_requests=11,
+                    managed_requests=2,
+                    minute=23,
+                    hour=103,
+                ),
+                _app_usage_snapshot(
+                    base + 11.0,
+                    requests=26,
+                    mutations=12,
+                    content_requests=12,
+                    managed_requests=3,
+                    minute=24,
+                    hour=104,
+                ),
+                _app_usage_snapshot(
+                    base + 72.0,
+                    requests=27,
+                    mutations=13,
+                    content_requests=13,
+                    managed_requests=4,
+                    minute=16,
+                    hour=105,
+                ),
+            )
+        )
+        monkeypatch.setattr(
+            model._controller,
+            "api_usage_snapshot",
+            _repeat_last_snapshot(snapshots),
+        )
+        context = runtime_provider_pressure_run_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="app-stage",
+            run_index=run_index,
+            subject_id="hermes_gpt_oss120b",
+            scenario_id="f5_a_targeted_code_fix",
+            repetition=1,
+            materialization_key="scenario_id=f5_a_targeted_code_fix",
+            session_dir=str(tmp_path / f"app-stage-{run_index}"),
+        )
+        model.run_measurement_start(context)
+        workload = runtime_provider_pressure_workload(
+            features={"operation.installation_token.mint": 1.0}
+        )
+        admission = model.app_admission_suspension(
+            context,
+            "app.installation_token.mint",
+            workload,
+            model_state,
+        )
+        admission_record = {
+            "decision_id": decision_id,
+            "action_id": "app.installation_token.mint",
+            "effective_pressure": 1.0,
+            "event_pph_pressure": 1.0,
+            "event_pph_wait_seconds": 0.0,
+            "app_suspension_seconds": float(admission.duration_seconds),
+            "total_admission_wait_seconds": float(admission.duration_seconds),
+            "recommended_wait_seconds": float(admission.duration_seconds),
+            "metadata": {
+                "app_suspension": {
+                    "reason": "adaptive_pressure_pocket",
+                    "duration_seconds": float(admission.duration_seconds),
+                    "metadata": dict(admission.metadata),
+                }
+            },
+        }
+        recovery = runtime_provider_pressure_recovery_event(
+            kind="secondary",
+            wait_seconds=60.0,
+            recommendation_source="documented_fallback",
+            action_id="app.installation_token.mint",
+            decision_id=decision_id,
+            features={"operation.installation_token.mint": 1.0},
+            admission_wait_seconds=0.0,
+            underprediction_seconds=60.0,
+            metadata={"admission_decision": admission_record},
+        )
+        probe = _app_test_probe(
+            context, admission, decision_id=decision_id
+        )
+        _app_test_add_recovery(model, context, recovery, probe, model_state)
+        result = model.app_probe_close(
+            context,
+            runtime_provider_pressure_action_result_event(
+                outcome="success",
+                action_id="app.installation_token.mint",
+                decision_id=decision_id,
+                features={"operation.installation_token.mint": 1.0},
+            ),
+            probe,
+            model_state,
+        )
+        return result, admission
+
+    first, first_admission = run_probe(1, "decision-1")
+    assert first["app_pocket_stage"] == "exploratory"
+    assert first_admission.metadata["matched_pocket_id"] is None
+
+    second, second_admission = run_probe(2, "decision-2")
+    assert second_admission.metadata["matched_pocket_id"] == first["app_pocket_id"]
+    assert second_admission.metadata["suspension_seconds"] == pytest.approx(20.0)
+    assert second["app_pocket_stage"] == "provisional"
+    assert second["app_pocket_confidence"] == pytest.approx(2.0 / 3.0)
+
+    third, third_admission = run_probe(3, "decision-3")
+    assert third_admission.metadata["suspension_seconds"] == pytest.approx(40.0)
+    assert third["app_pocket_stage"] == "established"
+    assert third["app_pocket_confidence"] == pytest.approx(1.0)
+
+    app_state = model_state["adaptive_pressure_pocket"]
+    assert len(app_state["pockets"]) == 1
+    pocket = app_state["pockets"][0]
+    assert pocket["probe_count"] == 3
+    assert pocket["stage"] == "established"
+    assert pocket["recommended_suspension_seconds"] == pytest.approx(60.0)
+
+def test_app_run_admission_action_without_run_measurement_uses_zero_run_delta(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+
+    context = runtime_provider_pressure_run_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="app-preparation",
+        run_index=200,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f5_a_targeted_code_fix",
+        repetition=1,
+        materialization_key="scenario_id=f5_a_targeted_code_fix",
+        session_dir=str(tmp_path / "app-preparation"),
+    )
+    current = _app_usage_snapshot(
+        1000.0,
+        requests=123,
+        mutations=40,
+        content_requests=35,
+        managed_requests=12,
+        minute=58,
+        hour=280,
+    )
+    monkeypatch.setattr(
+        model._controller,
+        "api_usage_snapshot",
+        lambda: dict(current),
+    )
+    admission = model.app_admission_suspension(
+        context,
+        "app.installation_token.mint",
+        runtime_provider_pressure_workload(
+            features={"operation.installation_token.mint": 1.0}
+        ),
+        {},
+    )
+    vector = admission.metadata["usage_vector"]
+    assert vector["delta.requests"] == 0.0
+    assert vector["delta.mutations"] == 0.0
+    assert vector["delta.content_requests"] == 0.0
+    assert vector["delta.pph_managed_requests"] == 0.0
+    assert vector["window.content_requests_last_minute"] == 58.0
+    assert vector["window.content_requests_last_hour"] == 280.0
+
+
+def test_adaptive_pressure_pocket_cold_start_prior_yields_to_second_coherent_probe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+
+    context = runtime_provider_pressure_run_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="app-prior",
+        run_index=201,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f5_a_targeted_code_fix",
+        repetition=1,
+        materialization_key="scenario_id=f5_a_targeted_code_fix",
+        session_dir=str(tmp_path / "app-prior"),
+    )
+    workload = runtime_provider_pressure_workload(
+        features={"operation.installation_token.mint": 1.0}
+    )
+    start = _app_usage_snapshot(
+        1000.0,
+        requests=10,
+        mutations=4,
+        content_requests=4,
+        managed_requests=0,
+        minute=55,
+        hour=200,
+    )
+    current = _app_usage_snapshot(
+        1010.0,
+        requests=15,
+        mutations=7,
+        content_requests=7,
+        managed_requests=2,
+        minute=60,
+        hour=203,
+        minute_capacity_wait=45.0,
+    )
+
+    snapshots = iter((start, current))
+    monkeypatch.setattr(model._controller, "api_usage_snapshot", _repeat_last_snapshot(snapshots))
+    model.run_measurement_start(context)
+    empty_state: dict[str, object] = {}
+    cold = model.app_admission_suspension(
+        context,
+        "app.installation_token.mint",
+        workload,
+        empty_state,
+    )
+    assert cold.metadata["empirical_recommended_wait_seconds"] == 0.0
+    assert cold.metadata["suspension_seconds"] == 45.0
+    assert cold.metadata["cold_start_prior"]["active"] is True
+    assert cold.metadata["cold_start_prior"]["operational_thresholds"] == {
+        "content_requests_per_minute": 60,
+        "content_requests_per_hour": 360,
+    }
+    assert cold.metadata["cold_start_prior"]["reference_limits"][
+        "content_requests_per_minute"
+    ] == 80
+    assert cold.metadata["cold_start_prior"]["reference_limits"][
+        "content_requests_per_hour"
+    ] == 500
+    assert empty_state == {}
+
+    usage_vector = {
+        "delta.requests": 5.0,
+        "delta.mutations": 3.0,
+        "delta.content_requests": 3.0,
+        "delta.pph_managed_requests": 2.0,
+        "window.content_requests_last_minute": 60.0,
+        "window.content_requests_last_hour": 203.0,
+    }
+    empirical_state: dict[str, object] = {
+        "adaptive_pressure_pocket": {
+            "schema_version": "0.1",
+            "next_probe_sequence": 2,
+            "next_pocket_sequence": 1,
+            "open_probes": {},
+            "recent_probes": [],
+            "pockets": [
+                {
+                    "pocket_id": "pocket-0000",
+                    "action_id": "app.installation_token.mint",
+                    "features": {"operation.installation_token.mint": 1.0},
+                    "center_usage_vector": usage_vector,
+                    "mean_accumulation_interval_seconds": 10.0,
+                    "probe_count": 2,
+                    "confidence": 2.0 / 3.0,
+                    "mean_provider_recovery_seconds": 30.0,
+                    "stage": "provisional",
+                }
+            ],
+        }
+    }
+    snapshots = iter((start, current))
+    monkeypatch.setattr(model._controller, "api_usage_snapshot", _repeat_last_snapshot(snapshots))
+    model.run_measurement_start(context)
+    empirical = model.app_admission_suspension(
+        context,
+        "app.installation_token.mint",
+        workload,
+        empirical_state,
+    )
+    assert empirical.metadata["matched_probe_count"] == 2
+    assert empirical.metadata["cold_start_prior"]["enabled"] is False
+    assert empirical.metadata["cold_start_prior"]["active"] is False
+    assert empirical.metadata["empirical_recommended_wait_seconds"] == pytest.approx(20.0)
+    assert empirical.metadata["suspension_seconds"] == pytest.approx(20.0)
+
+
+def test_adaptive_pressure_pocket_exploratory_probe_keeps_stronger_cold_start_prior(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+    context = runtime_provider_pressure_run_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="app-prior-exploratory",
+        run_index=202,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f5_a_targeted_code_fix",
+        repetition=1,
+        materialization_key="scenario_id=f5_a_targeted_code_fix",
+        session_dir=str(tmp_path / "app-prior-exploratory"),
+    )
+    workload = runtime_provider_pressure_workload(
+        features={"operation.installation_token.mint": 1.0}
+    )
+    start = _app_usage_snapshot(
+        2000.0, requests=10, mutations=4, content_requests=4, managed_requests=0,
+        minute=55, hour=200,
+    )
+    current = _app_usage_snapshot(
+        2010.0, requests=15, mutations=7, content_requests=7, managed_requests=2,
+        minute=60, hour=203, minute_capacity_wait=45.0,
+    )
+    usage_vector = {
+        "delta.requests": 5.0,
+        "delta.mutations": 3.0,
+        "delta.content_requests": 3.0,
+        "delta.pph_managed_requests": 2.0,
+        "window.content_requests_last_minute": 60.0,
+        "window.content_requests_last_hour": 203.0,
+    }
+    state: dict[str, object] = {
+        "adaptive_pressure_pocket": {
+            "schema_version": "0.1",
+            "open_probes": {},
+            "recent_probes": [],
+            "pockets": [
+                {
+                    "pocket_id": "pocket-0000",
+                    "action_id": "app.installation_token.mint",
+                    "features": {"operation.installation_token.mint": 1.0},
+                    "center_usage_vector": usage_vector,
+                    "mean_accumulation_interval_seconds": 10.0,
+                    "probe_count": 1,
+                    "confidence": 1.0 / 3.0,
+                    "mean_provider_recovery_seconds": 60.0,
+                    "stage": "exploratory",
+                }
+            ],
+        }
+    }
+    snapshots = iter((start, current))
+    monkeypatch.setattr(model._controller, "api_usage_snapshot", _repeat_last_snapshot(snapshots))
+    model.run_measurement_start(context)
+    admission = model.app_admission_suspension(
+        context, "app.installation_token.mint", workload, state
+    )
+    assert admission.metadata["matched_probe_count"] == 1
+    assert admission.metadata["empirical_recommended_wait_seconds"] == pytest.approx(20.0)
+    assert admission.metadata["cold_start_prior"]["active"] is True
+    assert admission.metadata["suspension_seconds"] == pytest.approx(45.0)
+
+
+
+def test_adaptive_pressure_pocket_safe_frontier_contracts_and_splits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+
+    context = runtime_provider_pressure_run_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="app-geometry",
+        run_index=301,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f5_a_targeted_code_fix",
+        repetition=1,
+        materialization_key="scenario_id=f5_a_targeted_code_fix",
+        session_dir=str(tmp_path / "app-geometry"),
+    )
+    features = {"operation.installation_token.mint": 1.0}
+    usage_vector = {
+        "delta.requests": 5.0,
+        "delta.mutations": 3.0,
+        "delta.content_requests": 3.0,
+        "delta.pph_managed_requests": 2.0,
+        "window.content_requests_last_minute": 23.0,
+        "window.content_requests_last_hour": 103.0,
+    }
+    app_metadata = {
+        "eligible": True,
+        "action_id": "app.installation_token.mint",
+        "usage_vector": usage_vector,
+        "accumulation_interval_seconds": 10.0,
+        "matched_pocket_id": "pocket-0000",
+        "pressure_support_similarity": 1.0,
+    }
+
+    model_state: dict[str, object] = {}
+    for ordinal in (1, 2, 3):
+        result = model.app_safe_observe(
+            context,
+            runtime_provider_pressure_action_result_event(
+                outcome="success",
+                action_id="app.installation_token.mint",
+                decision_id=f"safe-{ordinal}",
+                features=features,
+                metadata={
+                    "admission_decision": {
+                        "decision_id": f"safe-{ordinal}",
+                        "event_pph_wait_seconds": 0.0,
+                        "app_suspension_seconds": 0.0,
+                        "total_admission_wait_seconds": 0.0,
+                        "recommended_wait_seconds": 0.0,
+                        "metadata": {
+                            "app_suspension": {
+                                "reason": "adaptive_pressure_pocket",
+                                "duration_seconds": 0.0,
+                                "metadata": app_metadata,
+                            }
+                        },
+                    }
+                },
+            ),
+            model_state,
+        )
+        assert result["adaptive_pressure_pocket"] == "safe_observation_recorded"
+
+    app_state = model_state["adaptive_pressure_pocket"]
+    assert app_state["schema_version"] == "0.5"
+    assert len(app_state["safe_observations"]) == 3
+    app_state["next_pocket_sequence"] = 1
+    app_state["pockets"] = [
+        {
+            "pocket_id": "pocket-0000",
+            "action_id": "app.installation_token.mint",
+            "features": features,
+            "geometry_samples": [
+                {
+                    "probe_id": "pressure-1",
+                    "usage_vector": usage_vector,
+                    "accumulation_interval_seconds": 10.0,
+                },
+                {
+                    "probe_id": "pressure-2",
+                    "usage_vector": usage_vector,
+                    "accumulation_interval_seconds": 10.0,
+                },
+            ],
+            "center_usage_vector": usage_vector,
+            "mean_accumulation_interval_seconds": 10.0,
+            "boundary": {
+                "usage_min": usage_vector,
+                "usage_max": usage_vector,
+                "accumulation_interval_min_seconds": 10.0,
+                "accumulation_interval_max_seconds": 10.0,
+                "pressure_support_sample_count": 2,
+            },
+            "probe_count": 2,
+            "success_count": 2,
+            "failure_count": 0,
+            "interrupted_count": 0,
+            "confidence": 2.0 / 3.0,
+            "mean_provider_recovery_seconds": 60.0,
+            "max_provider_recovery_seconds": 60.0,
+            "mean_underprediction_seconds": 60.0,
+            "recommended_suspension_seconds": 40.0,
+            "stage": "provisional",
+        }
+    ]
+
+    start = _app_usage_snapshot(
+        3000.0,
+        requests=20,
+        mutations=8,
+        content_requests=8,
+        managed_requests=0,
+        minute=20,
+        hour=100,
+    )
+    current = _app_usage_snapshot(
+        3010.0,
+        requests=25,
+        mutations=11,
+        content_requests=11,
+        managed_requests=2,
+        minute=23,
+        hour=103,
+    )
+    snapshots = iter((start, current))
+    monkeypatch.setattr(model._controller, "api_usage_snapshot", _repeat_last_snapshot(snapshots))
+    model.run_measurement_start(context)
+    workload = runtime_provider_pressure_workload(features=features)
+    admission = model.app_admission_suspension(
+        context,
+        "app.installation_token.mint",
+        workload,
+        model_state,
+    )
+    assert admission.metadata["matched_pocket_id"] is None
+    assert admission.metadata["nearest_pocket_id"] == "pocket-0000"
+    assert admission.metadata["safe_boundary_active"] is True
+    assert admission.metadata["safe_boundary_blocked"] is True
+    assert admission.metadata["geometry_match_reason"] == "safe_boundary"
+    assert admission.metadata["empirical_recommended_wait_seconds"] == 0.0
+
+    admission_record = {
+        "decision_id": "pressure-after-safe-frontier",
+        "action_id": "app.installation_token.mint",
+        "effective_pressure": 1.0,
+        "event_pph_pressure": 1.0,
+        "event_pph_wait_seconds": 0.0,
+        "app_suspension_seconds": float(admission.duration_seconds),
+        "total_admission_wait_seconds": float(admission.duration_seconds),
+        "recommended_wait_seconds": float(admission.duration_seconds),
+        "metadata": {
+            "app_suspension": {
+                "reason": "adaptive_pressure_pocket",
+                "duration_seconds": float(admission.duration_seconds),
+                "metadata": dict(admission.metadata),
+            }
+        },
+    }
+    recovery = runtime_provider_pressure_recovery_event(
+        kind="secondary",
+        wait_seconds=60.0,
+        recommendation_source="documented_fallback",
+        action_id="app.installation_token.mint",
+        decision_id="pressure-after-safe-frontier",
+        features=features,
+        admission_wait_seconds=0.0,
+        underprediction_seconds=60.0,
+        metadata={"admission_decision": admission_record},
+    )
+    snapshots = iter(
+        (
+            _app_usage_snapshot(
+                3011.0,
+                requests=26,
+                mutations=12,
+                content_requests=12,
+                managed_requests=3,
+                minute=24,
+                hour=104,
+            ),
+            _app_usage_snapshot(
+                3072.0,
+                requests=27,
+                mutations=13,
+                content_requests=13,
+                managed_requests=4,
+                minute=16,
+                hour=105,
+            ),
+        )
+    )
+    monkeypatch.setattr(model._controller, "api_usage_snapshot", _repeat_last_snapshot(snapshots))
+    pressure_probe = _app_test_probe(
+        context,
+        admission,
+        decision_id="pressure-after-safe-frontier",
+        features=features,
+    )
+    _app_test_add_recovery(model, context, recovery, pressure_probe, model_state)
+    closed = model.app_probe_close(
+        context,
+        runtime_provider_pressure_action_result_event(
+            outcome="success",
+            action_id="app.installation_token.mint",
+            decision_id="pressure-after-safe-frontier",
+            features=features,
+        ),
+        pressure_probe,
+        model_state,
+    )
+    assert closed["app_pocket_geometry_update"] == "expanded"
+    assert closed["app_pocket_split_from"] is None
+    assert len(app_state["pockets"]) == 1
+    assert app_state["pockets"][0]["probe_count"] == 3
+    assert app_state["pockets"][0]["boundary"]["pressure_support_sample_count"] == 3
+
+    far_usage_vector = {
+        "delta.requests": 50.0,
+        "delta.mutations": 30.0,
+        "delta.content_requests": 30.0,
+        "delta.pph_managed_requests": 20.0,
+        "window.content_requests_last_minute": 60.0,
+        "window.content_requests_last_hour": 300.0,
+    }
+    far_admission_record = {
+        "decision_id": "far-pressure",
+        "action_id": "app.installation_token.mint",
+        "effective_pressure": 1.0,
+        "event_pph_pressure": 1.0,
+        "event_pph_wait_seconds": 0.0,
+        "app_suspension_seconds": 0.0,
+        "total_admission_wait_seconds": 0.0,
+        "recommended_wait_seconds": 0.0,
+        "metadata": {
+            "app_suspension": {
+                "reason": "adaptive_pressure_pocket",
+                "duration_seconds": 0.0,
+                "metadata": {
+                    "eligible": True,
+                    "action_id": "app.installation_token.mint",
+                    "usage_vector": far_usage_vector,
+                    "accumulation_interval_seconds": 2.0,
+                    "matched_pocket_id": None,
+                    "nearest_pocket_id": "pocket-0000",
+                    "pressure_support_similarity": 0.0,
+                },
+            }
+        },
+    }
+    far_recovery = runtime_provider_pressure_recovery_event(
+        kind="secondary",
+        wait_seconds=60.0,
+        recommendation_source="documented_fallback",
+        action_id="app.installation_token.mint",
+        decision_id="far-pressure",
+        features=features,
+        admission_wait_seconds=0.0,
+        underprediction_seconds=60.0,
+        metadata={"admission_decision": far_admission_record},
+    )
+    snapshots = iter(
+        (
+            _app_usage_snapshot(
+                3100.0, requests=70, mutations=40, content_requests=40,
+                managed_requests=20, minute=60, hour=300,
+            ),
+            _app_usage_snapshot(
+                3161.0, requests=71, mutations=41, content_requests=41,
+                managed_requests=21, minute=50, hour=301,
+            ),
+        )
+    )
+    monkeypatch.setattr(model._controller, "api_usage_snapshot", _repeat_last_snapshot(snapshots))
+    far_admission = type("Admission", (), {
+        "duration_seconds": 0.0,
+        "metadata": far_admission_record["metadata"]["app_suspension"]["metadata"],
+    })()
+    far_probe = _app_test_probe(
+        context, far_admission, decision_id="far-pressure", features=features
+    )
+    _app_test_add_recovery(model, context, far_recovery, far_probe, model_state)
+    split_result = model.app_probe_close(
+        context,
+        runtime_provider_pressure_action_result_event(
+            outcome="success",
+            action_id="app.installation_token.mint",
+            decision_id="far-pressure",
+            features=features,
+        ),
+        far_probe,
+        model_state,
+    )
+    assert split_result["app_pocket_geometry_update"] == "geometry_split"
+    assert split_result["app_pocket_split_from"] == "pocket-0000"
+    assert len(app_state["pockets"]) == 2
+    split = app_state["pockets"][1]
+    assert split["split_from_pocket_id"] == "pocket-0000"
+    assert split["probe_count"] == 1
+    assert split["boundary"]["pressure_support_sample_count"] == 1
+
+
+def test_adaptive_pressure_pocket_waited_success_is_not_safe_counterevidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+    context = runtime_provider_pressure_run_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="app-waited-success",
+        run_index=302,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f5_a_targeted_code_fix",
+        repetition=1,
+        materialization_key="scenario_id=f5_a_targeted_code_fix",
+        session_dir=str(tmp_path / "app-waited-success"),
+    )
+    monkeypatch.setattr(
+        model._controller,
+        "api_usage_snapshot",
+        lambda: {
+            "observed_at": 100.0,
+            "metrics": {},
+            "provider_window": {},
+        },
+    )
+    model.run_measurement_start(context)
+    model_state: dict[str, object] = {}
+    result = model.app_safe_observe(
+        context,
+        runtime_provider_pressure_action_result_event(
+            outcome="success",
+            action_id="app.installation_token.mint",
+            decision_id="waited-success",
+            features={"operation.installation_token.mint": 1.0},
+            metadata={
+                "admission_decision": {
+                    "decision_id": "waited-success",
+                    "event_pph_wait_seconds": 30.0,
+                    "app_suspension_seconds": 0.0,
+                    "total_admission_wait_seconds": 30.0,
+                    "recommended_wait_seconds": 30.0,
+                    "metadata": {
+                        "app_suspension": {
+                            "reason": "adaptive_pressure_pocket",
+                            "duration_seconds": 0.0,
+                            "metadata": {
+                                "eligible": True,
+                                "usage_vector": {"delta.requests": 5.0},
+                                "accumulation_interval_seconds": 10.0,
+                            }
+                        }
+                    },
+                }
+            },
+        ),
+        model_state,
+    )
+    assert result["adaptive_pressure_pocket"] == "no_open_probe"
+    assert model_state["adaptive_pressure_pocket"]["safe_observations"] == []
+
+
+def test_adaptive_pressure_pocket_suspended_success_is_not_safe_counterevidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+    context = runtime_provider_pressure_run_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="app-suspended-success",
+        run_index=303,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f5_a_targeted_code_fix",
+        repetition=1,
+        materialization_key="scenario_id=f5_a_targeted_code_fix",
+        session_dir=str(tmp_path / "app-suspended-success"),
+    )
+    model_state: dict[str, object] = {}
+    result = model.app_safe_observe(
+        context,
+        runtime_provider_pressure_action_result_event(
+            outcome="success",
+            action_id="app.installation_token.mint",
+            decision_id="suspended-success",
+            features={"operation.installation_token.mint": 1.0},
+            metadata={
+                "admission_decision": {
+                    "decision_id": "suspended-success",
+                    "event_pph_wait_seconds": 0.0,
+                    "app_suspension_seconds": 30.0,
+                    "total_admission_wait_seconds": 30.0,
+                    "recommended_wait_seconds": 30.0,
+                    "metadata": {
+                        "app_suspension": {
+                            "reason": "adaptive_pressure_pocket",
+                            "duration_seconds": 30.0,
+                            "metadata": {
+                                "eligible": True,
+                                "usage_vector": {"delta.requests": 5.0},
+                                "accumulation_interval_seconds": 10.0,
+                            },
+                        }
+                    },
+                }
+            },
+        ),
+        model_state,
+    )
+    assert result["adaptive_pressure_pocket"] == "no_open_probe"
+    assert model_state["adaptive_pressure_pocket"]["safe_observations"] == []
+
+
+def _write_mcp_governor_state(
+    loaded,
+    *,
+    requests: int,
+    mutations: int,
+    secondary_events: int,
+    primary_events: int = 0,
+    backoff_level: int = 0,
+    method_counts: Mapping[str, int] | None = None,
+) -> Path:
+    state_path = (
+        loaded.context.integration_state_roots["github_mcp"]
+        / "mcp-governor-state/governor.json"
+    )
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "0.2",
+                "governor_version": "v2",
+                "backoff_level": backoff_level,
+                "request_count": requests,
+                "mutation_count": mutations,
+                "primary_rate_limit_events": primary_events,
+                "secondary_rate_limit_events": secondary_events,
+                "method_counts": dict(method_counts or {}),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return state_path
+
+
+def test_mcp_subject_usage_run_window_feeds_app_without_creating_probe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+
+    _write_mcp_governor_state(
+        loaded,
+        requests=10,
+        mutations=2,
+        secondary_events=0,
+        method_counts={"GET": 8, "POST": 2},
+    )
+    context = runtime_provider_pressure_run_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="mcp-context",
+        run_index=401,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f5_a_targeted_code_fix",
+        repetition=1,
+        materialization_key="scenario_id=f5_a_targeted_code_fix",
+        session_dir=str(tmp_path / "mcp-context"),
+    )
+    features = {
+        "operation.installation_token.mint": 1.0,
+        "provider.github.shared_pressure": 1.0,
+    }
+    monkeypatch.setattr(
+        model._controller,
+        "api_usage_snapshot",
+        lambda: {
+            "observed_at": 100.0,
+            "metrics": {},
+            "provider_window": {},
+        },
+    )
+    model.run_measurement_start(context)
+    model_state: dict[str, object] = {}
+    result = model.app_safe_observe(
+        context,
+        runtime_provider_pressure_action_result_event(
+            outcome="success",
+            action_id="app.installation_token.mint",
+            decision_id="checkpoint-1",
+            features=features,
+            metadata={
+                "admission_decision": {
+                    "decision_id": "checkpoint-1",
+                    "event_pph_wait_seconds": 0.0,
+                    "app_suspension_seconds": 0.0,
+                    "total_admission_wait_seconds": 0.0,
+                    "recommended_wait_seconds": 0.0,
+                    "metadata": {
+                        "app_suspension": {
+                            "reason": "adaptive_pressure_pocket",
+                            "duration_seconds": 0.0,
+                            "metadata": {
+                                "eligible": True,
+                                "usage_vector": {},
+                                "accumulation_interval_seconds": 0.0,
+                            }
+                        }
+                    },
+                }
+            },
+        ),
+        model_state,
+    )
+    assert result["adaptive_pressure_pocket"] == "safe_observation_recorded"
+    app_state = model_state["adaptive_pressure_pocket"]
+    assert "open_probes" not in app_state
+    assert "mcp_action_checkpoint" not in app_state or not app_state["mcp_action_checkpoint"]
+
+    _write_mcp_governor_state(
+        loaded,
+        requests=25,
+        mutations=7,
+        secondary_events=1,
+        backoff_level=2,
+        method_counts={"GET": 18, "POST": 7},
+    )
+    monkeypatch.setattr(
+        model._controller,
+        "api_usage_snapshot",
+        lambda: {
+            "observed_at": 110.0,
+            "metrics": {},
+            "provider_window": {},
+        },
+    )
+    admission = model.app_admission_suspension(
+        context,
+        "app.installation_token.mint",
+        runtime_provider_pressure_workload(features=features),
+        model_state,
+    )
+    vector = admission.metadata["usage_vector"]
+    assert vector["mcp.delta.requests"] == 15.0
+    assert vector["mcp.delta.mutations"] == 5.0
+    assert vector["mcp.delta.secondary_rate_limit_events"] == 1.0
+    assert vector["mcp.delta.method.GET"] == 10.0
+    assert vector["mcp.delta.method.POST"] == 5.0
+    assert vector["mcp.state.backoff_level"] == 2.0
+    assert admission.metadata["mcp_window_start_available"] is True
+
+
+def test_mcp_secondary_event_becomes_event_pph_signal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+
+    _write_mcp_governor_state(
+        loaded,
+        requests=30,
+        mutations=5,
+        secondary_events=0,
+        method_counts={"GET": 25, "POST": 5},
+    )
+    context = runtime_provider_pressure_run_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="mcp-signal",
+        run_index=402,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f5_b_release_metadata_sync",
+        repetition=1,
+        materialization_key="scenario_id=f5_b_release_metadata_sync",
+        session_dir=str(tmp_path / "mcp-signal"),
+    )
+    monkeypatch.setattr(
+        model._controller,
+        "api_usage_snapshot",
+        lambda: {
+            "observed_at": 200.0,
+            "metrics": {},
+            "routes": {},
+            "provider_window": {},
+        },
+    )
+    measurement = model.run_measurement_start(context)
+
+    _write_mcp_governor_state(
+        loaded,
+        requests=38,
+        mutations=6,
+        secondary_events=2,
+        backoff_level=2,
+        method_counts={"GET": 32, "POST": 6},
+    )
+    observation = model.run_observe(
+        context,
+        measurement,
+        runtime_provider_pressure_run_outcome(
+            completed=True,
+            resolved=True,
+            attempt_count=1,
+        ),
+    )
+    mcp_signals = [
+        signal
+        for signal in observation.signals
+        if signal.metadata.get("plane") == "subject_mcp"
+    ]
+    assert len(mcp_signals) == 1
+    signal = mcp_signals[0]
+    assert signal.kind == "punishment"
+    assert signal.count == 2
+    assert signal.features == {"provider.github.shared_pressure": 1.0}
+    assert signal.pressure_duration_seconds == 0.0
+    assert observation.metadata["mcp_subject_usage_delta"]["metrics"][
+        "secondary_rate_limit_events"
+    ] == 2
+
+
+def test_provider_pressure_console_reporting_selects_subject_mcp_mutations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    model = loaded.runtime.provider_pressure_model
+    assert model is not None
+    context = runtime_provider_pressure_run_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="console-reporting",
+        run_index=1,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f5_b_release_metadata_sync",
+        repetition=1,
+        materialization_key="scenario_id=f5_b_release_metadata_sync",
+        session_dir=str(tmp_path / "console-reporting"),
+    )
+    workload = runtime_provider_pressure_workload()
+
+    assert model.action_console_report(
+        context,
+        "mcp.rest.mutation",
+        workload,
+        {},
+    ) is True
+    assert model.action_console_report(
+        context,
+        "mcp.graphql.mutation",
+        workload,
+        {},
+    ) is True
+    assert model.action_console_report(
+        context,
+        "mcp.rest.read",
+        workload,
+        {},
+    ) is False

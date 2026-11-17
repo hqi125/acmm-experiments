@@ -14,13 +14,14 @@ from acmm.experiment_api import (
     runtime_resource_admission,
     runtime_resource_execution_context,
     runtime_resource_governor_session,
+    runtime_resource_subject_slice_context,
 )
 
 from .api_governor import github_api_governor, github_api_usage_delta
 from .controller import github_controller_client
 
 
-_ESTIMATOR = "historical_max_x1.25_v1"
+_ESTIMATOR = "provider_quota_estimator_historical_max_x1.25_v2"
 _SAFETY_FACTOR = 1.25
 
 
@@ -105,7 +106,7 @@ class github_execution_resource_governor:
         return runtime_resource_governor_session(
             handle=handle,
             record={
-                "id": "github_execution_resource_governor_v1",
+                "id": "github_provider_quota_estimator_v2",
                 "estimator": _ESTIMATOR,
                 "safety_factor": self._safety_factor,
                 "history_sample_count": len(samples),
@@ -156,12 +157,68 @@ class github_execution_resource_governor:
                 ),
             },
         }
+        _report_pqe(
+            context.progress,
+            boundary=boundary,
+            scope=f"materialization {context.key}",
+            run_count=len(context.selected_run_indices),
+            forecast=forecast,
+        )
         return runtime_resource_admission(
             handle=github_resource_admission_handle(
                 start_snapshot=dict(start_snapshot),
                 forecast=forecast,
             ),
             record=record,
+        )
+
+    def subject_slice_admit(
+        self,
+        session_handle: github_resource_governor_execution,
+        context: runtime_resource_subject_slice_context,
+    ) -> runtime_resource_admission:
+        if not isinstance(session_handle, github_resource_governor_execution):
+            raise TypeError("GitHub resource-governor session handle is invalid.")
+        forecast = _forecast(
+            session_handle.history_samples,
+            self._safety_factor,
+            target_run_count=len(context.selected_run_indices),
+        )
+        boundary = self._governor.wait_for_forecast_capacity(
+            forecast_content_requests=int(forecast["content_requests"]),
+            forecast_primary_requests={
+                str(domain): int(value)
+                for domain, value in forecast["primary_requests"].items()
+            },
+        )
+        _report_pqe(
+            context.progress,
+            boundary=boundary,
+            scope=(
+                f"subject {context.subject_id} in {context.materialization_key}"
+            ),
+            run_count=len(context.selected_run_indices),
+            forecast=forecast,
+        )
+        return runtime_resource_admission(
+            handle=github_resource_admission_handle(
+                start_snapshot=dict(self._controller.api_usage_snapshot()),
+                forecast=forecast,
+            ),
+            record={
+                "status": "admitted",
+                "estimator": _ESTIMATOR,
+                "scope": "subject_slice",
+                "subject_id": context.subject_id,
+                "materialization_key": context.materialization_key,
+                "forecast": forecast,
+                "boundary": boundary,
+                "decision": {
+                    "status": "admitted",
+                    "wait_seconds": float(boundary.get("wait_seconds", 0.0)),
+                    "reason": "subject_slice_static_quota_remainder",
+                },
+            },
         )
 
     def materialization_finalize(
@@ -187,6 +244,40 @@ class github_execution_resource_governor:
             "sample": sample,
             "provider_window_after": end_snapshot.get("provider_window", {}),
         }
+
+
+def _report_pqe(
+    progress,
+    *,
+    boundary: Mapping[str, Any],
+    scope: str,
+    run_count: int,
+    forecast: Mapping[str, Any],
+) -> None:
+    if progress is None:
+        return
+    primary = boundary.get("primary")
+    remaining: list[str] = []
+    if isinstance(primary, Mapping):
+        for domain, value in sorted(primary.items()):
+            if not isinstance(value, Mapping):
+                continue
+            raw = value.get("remaining")
+            if raw is not None:
+                remaining.append(f"{domain}={raw}")
+    content = boundary.get("content")
+    content_text = ""
+    if isinstance(content, Mapping):
+        content_text = (
+            f", content forecast={int(content.get('forecast', 0) or 0)}"
+            f"/{int(content.get('hour_limit', 0) or 0)}h"
+        )
+    wait = max(0.0, float(boundary.get("wait_seconds", 0.0) or 0.0))
+    primary_text = ", primary remaining " + "/".join(remaining) if remaining else ""
+    wait_text = f", waited ~{int(round(wait))}s" if wait > 0 else ""
+    progress(
+        f"PQE: {scope}, {run_count} run(s){primary_text}{content_text}{wait_text}."
+    )
 
 
 def _canonical_samples(record: Mapping[str, Any]) -> list[dict[str, Any]]:

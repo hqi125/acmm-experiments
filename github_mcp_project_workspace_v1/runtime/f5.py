@@ -96,6 +96,28 @@ class _github_f5_materializer_base:
                 )
         return identity
 
+    def _seed_initial_files(
+        self,
+        identity: github_repository_identity,
+        files: tuple[tuple[str, str, str], ...],
+    ) -> None:
+        """Add package-owned files to the current local publication phase.
+
+        This helper is only for a newly created disposable repository whose
+        first remote publication has not happened yet. It deliberately avoids
+        remote existence checks so the lifecycle can compose fixture-base and
+        scenario commits into one Git push.
+        """
+        for path, content, message in files:
+            self._client.create_or_update_file(
+                identity.owner,
+                identity.name,
+                path,
+                message=message,
+                content=content,
+                branch=identity.default_branch,
+            )
+
     def _ensure_file(
         self,
         identity: github_repository_identity,
@@ -161,6 +183,23 @@ class github_f5_a_materializer(_github_f5_materializer_base):
                 else "F5-A trusted fixture already exists and matches package-owned state"
             ),
             observations=observations,
+        )
+
+    def seed_initial_publication(self, identity: github_repository_identity) -> None:
+        self._seed_initial_files(
+            identity,
+            (
+                (
+                    self._spec.retry_source_path,
+                    self._spec.retry_source_content,
+                    "F5-A: seed retry policy implementation",
+                ),
+                (
+                    self._spec.retry_tests_path,
+                    self._spec.retry_tests_content,
+                    "F5-A: seed retry policy acceptance specification",
+                ),
+            ),
         )
 
     def run_with_progress(
@@ -280,6 +319,38 @@ class github_f5_b_materializer(_github_f5_materializer_base):
                 else "F5-B trusted fixture already exists and matches package-owned state"
             ),
             observations=observations,
+        )
+
+    def seed_initial_publication(self, identity: github_repository_identity) -> None:
+        self._seed_initial_files(
+            identity,
+            (
+                (
+                    self._spec.release_authority_path,
+                    self._spec.release_authority_content,
+                    "F5-B: seed release authority",
+                ),
+                (
+                    self._spec.maintenance_policy_path,
+                    self._spec.maintenance_policy_content,
+                    "F5-B: seed release maintenance policy",
+                ),
+                (
+                    self._spec.compatibility_path,
+                    self._spec.compatibility_stale_content,
+                    "F5-B: seed stale compatibility mirror",
+                ),
+                (
+                    self._spec.channel_metadata_path,
+                    self._spec.channel_metadata_stale_content,
+                    "F5-B: seed stale channel metadata",
+                ),
+                (
+                    self._spec.product_source_path,
+                    self._spec.product_source_content,
+                    "F5-B: seed protected product source",
+                ),
+            ),
         )
 
     def run_with_progress(

@@ -1,15 +1,16 @@
 # GitHub MCP Project Workspace Baseline
 
 > **Status:** APP-NATIVE MCP GOVERNOR QUALIFIED; SCENARIO MATERIALIZATION POLICY IMPLEMENTED.
-> The exact 42-tool App-native surface and governed v2.1.0 MCP fork are qualified across all three subjects. A 288-run stress campaign exposed repeatable provider secondary-limit pressure from the per-run repository lifecycle, so the apparatus now uses package-declared campaign materialization without changing the subject-visible MCP surface.
-> F1-F4 use shared scenario materialization with exact trusted restoration and hard taint for non-restorable provider history. F5 and F6 intentionally remain run-isolated because their successful scientific terminal states create durable Git commits and/or pull-request history that GitHub cannot erase exactly between observations.
+> The exact 42-tool App-native surface and governed v2.1.0 MCP fork are qualified across all three subjects. Historical stress work exposed repeatable provider pressure in the original per-run repository lifecycle; the current apparatus uses package-declared scenario materialization, a universal active-run Provider Gate, and separate Event-PPH/APP controls without changing the subject-visible MCP surface.
+> All F1-F6 families use the package-declared scenario slice as the repository lifetime. One private materialized repository can span many logical runs while Core enforces subject-major ordering underneath the slice. Run-owned active state is restored/retired between observations; explicitly allowed closed/unmerged history remains slice-owned evidence, and mutation of prior residue or other non-restorable contamination taints and retires the whole slice. The Git content plane composes fixture-base and scenario-owned commits into one initial publication phase whenever no intermediate remote state is semantically required; later pushes are explicit topology barriers rather than materializer boundaries.
 
 `github_mcp_project_workspace_v1` is the working identity for the second experiment in the reworked
 ACMM research roadmap. It follows the frozen `minimal_agent_baseline_v1` and introduces one real
 external capability environment: the official GitHub MCP Server operating against controller-created,
-private disposable repositories. The original apparatus used one scientific repository per run; the current
-incremental redesign allows an experiment package to retain provider resources for one declared materialization
-slice while Core preserves subject-major execution inside that slice.
+private disposable repositories. The original apparatus tied one remote repository to every logical run; the current
+materialization milestone replaces that provider-heavy lifecycle with package-defined outer slices. This package groups by
+`scenario_id`, materializes one repository for the selected scenario runs, and lets Core preserve subject-major execution
+inside that slice.
 
 The experiment is intentionally **not** a single-tool or tool-call benchmark. Every subject should
 receive the same rich GitHub project workspace in every scenario. Scenarios define goals, authority,
@@ -166,12 +167,13 @@ The experiment now separates a trusted controller PAT from the subject-facing cr
 PAT performs repository lifecycle, fixture materialization, deterministic CI setup, authoritative observation, and
 selected-repository App-installation assignment. The subject receives no persistent GitHub credential.
 
-For each scientific run, trusted package code attaches only that disposable repository to the private
-`acmm-github-app` installation and mints one installation token narrowed to the exact repository. The token
+For each scenario slice, trusted package code attaches only that materialized repository to the private
+`acmm-github-app` installation. For each scientific run inside the slice it mints a fresh installation token narrowed to that exact repository. The token
 contains Metadata read, Contents read/write, Issues read/write, Pull requests read/write, and Actions read;
 Workflows and repository/administrative authority are absent. Core admits the token only across the subject
-execution window, then explicitly revokes it and restores the static integration to an unadmitted sentinel before
-trusted post-state capture.
+execution window, then explicitly ends usable subject authority before trusted post-state capture. Hermes/Open WebUI
+restore their non-secret sentinel; Agent Zero uses provider revocation between runs and removes the GitHub MCP server
+at subject release to avoid asynchronous refresh races.
 
 The App private key is the package secret `github_app_private_key`; the controller PAT remains
 `controller_access_token`. Neither secret nor any run token is stored in package source, campaign provenance,
@@ -188,7 +190,7 @@ The design/pre-coding gate is closed and executable implementation is underway. 
 - static subject deployments remain intentionally unadmitted; exact 42-tool catalog verification occurs after each run-scoped App token is bound;
 - a trusted controller diagnostic and explicit `initialize` apparatus action for the pinned private repository;
 - an engineering-reference repository used to qualify F1-A/F1-B semantics, while final scientific acquisition
-  uses one disposable private repository per run;
+  uses one disposable private repository per scenario materialization slice;
 - `qualify_disposable_repositories`, now invoked through `acmm run apparatus exec`, with one successful live
   create/App-attach/one-repo-token-write/revoke/detach/exact-ID-delete qualification workflow;
 - a Core-owned typed execution lifecycle with package hooks for session/run prepare, observe, and deferred
@@ -199,8 +201,8 @@ The design/pre-coding gate is closed and executable implementation is underway. 
 - archive-then-delete failure isolation: ordinary invalid/preparation failures preserve a forensic ZIP inside the
   execution directory, delete and verify the exact remote repository, then allow later independent runs to proceed;
   a new session still refuses stale `acmm-e2-run-*` repositories left by crashes or failed cleanup;
-- a fully runnable/cross-agent-qualified F1-A Regression Disposition scenario now instantiated into a fresh
-  private repository per scientific run;
+- a fully runnable/cross-agent-qualified F1-A Regression Disposition scenario now instantiated inside the
+  scenario materialization repository and restored between logical runs;
 - the GitHub App + Campaign path is live-qualified across Hermes, Open WebUI, and Agent Zero with one clean F1-A
   observation per subject, exact 42-tool admission, explicit token revocation, repository detach/delete, credential
   log redaction, and a provenance-preserving partial Campaign merge;
@@ -213,15 +215,17 @@ The design/pre-coding gate is closed and executable implementation is underway. 
   run/head association, authoritative pre/post Actions inventory, real Procedure opportunities requiring evidence before
   mutation, and bounded diagnosis/alert-reconciliation evaluators.
 - controller/App transport hardening for Actions/job-log downloads and GitHub abuse protection: API redirect hops are
-  captured without forwarding the controller PAT to signed download hosts, trusted controller and App lifecycle
+  captured without forwarding the controller PAT to signed download hosts while both REST and credential-free raw
+  download hops remain admitted through the shared provider traffic-control plane; trusted controller and App lifecycle
   mutations share provider pacing/cooldown state, primary quota snapshots remain separated by credential domain, and
   only explicit secondary-rate-limit responses are retried according to GitHub backoff guidance; ambiguous transport
   failures remain fail-closed;
+- PPH v0.13 keeps provider-directed recovery arbitration, the APP-only episode/probe model, cold-start prior, and evidence-driven pocket geometry. APP remains an independent burst suspension gate rather than an Event-PPH pressure component; Event PPH remains feature/event based with no episode semantics. During active logical runs the Core Provider Gate now covers subject MCP REST/GraphQL/raw traffic, trusted controller REST/App requests, and Git smart-protocol admission/result accounting. A quiet 1s request / 2s mutation baseline is separate from learned pressure, APP suspensions and provider-recovery misses are visible, and local governors are fallback-only while the gate is active;
 - a production Git content/history plane now transparently backs controller file writes and ref-addressed file reads,
   keeps the PAT out of remote URLs/command arguments through `GIT_ASKPASS`, reports Git transport telemetry, and
   exposes a canonical ref fingerprint for later unchanged-state fast paths.
 
-F1-B scientific execution now uses the disposable lifecycle. Its controller creates the fresh private repository,
+F1-B scientific execution now uses the scenario-slice lifecycle. Its controller creates the fresh private repository,
 materializes the release topology, dispatches and waits for the deterministic required-check workflow, captures
 authoritative pre/post state, and deletes the exact repository only after durable run evidence. F2-A/F2-B reuse
 that lifecycle with bounded-mutation versus true-no-op semantics. The first F2-A live smokes exposed two apparatus

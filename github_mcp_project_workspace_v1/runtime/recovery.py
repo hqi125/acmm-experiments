@@ -123,18 +123,26 @@ class github_workspace_runtime_recovery:
                         )
 
                 # A hard crash may lose the token value, so direct revocation is not
-                # always possible. Detaching the exact repository first removes the
-                # only repository authority from the one-repository token.
-                self._controller.remove_repository_from_app_installation(
-                    installation_id=self._app_client.installation_id,
-                    repository_id=repository_id,
+                # always possible. Detach only when the durable ledger says the
+                # repository was admitted. Legacy READY prepared-isolated resources were
+                # never attached and should not spend an unnecessary provider call.
+                # Unledgered recovery candidates remain conservative because their
+                # admission state is unknowable after the crash.
+                should_detach = entry is None or (
+                    entry.get("installation_attached") is True
+                    and entry.get("installation_detached") is not True
                 )
-                changed = True
-                if entry is not None:
-                    ledger.update(
-                        repository_id,
-                        installation_detached=True,
+                if should_detach:
+                    self._controller.remove_repository_from_app_installation(
+                        installation_id=self._app_client.installation_id,
+                        repository_id=repository_id,
                     )
+                    changed = True
+                    if entry is not None:
+                        ledger.update(
+                            repository_id,
+                            installation_detached=True,
+                        )
 
                 if current is not None:
                     self._controller.delete_repository(owner, name)

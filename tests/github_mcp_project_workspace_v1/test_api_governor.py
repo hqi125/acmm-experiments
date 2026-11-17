@@ -221,6 +221,7 @@ def test_controller_secondary_limit_wait_is_shared_provider_state(
     assert messages == ["Pacing: GitHub provider cooldown, idling ~5s."]
     snapshot = governor.usage_snapshot()
     assert snapshot["metrics"]["secondary_rate_limit_events"] == 1
+    assert snapshot["routes"]["repository.create"]["secondary_rate_limit_events"] == 1
     assert snapshot["metrics"]["requests"] == 2
 
 
@@ -1010,3 +1011,494 @@ def test_forecast_admission_uses_persisted_content_ledger_as_secondary_fallback(
     assert admission["content"]["hour_limit"] == 3
     assert admission["content"]["wait_seconds"] > 3500
     assert clock.sleeps[-1] > 3500
+
+
+def test_provider_pressure_watchdog_receives_runtime_cooldown_before_retry_action(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock(start=1000.0)
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+            max_secondary_retries=5,
+            secondary_backoff_seconds=(60.0, 120.0, 240.0, 480.0, 960.0),
+        ),
+        state_path=tmp_path / "governor.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+    events: list[tuple[str, object]] = []
+
+    def action(action_id, features, metadata):
+        events.append(("action", action_id))
+        return {"action_id": action_id}
+
+    def pacing(reason, duration, action_id, features, metadata):
+        events.append(("pacing", (reason, duration, action_id)))
+        return {"reason": reason}
+
+    with governor.provider_pressure_watchdog(
+        action=action,
+        pacing=pacing,
+        action_id="repository.create",
+        features={"operation.repository.create": 1.0},
+        metadata={"scenario_id": "f5_b_release_metadata_sync"},
+    ):
+        governor.before_request(
+            method="POST",
+            route="repository.create",
+            content_generating=True,
+        )
+        assert events == [("action", "repository.create")]
+
+        delay = governor.rate_limit_delay(
+            status=403,
+            headers={},
+            detail="You have exceeded a secondary rate limit.",
+            route="repository.create",
+        )
+        assert delay == 60.0
+
+        governor.before_request(
+            method="POST",
+            route="repository.create",
+            content_generating=True,
+        )
+
+    assert events[1][0] == "pacing"
+    reason, duration, action_id = events[1][1]
+    assert reason == "provider_secondary_pressure"
+    assert duration == 60.0
+    assert action_id == "repository.create"
+    assert events[2] == ("action", "repository.create")
+    assert clock.sleeps == [60.0]
+
+
+def test_managed_watchdog_uses_pph_recovery_once_and_skips_second_action_admission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        github_api_governor,
+        github_api_governor_policy,
+        github_controller_client,
+    ) = _load_runtime_types(tmp_path, monkeypatch)
+    clock = _fake_clock(start=1000.0)
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=30.0,
+            mutation_interval_seconds=30.0,
+            max_secondary_retries=2,
+            secondary_backoff_seconds=(60.0, 120.0),
+        ),
+        state_path=tmp_path / "governor.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+    events: list[tuple[str, object]] = []
+    calls = 0
+
+    def transport(method, url, headers, payload):
+        nonlocal calls
+        del headers, payload
+        calls += 1
+        assert method == "POST"
+        assert url.endswith("/user/repos")
+        if calls == 1:
+            return (
+                403,
+                {},
+                json.dumps({"message": "You have exceeded a secondary rate limit."}).encode(),
+            )
+        return (
+            201,
+            {},
+            json.dumps(
+                {
+                    "id": 7,
+                    "name": "demo",
+                    "full_name": "octo/demo",
+                    "private": True,
+                    "owner": {"login": "octo"},
+                }
+            ).encode(),
+        )
+
+    def action(action_id, features, metadata):
+        del features, metadata
+        events.append(("action", action_id))
+        return {
+            "action_id": action_id,
+            "decision_id": "decision-1",
+            "recommended_wait_seconds": 15.0,
+        }
+
+    def recovery(kind, duration, source, action_id, decision_id, features, metadata):
+        del features, metadata
+        events.append(
+            (
+                "recovery",
+                (kind, duration, source, action_id, decision_id),
+            )
+        )
+        # Simulate Core PPH actuation against the same clock used by the governor.
+        clock.sleep(duration)
+        return {"underprediction_seconds": max(0.0, duration - 15.0)}
+
+    client = github_controller_client(
+        "secret",
+        transport=transport,
+        redirect_transport=transport,
+        governor=governor,
+    )
+    with client.provider_pressure_watchdog(
+        action=action,
+        pacing=None,
+        recovery=recovery,
+        action_id="repository.create",
+        features={"operation.repository.create": 1.0},
+        metadata={"scenario_id": "f5_b_release_metadata_sync"},
+    ):
+        value = client.create_repository(name="demo", description="demo")
+
+    assert value["id"] == 7
+    assert calls == 2
+    assert events[0] == ("action", "repository.create")
+    assert events[1][0] == "recovery"
+    kind, duration, source, action_id, decision_id = events[1][1]
+    assert kind == "secondary"
+    assert duration == 60.0
+    assert source == "documented_fallback"
+    assert action_id == "repository.create"
+    assert decision_id == "decision-1"
+    assert events.count(("action", "repository.create")) == 1
+    # The only wait is the simulated Core PPH recovery. The managed governor did
+    # not add request/mutation spacing before either request.
+    assert clock.sleeps == [60.0]
+    snapshot = governor.usage_snapshot()
+    assert snapshot["metrics"]["pph_managed_requests"] == 2
+    assert snapshot["metrics"]["pph_recovery_retry_requests"] == 1
+    assert snapshot["metrics"]["pph_provider_recovery_events"] == 1
+    assert snapshot["metrics"]["pph_provider_recovery_seconds"] == 60.0
+
+
+def test_managed_watchdog_bypasses_local_request_and_mutation_spacing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock(start=1000.0)
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=10.0,
+            mutation_interval_seconds=20.0,
+        ),
+        state_path=tmp_path / "governor.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+
+    governor.before_request(
+        method="POST",
+        route="issue.create",
+        content_generating=True,
+    )
+    governor.observe_response(
+        route="issue.create",
+        status=201,
+        headers={},
+        content_generating=True,
+    )
+
+    with governor.provider_pressure_watchdog(
+        action=lambda action_id, features, metadata: {
+            "action_id": action_id,
+            "decision_id": "decision-2",
+        },
+        pacing=None,
+        recovery=None,
+        action_id="repository.create",
+        features={"operation.repository.create": 1.0},
+    ):
+        governor.before_request(
+            method="POST",
+            route="repository.create",
+            content_generating=True,
+        )
+
+    assert clock.sleeps == []
+
+
+def test_provider_pressure_watchdog_emits_one_action_result_on_context_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path,
+        monkeypatch,
+    )
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+        ),
+        state_path=tmp_path / "governor.json",
+        sleep=lambda _seconds: None,
+    )
+    results: list[tuple[str, str, str | None, dict[str, object]]] = []
+
+    def action(action_id, features, metadata):
+        del features, metadata
+        return {"action_id": action_id, "decision_id": "decision-result"}
+
+    def action_result(outcome, action_id, decision_id, features, metadata):
+        del features
+        results.append((outcome, action_id, decision_id, dict(metadata)))
+        return {"outcome": outcome}
+
+    with governor.provider_pressure_watchdog(
+        action=action,
+        pacing=None,
+        recovery=None,
+        action_result=action_result,
+        action_id="repository.create",
+        features={"operation.repository.create": 1.0},
+    ):
+        governor.before_request(
+            method="POST",
+            route="repository.create",
+            content_generating=True,
+        )
+
+    assert len(results) == 1
+    outcome, action_id, decision_id, result_metadata = results[0]
+    assert (outcome, action_id, decision_id) == (
+        "success", "repository.create", "decision-result"
+    )
+    assert result_metadata["admission_decision"]["decision_id"] == "decision-result"
+    snapshot = governor.usage_snapshot()
+    assert snapshot["metrics"]["pph_action_result_events"] == 1
+    assert snapshot["metrics"]["pph_action_result_success"] == 1
+
+def test_usage_snapshot_exposes_observational_content_capacity_waits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock()
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+            content_requests_per_minute=2,
+            content_requests_per_hour=10,
+            max_secondary_retries=1,
+            secondary_backoff_seconds=(5.0,),
+            provider_authoritative_rate_limits=False,
+        ),
+        state_path=tmp_path / "capacity-state.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+    for _ in range(2):
+        governor.before_request(
+            method="POST",
+            route="repository.create",
+            content_generating=True,
+        )
+        governor.observe_response(
+            route="repository.create",
+            status=201,
+            headers={},
+            content_generating=True,
+        )
+        clock.value += 1.0
+
+    snapshot = governor.usage_snapshot()
+    window = snapshot["provider_window"]
+    assert window["content_requests_last_minute"] == 2
+    assert window["content_requests_last_hour"] == 2
+    assert window["content_minute_capacity_wait_seconds"] == pytest.approx(58.05)
+    assert window["content_hour_capacity_wait_seconds"] == 0.0
+    assert window["content_capacity_wait_seconds"] == pytest.approx(58.05)
+
+
+
+def test_active_provider_gate_owns_controller_admission_and_spacing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock()
+
+    class gate:
+        def __init__(self) -> None:
+            self.admissions = []
+            self.feedbacks = []
+
+        def active(self):
+            return True
+
+        def admit(self, **kwargs):
+            self.admissions.append(kwargs)
+            return SimpleNamespace(
+                request_id=f"request-{len(self.admissions)}",
+                action_id="repository.read",
+                decision_id=f"decision-{len(self.admissions)}",
+                admission={"decision_id": f"decision-{len(self.admissions)}"},
+            )
+
+        def feedback(self, admission, **kwargs):
+            self.feedbacks.append((admission, kwargs))
+            return SimpleNamespace(retry=False, recovery={}, result={"outcome": "success"})
+
+        def cancel(self, admission, detail):
+            raise AssertionError((admission, detail))
+
+    client = gate()
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=100.0,
+            mutation_interval_seconds=100.0,
+        ),
+        state_path=tmp_path / "state.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+    governor.set_provider_gate_client(client)
+
+    for _ in range(2):
+        governor.before_request(
+            method="GET",
+            route="repository.read",
+            url="https://api.github.com/repos/octo/example",
+            content_generating=False,
+        )
+        governor.observe_response(
+            route="repository.read",
+            status=200,
+            headers={},
+            content_generating=False,
+        )
+        assert governor.rate_limit_recovery(
+            status=200,
+            headers={},
+            detail="",
+            route="repository.read",
+        ) is None
+
+    assert len(client.admissions) == 2
+    assert len(client.feedbacks) == 2
+    assert clock.sleeps == []
+    snapshot = governor.usage_snapshot()
+    assert snapshot["metrics"]["pph_managed_requests"] == 2
+    assert snapshot["metrics"]["provider_gate_admissions"] == 2
+
+
+def test_active_provider_gate_recovery_is_not_slept_twice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock()
+
+    class gate:
+        def __init__(self) -> None:
+            self.feedback_count = 0
+            self.admit_count = 0
+
+        def active(self):
+            return True
+
+        def admit(self, **kwargs):
+            self.admit_count += 1
+            return SimpleNamespace(
+                request_id="request-1",
+                action_id="issue.create",
+                decision_id="decision-1",
+                admission={"decision_id": "decision-1"},
+            )
+
+        def feedback(self, admission, **kwargs):
+            self.feedback_count += 1
+            if self.feedback_count == 1:
+                return SimpleNamespace(
+                    retry=True,
+                    recovery={
+                        "provider_recovery_kind": "secondary",
+                        "provider_wait_seconds": 60.0,
+                        "recommendation_source": "retry_after",
+                    },
+                    result={},
+                )
+            return SimpleNamespace(retry=False, recovery={}, result={"outcome": "success"})
+
+        def cancel(self, admission, detail):
+            raise AssertionError((admission, detail))
+
+    client = gate()
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(),
+        state_path=tmp_path / "state.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+    governor.set_provider_gate_client(client)
+    governor.before_request(
+        method="POST",
+        route="issue.create",
+        url="https://api.github.com/repos/octo/example/issues",
+        content_generating=True,
+    )
+    recovery = governor.rate_limit_recovery(
+        status=429,
+        headers={"Retry-After": "60"},
+        detail="secondary rate limit",
+        route="issue.create",
+        attempt=0,
+    )
+    assert recovery is not None
+    assert recovery.wait_seconds == 60.0
+    assert governor.actuate_provider_recovery(recovery, attempt=1) is not None
+    governor.before_request(
+        method="POST",
+        route="issue.create",
+        url="https://api.github.com/repos/octo/example/issues",
+        content_generating=True,
+        recovery_retry=True,
+    )
+    assert governor.rate_limit_recovery(
+        status=201,
+        headers={},
+        detail="",
+        route="issue.create",
+        attempt=1,
+    ) is None
+
+    assert client.admit_count == 1
+    assert client.feedback_count == 2
+    assert clock.sleeps == []

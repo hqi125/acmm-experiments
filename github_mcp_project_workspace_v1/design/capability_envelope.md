@@ -3,8 +3,7 @@
 ## Status
 
 **Rebased for the GitHub App / Campaign execution model.** The scientific subject surface is pinned to
-GitHub MCP Server v2.1.0 at the exact upstream release commit, the exact maintained ACMM governor source commit, seven visible toolsets, and the exact 42-tool App-native catalog. Static agent configuration remains deliberately unadmitted between runs; each live
-run must verify the exact catalog after its repository-scoped installation token is bound.
+GitHub MCP Server v2.1.0 at the exact upstream release commit, the exact maintained ACMM governor source commit, seven visible toolsets, and the exact 42-tool App-native catalog. Every subject remains deliberately unadmitted between logical runs: no between-run credential may retain usable provider authority. Each live run must verify the exact catalog after its repository-scoped installation token is bound. Agent Zero implements the between-run boundary by provider token revocation rather than a per-run settings rewrite, because its MCP settings refresh is asynchronous; it starts with no GitHub MCP server configured, its revoked token string may remain in live settings until the next admission, and subject release removes the GitHub MCP server before shutdown.
 
 ## Fixed visible toolsets
 

@@ -1,127 +1,50 @@
 # Fixture Lifecycle and Isolation Strategy
 
-## Current strategy: one disposable repository and one App token per scientific run
+## Current strategy: one materialized scenario workspace, many logical runs
 
-Experiment 2 uses **one private disposable GitHub repository per selected scientific run**. The engineering
-reference repository `Dufferin125/acmm-mcp-arena-experiment-2` remains useful for controller diagnostics and
-apparatus actions, but scientific repetitions do not share its permanent issue/PR/history state.
+Experiment 2 uses package-declared scenario slices. For each selected scenario slice, trusted apparatus creates one private disposable GitHub repository, materializes the scenario blueprint, verifies the authoritative baseline, and then reuses that repository for the selected logical runs in Core's subject-major order. The engineering reference repository remains diagnostic-only and is never the scientific workspace.
 
-The subject no longer uses an all-repositories PAT. The current credential separation is:
+The subject credential model remains per-run:
 
-1. a trusted **controller PAT**, used only by package-owned apparatus code for repository lifecycle, fixture
-   materialization, authoritative observation, evidence capture, App-installation repository assignment, and
-   retirement; and
-2. a **per-run GitHub App installation token**, minted only after the disposable repository is fully prepared,
-   narrowed by GitHub to that exact repository, admitted to the subject-facing GitHub MCP integration only for
-   the subject execution window, and explicitly revoked afterward.
+1. the trusted controller credential owns repository lifecycle, fixture construction, authoritative observation, restoration, App-installation assignment, and retirement;
+2. each scientific run receives a freshly minted GitHub App installation token narrowed to the scenario repository;
+3. Core binds that token only for the run's subject execution window and the package ends its usable authority before trusted post-run observation. Hermes and Open WebUI restore the local sentinel before provider revocation; Agent Zero uses provider token revocation as the per-run boundary so its asynchronous MCP settings refresh cannot race the next run.
+4. Agent Zero starts with no GitHub MCP server configured, may retain the already-revoked token string in live settings between logical runs, and has the server removed again at subject release; each next admission replaces the run token once and verifies the exact 42-tool catalog.
 
-The App installation itself uses selected-repository access. A newly created disposable repository is attached
-to the installation immediately before token minting and detached again before repository retirement.
-Repository creation/deletion remains absent from the subject MCP catalog.
+Repository creation/deletion is absent from the subject MCP catalog.
 
 ## Package-owned scenario blueprints
 
-Scenario source of truth lives inside the Experiment Package rather than in persistent GitHub template
-repositories. A blueprint describes the semantic state to materialize, including as needed:
+The Experiment Package remains the source of truth for repository settings, files, commit ancestry, branches, issues, pull requests, labels, workflows, deterministic Actions evidence, aliases, and invariants. The package constructs the remote world; a persistent template repository is not scientific source of truth.
 
-- repository settings and seed files;
-- commit ancestry and branches;
-- labels and milestones;
-- issue bodies, state, comments, and relationships;
-- pull requests, merge state, and review metadata;
-- workflow definitions and deterministic completed Actions evidence;
-- scenario aliases and authoritative invariants.
+Initial Git publication is minimized independently of Python materializer boundaries. Fixture-base and scenario-owned commits that do not depend on remote-visible history are committed locally and flushed in one publication phase. Additional publication barriers are allowed only when branch/history topology genuinely depends on an already-published ref.
 
-A remote template repository is not the scientific source of truth. Package-local blueprints avoid leakage and
-remain versioned with experiment provenance.
+## Run lifecycle inside a slice
 
-## Run lifecycle
+For each scenario materialization:
 
-For every selected run, trusted package/Core code performs the following lifecycle:
+1. create one private repository and record its numeric ID in the execution-local resource ledger;
+2. materialize and verify the static scenario base once;
+3. attach that exact repository to the selected-repository App installation;
+4. for each logical run in Core's subject-major order, construct any run-scoped in-repository fixture required by the scenario, verify authoritative pre-state, mint a fresh exact-repository token, and admit the subject;
+5. execute the subject, then end the run-scoped subject authority before any trusted post-run observation;
+6. capture authoritative post-state and durably persist the run evidence;
+7. restore reversible active state and retire run-owned active refs/objects;
+8. preserve only explicitly allowed closed/unmerged slice-owned history; any mutation to prior residue or unexpected non-restorable state taints, archives, and retires the slice;
+9. after the last selected run, restore the static unadmitted subject state during subject release (sentinel for Hermes/Open WebUI; no GitHub MCP server for Agent Zero), then detach and delete the scenario repository exactly once.
 
-1. derive a unique repository name containing an execution-specific recovery tag;
-2. create a new private repository with the controller credential;
-3. durably record the returned full name and numeric repository ID in the execution-local resource ledger;
-4. verify the controller resolves the exact new repository identity;
-5. materialize the selected scenario blueprint and deterministic Actions evidence when required;
-6. independently capture and verify authoritative pre-state;
-7. attach the exact repository ID to the selected-repository GitHub App installation;
-8. mint an installation token narrowed to exactly that repository and the qualified permission envelope;
-9. hand the token to Core as an opaque runtime-admission request; the token is never written to campaign or
-   experiment provenance;
-10. bind the token to the selected agent's GitHub MCP configuration and verify the exact 42-tool App-native
-    catalog;
-11. expose the task and execute the subject;
-12. explicitly revoke the installation token and restore the subject integration to its non-secret unadmitted
-    sentinel before trusted post-state observation;
-13. capture authoritative post-state and persist run evidence;
-14. detach the repository from the GitHub App installation;
-15. delete the exact repository ID with the controller credential and verify disappearance.
+F1-F4 restore their qualified active fixture state directly. F5 permits a run-owned review PR to remain as closed/unmerged historical residue while deleting/resetting active branches and restoring protected state. F6-A applies the same rule around its release-blocker repair handoff. F6-B creates a fresh run-scoped draft-repair world inside the same repository and closes/deactivates those run-owned objects after evidence capture.
 
-Ordinary preparation/finalization failures preserve an immutable forensic ZIP under the execution's
-`apparatus_quarantine/` directory before exact-ID deletion whenever the repository remains readable.
+## Visibility and contamination
 
-## Durable resource ledger and hard-crash recovery
+Closed historical GitHub objects are provider-visible and therefore are not ignored. They are captured in every subsequent run's pre-state. Evaluators score the current run from pre-to-post deltas rather than global object counts, and restoration requires older historical rows to remain unchanged. The model therefore acknowledges unavoidable append-only provider history without allowing it to become active cross-run contamination. Accordingly, trusted **restoration** means active-state equivalence plus explicitly permitted immutable history; it is deliberately not called Recovery, and it is not synonymous with provider-world pristine equivalence.
 
-Every disposable repository is recorded in `github_runtime_resources.json` under the runtime session directory.
-The ledger contains only non-secret resource state: repository identity, App-installation attachment state,
-a SHA-256 fingerprint of a minted token, admission/unbinding markers, detachment state, and retirement state.
-The token itself is never persisted.
+`--capture-environment-snapshots` is a diagnostic validation mode. When enabled, the package captures a full repository archive after run preparation and another after restoration. Comparing those archives, together with the normal `final_environment_state` evidence captured before restoration, provides a three-point audit of the run invariant. Snapshot traffic is additional trusted apparatus traffic and is fully admitted through the provider traffic-control plane, including credential-free archive redirect downloads; it is tagged as diagnostic snapshot traffic in gate metadata. The mode stays disabled for final measurements unless the experiment intentionally accepts that perturbation.
 
-Repository names also contain a short hash of the execution ID. If the process dies after GitHub creates the
-repository but before the ledger write becomes durable, recovery can discover only repositories belonging to
-that interrupted execution.
+## Interruption and recovery
 
-After an unclean Campaign execution, the package's generic `runtime_execution_recovery` hook reconciles any
-recorded or execution-tagged disposable repositories before Core admits new work. Because a hard crash can lose
-the token bytes, recovery may be unable to call token revocation directly. The token was minted for exactly one
-repository, so recovery first detaches that repository from the App installation and then deletes it. The orphaned
-token therefore has no authority over any future run repository and subsequently expires provider-side.
+The ledger records the one scenario repository identity and App attachment state. On interruption or restoration uncertainty, the package writes a forensic archive before exact-ID deletion. Recovery never fabricates a replacement per-run repository; the failed slice is retired and a later execution begins a new materialization.
 
-A stale agent configuration containing such a token is likewise non-authoritative: the token cannot reach future
-repositories, and the next successful runtime admission overwrites the binding with the new run-scoped token.
+## Scheduling
 
-## Credential envelope
-
-### Subject GitHub App installation token
-
-Each token is minted for one repository only with the qualified envelope:
-
-| Permission | Level |
-| --- | --- |
-| Metadata | Read |
-| Contents | Read/write |
-| Issues | Read/write |
-| Pull requests | Read/write |
-| Actions | Read |
-
-`Workflows` is intentionally absent. The App has no Repository creation, Administration, organization, or
-account-level authority. The `context/get_me` MCP path is intentionally excluded because an installation token
-has no user identity.
-
-### Controller credential
-
-The controller remains a fine-grained PAT under the dedicated experiment account with the trusted lifecycle
-permissions required to create/delete repositories, materialize fixtures, operate deterministic CI fixtures, and
-add/remove repositories from the selected-repository App installation. These powers are never exposed through
-the subject MCP surface.
-
-### App private key
-
-The GitHub App private key is an Experiment Package secret (`github_app_private_key`). It is used only to sign
-short-lived App JWTs for installation-token minting. It is never copied into the repository, campaign artifacts,
-resource ledger, subject profiles, or MCP environment.
-
-## Sequential remote provisioning
-
-The current v1 lifecycle remains sequential within one execution session: `session_initialize()` refuses to
-start a second run while another disposable repository is active. Per-repository App scoping now removes the old
-all-repositories-PAT leakage mechanism, but concurrency is intentionally not introduced as part of this credential
-rebase. Parallel/distributed Campaign execution can be evaluated separately after its scheduling and rate-limit
-semantics are designed explicitly.
-
-## CI strategy under disposable repositories
-
-Scenarios that scientifically depend on completed CI evidence materialize or dispatch deterministic repository-
-local Actions evidence during trusted preparation, outside subject timing. The subject receives Actions read only.
-This provisioning cost is apparatus/runtime cost, not agent performance, and remains independently measurable.
+The package chooses the outer slice via `campaign.materialization.group_by`; this experiment uses `scenario_id`. Core enforces subject-major ordering underneath the materialization. There is no prepared-isolated shard scheduler in the current milestone.

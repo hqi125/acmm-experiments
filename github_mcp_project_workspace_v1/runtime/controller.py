@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 import base64
 import json
@@ -132,6 +132,40 @@ class github_controller_client:
             self._governor.set_progress_reporter(progress)
         if self._git_content_plane is not None:
             self._git_content_plane.set_progress_reporter(progress)
+
+    def provider_traffic_scope(
+        self,
+        metadata: Mapping[str, Any] | None,
+    ):
+        if self._governor is None:
+            return nullcontext()
+        return self._governor.provider_request_scope(metadata)
+
+    @contextmanager
+    def provider_pressure_watchdog(
+        self,
+        *,
+        action: Callable[[str, Mapping[str, float], Mapping[str, Any]], Mapping[str, Any]] | None,
+        pacing: Callable[[str, float, str, Mapping[str, float], Mapping[str, Any]], Mapping[str, Any]] | None,
+        recovery: Callable[[str, float, str, str, str | None, Mapping[str, float], Mapping[str, Any]], Mapping[str, Any]] | None = None,
+        action_result: Callable[[str, str, str | None, Mapping[str, float], Mapping[str, Any]], Mapping[str, Any]] | None = None,
+        action_id: str,
+        features: Mapping[str, float],
+        metadata: Mapping[str, Any] | None = None,
+    ):
+        if self._governor is None:
+            yield
+            return
+        with self._governor.provider_pressure_watchdog(
+            action=action,
+            pacing=pacing,
+            recovery=recovery,
+            action_result=action_result,
+            action_id=action_id,
+            features=features,
+            metadata=metadata,
+        ):
+            yield
 
     def git_publish_batch(self, owner: str, name: str):
         """Batch local Git commits and publish dirty branches once on exit."""
@@ -347,11 +381,14 @@ class github_controller_client:
                     f"GitHub repository-archive redirect for {owner}/{name}@{ref} "
                     "has no Location header."
                 )
-            status, _download_headers, body = self._transport(
+            status, _download_headers, body = self._provider_request(
                 "GET",
                 location,
-                {"User-Agent": "acmm-github-fixture-controller"},
-                None,
+                route="repository.archive.download",
+                request_kind="raw",
+                content_generating=False,
+                headers={"User-Agent": "acmm-github-fixture-controller"},
+                payload=None,
             )
         if status != 200:
             detail = _safe_error_detail(body)
@@ -740,11 +777,14 @@ class github_controller_client:
                 raise github_controller_error(
                     f"GitHub job-log redirect for {owner}/{name} job {job_id} has no Location header."
                 )
-            status, _download_headers, body = self._transport(
+            status, _download_headers, body = self._provider_request(
                 "GET",
                 location,
-                {"User-Agent": "acmm-github-fixture-controller"},
-                None,
+                route="actions.job_logs.download",
+                request_kind="raw",
+                content_generating=False,
+                headers={"User-Agent": "acmm-github-fixture-controller"},
+                payload=None,
             )
         if status != 200:
             detail = _safe_error_detail(body)
@@ -1345,9 +1385,32 @@ class github_controller_client:
         payload: bytes | None,
         transport: Transport | None = None,
     ) -> tuple[int, Mapping[str, str], bytes]:
-        route = _request_route_name(method, path)
-        content_generating = _is_content_generating_request(method, path)
+        return self._provider_request(
+            method,
+            self._api_base + path,
+            route=_request_route_name(method, path),
+            request_kind="rest",
+            content_generating=_is_content_generating_request(method, path),
+            headers=headers,
+            payload=payload,
+            transport=transport,
+        )
+
+    def _provider_request(
+        self,
+        method: str,
+        url: str,
+        *,
+        route: str,
+        request_kind: str,
+        content_generating: bool,
+        headers: Mapping[str, str],
+        payload: bytes | None,
+        transport: Transport | None = None,
+        primary_domain: str | None = None,
+    ) -> tuple[int, Mapping[str, str], bytes]:
         selected_transport = transport or self._transport
+        domain = primary_domain or self._primary_domain
         rate_attempt = 0
         while True:
             if self._governor is not None:
@@ -1355,35 +1418,50 @@ class github_controller_client:
                     self._governor.before_request(
                         method=method,
                         route=route,
+                        url=url,
                         content_generating=content_generating,
-                        primary_domain=self._primary_domain,
+                        primary_domain=domain,
+                        recovery_retry=rate_attempt > 0,
+                        request_kind=request_kind,
                     )
-                    status, response_headers, body = selected_transport(
-                        method,
-                        self._api_base + path,
-                        headers,
-                        payload,
-                    )
+                    try:
+                        status, response_headers, body = selected_transport(
+                            method,
+                            url,
+                            headers,
+                            payload,
+                        )
+                    except BaseException as exc:
+                        self._governor.provider_request_error(
+                            f"{exc.__class__.__name__}: {exc}"
+                        )
+                        raise
                     self._governor.observe_response(
                         route=route,
                         status=status,
                         headers=response_headers,
                         content_generating=content_generating,
-                        primary_domain=self._primary_domain,
+                        primary_domain=domain,
                     )
-                    retry_delay = self._governor.rate_limit_delay(
+                    recovery = self._governor.rate_limit_recovery(
                         status=status,
                         headers=response_headers,
                         detail=_safe_error_detail(body),
-                        primary_domain=self._primary_domain,
+                        primary_domain=domain,
+                        route=route,
+                        attempt=rate_attempt,
                     )
-                if retry_delay is not None:
+                if recovery is not None:
                     if rate_attempt < self._governor.policy.max_secondary_retries:
+                        self._governor.actuate_provider_recovery(
+                            recovery,
+                            attempt=rate_attempt + 1,
+                        )
                         rate_attempt += 1
                         continue
                     raise github_api_error(
                         method=method,
-                        path=path,
+                        path=url,
                         status=status,
                         detail=(
                             f"{_safe_error_detail(body)}; GitHub rate-limit recovery "
@@ -1395,7 +1473,7 @@ class github_controller_client:
                     self._pace_mutation()
                 status, response_headers, body = selected_transport(
                     method,
-                    self._api_base + path,
+                    url,
                     headers,
                     payload,
                 )

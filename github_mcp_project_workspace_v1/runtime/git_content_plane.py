@@ -44,6 +44,8 @@ class github_git_content_plane:
         sleep: Callable[[float], None] | None = None,
         monotonic: Callable[[], float] | None = None,
         provider_context: Callable[[bool], ContextManager[None]] | None = None,
+        provider_operation_context: Callable[[str, bool, str, str], ContextManager[None]] | None = None,
+        provider_gate_active: Callable[[], bool] | None = None,
     ) -> None:
         if not token.strip():
             raise ValueError("GitHub Git token must not be empty.")
@@ -69,6 +71,8 @@ class github_git_content_plane:
         self._sleep = sleep or time.sleep
         self._monotonic = monotonic or time.monotonic
         self._provider_context = provider_context
+        self._provider_operation_context = provider_operation_context
+        self._provider_gate_active = provider_gate_active
         self._progress: Callable[[str], None] | None = None
         self._workspaces: dict[str, Path] = {}
         self._last_fetch_monotonic: dict[str, float] = {}
@@ -280,7 +284,9 @@ class github_git_content_plane:
 
     def ref_fingerprint(self, owner: str, name: str) -> Mapping[str, Any]:
         remote = self._remote_url_factory(owner, name)
-        with self._provider_scope(content_generating=False):
+        with self._provider_scope(
+            content_generating=False, operation="git.ls_remote", owner=owner, name=name
+        ):
             self._pace_remote_read(owner, name)
             result = self._git_remote(owner, name, "ls-remote", "--heads", "--tags", remote)
         refs: dict[str, str] = {}
@@ -374,7 +380,9 @@ class github_git_content_plane:
         if not force and now - last < 0.25:
             return
         owner, name = key.split("/", 1)
-        with self._provider_scope(content_generating=False):
+        with self._provider_scope(
+            content_generating=False, operation="git.fetch", owner=owner, name=name
+        ):
             self._pace_remote_read(owner, name)
             fetch = self._git(workspace, "fetch", "--prune", "origin", check=False)
         self._metrics["fetches"] += 1
@@ -415,7 +423,9 @@ class github_git_content_plane:
         *,
         published_branches: int,
     ) -> None:
-        with self._provider_scope(content_generating=True):
+        with self._provider_scope(
+            content_generating=True, operation="git.push", owner=owner, name=name
+        ):
             self._pace_push(owner, name)
             self._git(workspace, "push", "origin", *refspecs)
         self._metrics["pushes"] += 1
@@ -426,7 +436,20 @@ class github_git_content_plane:
         self._last_fetch_monotonic[key] = now
 
     @contextmanager
-    def _provider_scope(self, *, content_generating: bool) -> Iterator[None]:
+    def _provider_scope(
+        self,
+        *,
+        content_generating: bool,
+        operation: str,
+        owner: str,
+        name: str,
+    ) -> Iterator[None]:
+        if self._provider_operation_context is not None:
+            with self._provider_operation_context(
+                operation, content_generating, owner, name
+            ):
+                yield
+            return
         if self._provider_context is None:
             yield
             return
@@ -434,6 +457,8 @@ class github_git_content_plane:
             yield
 
     def _pace_push(self, owner: str, name: str) -> None:
+        if self._provider_gate_active is not None and self._provider_gate_active():
+            return
         key = self._key(owner, name)
         now = self._monotonic()
         last = self._last_push_monotonic.get(key)
@@ -450,6 +475,8 @@ class github_git_content_plane:
         self._sleep(remaining)
 
     def _pace_remote_read(self, owner: str, name: str) -> None:
+        if self._provider_gate_active is not None and self._provider_gate_active():
+            return
         key = self._key(owner, name)
         now = self._monotonic()
         last = self._last_remote_read_monotonic.get(key)
