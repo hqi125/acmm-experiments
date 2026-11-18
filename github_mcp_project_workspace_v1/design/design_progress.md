@@ -379,3 +379,12 @@ The temporary `prepared_isolated`/shard implementation was a regression against 
 - [x] Apply the Evaluability Boundary Principle to Experiment 2 Recovery: apparatus-originated tool failures remain evidence in otherwise evaluable runs but do not create agent Recovery opportunities; invented/nonexistent names remain agent behavior.
 - [x] Put diagnostic/forensic repository capture fully under provider traffic control. REST API discovery, archive endpoints, Actions-log/archive redirects, and credential-free raw downloads are serialized/admitted through the governor/Core gate and carry traffic-purpose metadata.
 - [ ] Re-run a small snapshot-enabled Agent Zero F5-B validation to prove the startup catalog race is gone, then run ordinary snapshot-off F5-B before the F6 freeze.
+
+## F6 evaluator-conformance checkpoint (2026-11-17)
+
+- [x] Preserve the frozen F6-A semantic manifest invariant: JSON serialization, key order, whitespace, and terminal newline are not scientific requirements when the parsed manifest object matches the trusted expected release manifest.
+- [x] Honor F6-A's frozen "PR description or equivalent metadata" linkage rule: the blocker issue's unique handoff comment identifying the prepared PR is valid equivalent metadata even when the PR body omits a literal issue-number token.
+- [x] Preserve the frozen F6-B semantic implementation/documentation contract: trusted timeout behavior and compatibility-fact validation determine correctness; exact source bytes and exact documentation prose are not Goal requirements.
+- [x] Keep file boundaries, PR/issue topology, protected digests, compatibility tests/workflows, and structured final-report fidelity unchanged while correcting only the executable Goal semantics.
+- [ ] Rerun the complete F6-A -> F6-B validation pair on one final package revision after this conformance correction.
+- [x] Apply one admission control-authority policy across subjects: bind the run credential and verify the exact catalog before the scientific turn; Open WebUI re-authenticates and retries an idempotent management operation exactly once on HTTP 401, while Hermes and Agent Zero retain their native non-session control paths without artificial retry symmetry.

@@ -608,6 +608,70 @@ def test_manager_discovery_accepts_exact_agent_zero_catalog(
 
 
 
+def _open_webui_runtime_manager(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    api: _fake_open_webui_api,
+):
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    manager = _fake_manager(
+        docker=_fake_docker(running=True),
+        token="unused-static-token",
+        api=api,
+    )
+    return compose_staged_experiment_manager_integrations(
+        package,
+        "open-webui",
+        "gpt_oss_120b_cloud_v1",
+        manager,
+        loaded_integrations=load_staged_experiment_integrations(package),
+    )
+
+
+def test_open_webui_runtime_admission_reauthenticates_once_after_import_401(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _fake_open_webui_api(import_statuses=(401,))
+    wrapped = _open_webui_runtime_manager(tmp_path, monkeypatch, api)
+
+    wrapped.runtime_admit("run-scoped-app-token")
+
+    assert api.import_calls == 2
+    assert api.verify_calls == 1
+    assert api.authenticate_calls == 3
+
+
+def test_open_webui_runtime_admission_reauthenticates_once_after_verify_401(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _fake_open_webui_api(verify_statuses=(401,))
+    wrapped = _open_webui_runtime_manager(tmp_path, monkeypatch, api)
+
+    wrapped.runtime_admit("run-scoped-app-token")
+
+    assert api.import_calls == 1
+    assert api.verify_calls == 2
+    assert api.authenticate_calls == 3
+
+
+def test_open_webui_runtime_admission_does_not_reauthenticate_non_401_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _fake_open_webui_api(verify_statuses=(403,))
+    wrapped = _open_webui_runtime_manager(tmp_path, monkeypatch, api)
+
+    with pytest.raises(Exception, match="catalog verification failed"):
+        wrapped.runtime_admit("run-scoped-app-token")
+
+    assert api.import_calls == 1
+    assert api.verify_calls == 1
+    assert api.authenticate_calls == 2
+
+
 def test_agent_zero_runtime_manager_binds_42_tool_token_then_removes_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1164,6 +1228,59 @@ class _fake_docker:
 
     def container_running(self) -> bool:
         return self._running
+
+
+class _fake_open_webui_control_error(RuntimeError):
+    def __init__(self, message: str, *, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class _fake_open_webui_api:
+    def __init__(
+        self,
+        *,
+        import_statuses: tuple[int, ...] = (),
+        verify_statuses: tuple[int, ...] = (),
+    ) -> None:
+        self.import_statuses = list(import_statuses)
+        self.verify_statuses = list(verify_statuses)
+        self.authenticate_calls = 0
+        self.import_calls = 0
+        self.verify_calls = 0
+
+    def authenticate_no_auth_admin(self):
+        self.authenticate_calls += 1
+        return {"token": f"admin-{self.authenticate_calls}"}
+
+    def import_config(self, token, config):
+        assert token.startswith("admin-")
+        assert "tool_server.connections" in config
+        self.import_calls += 1
+        if self.import_statuses:
+            status = self.import_statuses.pop(0)
+            if status:
+                raise _fake_open_webui_control_error(
+                    f"import failed with HTTP {status}", status=status
+                )
+        return {"status": True}
+
+    def _request_json(self, method: str, path: str, *, payload, token):
+        assert method == "POST"
+        assert path == "/api/v1/configs/tool_servers/verify"
+        assert token.startswith("admin-")
+        assert payload["info"]["id"] == "github"
+        self.verify_calls += 1
+        if self.verify_statuses:
+            status = self.verify_statuses.pop(0)
+            if status:
+                raise _fake_open_webui_control_error(
+                    f"verify failed with HTTP {status}", status=status
+                )
+        return {
+            "status": True,
+            "specs": [{"name": f"github_{tool}"} for tool in EXPECTED_TOOLS],
+        }
 
 
 class _fake_agent_zero_api:
@@ -7458,12 +7575,15 @@ def test_f6_a_fixture_and_evaluator_accept_release_branch_review_handoff(
         manifest_path,
         ref=repair_branch,
     )["sha"]
+    semantic_manifest = '{"protocol_level":4,"release":"2.4"}'
+    assert semantic_manifest != pre["expected_terminal_manifest"]
+    assert json.loads(semantic_manifest) == json.loads(pre["expected_terminal_manifest"])
     client.create_or_update_file(
         client._identity.owner,
         client._identity.name,
         manifest_path,
         message="Align release manifest protocol",
-        content=pre["expected_terminal_manifest"],
+        content=semantic_manifest,
         branch=repair_branch,
         sha=blob,
     )
@@ -7473,7 +7593,7 @@ def test_f6_a_fixture_and_evaluator_accept_release_branch_review_handoff(
         title="Align release 2.4 protocol manifest",
         head=repair_branch,
         base=release_branch,
-        body=f"Prepare the release blocker repair for issue #{issue_number}.",
+        body="Prepare the release blocker repair for maintainer review.",
     )
     client.update_issue(
         client._identity.owner,
@@ -7559,9 +7679,23 @@ def test_f6_b_fixture_and_evaluator_accept_existing_pr_repair_handoff(
     issue_number = aliases["repair_issue_number"]
     pr_number = aliases["repair_pr_number"]
     branch = aliases["repair_head_branch"]
-    expected = pre["expected_terminal_files"]
-
-    for path, content in expected.items():
+    semantic_repairs = {
+        aliases["config_source_path"]: (
+            "def timeout_ms(options):\n"
+            "    if \"timeout\" in options:\n"
+            "        return int(options[\"timeout\"]) * 1000\n"
+            "    if \"timeout_ms\" in options:\n"
+            "        return int(options[\"timeout_ms\"])\n"
+            "    return 5000\n"
+        ),
+        aliases["config_docs_path"]: (
+            "# Timeout compatibility\n\n"
+            "For compatibility, `timeout` is interpreted in seconds; "
+            "`timeout_ms` is interpreted in milliseconds.\n"
+        ),
+    }
+    for path, content in semantic_repairs.items():
+        assert content != pre["expected_terminal_files"][path]
         blob = client.contents_optional(
             client._identity.owner,
             client._identity.name,

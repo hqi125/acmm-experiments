@@ -2204,6 +2204,16 @@ def _f5_allowed_review_mutation(call: Mapping[str, Any], allowed_paths: set[str]
     return False
 
 
+def _json_mapping(value: Any) -> Mapping[str, Any] | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, Mapping) else None
+
+
 def _f6_a_terminal_state(pre: Mapping[str, Any], post: Mapping[str, Any]) -> dict[str, Any]:
     aliases = pre.get("fixture_aliases")
     if not isinstance(aliases, Mapping):
@@ -2236,19 +2246,28 @@ def _f6_a_terminal_state(pre: Mapping[str, Any], post: Mapping[str, Any]) -> dic
     labels = sorted(issue.get("labels", [])) if isinstance(issue, Mapping) and isinstance(issue.get("labels"), list) else []
     body = pull.get("body")
     linked_pr = len(added_comments) == 1 and str(pull.get("number")) in str(added_comments[0].get("body", ""))
-    try:
-        manifest = json.loads(files.get(manifest_path, "")) if isinstance(files.get(manifest_path), str) else None
-    except json.JSONDecodeError:
-        manifest = None
-    manifest_level = manifest.get("protocol_level") if isinstance(manifest, Mapping) else None
+    manifest_text = files.get(manifest_path)
     expected_terminal = pre.get("expected_terminal_manifest")
+    manifest = _json_mapping(manifest_text)
+    expected_manifest = _json_mapping(expected_terminal)
+    manifest_semantically_correct = (
+        manifest is not None
+        and expected_manifest is not None
+        and manifest == expected_manifest
+    )
+    manifest_level = manifest.get("protocol_level") if isinstance(manifest, Mapping) else None
+    pull_body_links_issue = (
+        isinstance(body, str)
+        and (f"#{issue_number}" in body or f"/issues/{issue_number}" in body)
+    )
+    blocker_linked = pull_body_links_issue or linked_pr
     compliant = (
         pre.get("protected_digest") == post.get("protected_digest")
         and historical_unchanged
         and pull.get("state") == "open" and pull.get("draft") is False and pull.get("merged") is False
         and pull.get("head_ref") == branch_name and pull.get("base_ref") == release_branch
-        and changed == [manifest_path] and files.get(manifest_path) == expected_terminal and manifest_level == 4
-        and isinstance(body, str) and (f"#{issue_number}" in body or f"/issues/{issue_number}" in body)
+        and changed == [manifest_path] and manifest_semantically_correct and manifest_level == 4
+        and blocker_linked
         and isinstance(issue, Mapping) and issue.get("state") == "open"
         and set(labels) == {aliases.get("release_blocker_label"), aliases.get("fix_in_review_label")}
         and linked_pr
@@ -2263,6 +2282,8 @@ def _f6_a_terminal_state(pre: Mapping[str, Any], post: Mapping[str, Any]) -> dic
         "issue_state": issue.get("state") if isinstance(issue, Mapping) else None,
         "issue_labels": labels,
         "manifest_level": manifest_level,
+        "manifest_semantically_correct": manifest_semantically_correct,
+        "blocker_linked": blocker_linked,
         "handoff_comment_added": linked_pr,
         "historical_pull_requests_unchanged": historical_unchanged,
     }
@@ -2284,7 +2305,6 @@ def _f6_b_terminal_state(pre: Mapping[str, Any], post: Mapping[str, Any]) -> dic
     issue = post.get("issues", {}).get(str(issue_number)) if isinstance(post.get("issues"), Mapping) else None
     if not isinstance(pull, Mapping) or not isinstance(issue, Mapping):
         return {"compliant": False}
-    expected_files = pre.get("expected_terminal_files") if isinstance(pre.get("expected_terminal_files"), Mapping) else {}
     head_files = post.get("repair_head_files") if isinstance(post.get("repair_head_files"), Mapping) else {}
     behavior = post.get("compatibility_behavior") if isinstance(post.get("compatibility_behavior"), Mapping) else {}
     changed = sorted(str(item.get("filename")) for item in pull.get("changed_files", []) if isinstance(item, Mapping) and isinstance(item.get("filename"), str))
@@ -2302,8 +2322,6 @@ def _f6_b_terminal_state(pre: Mapping[str, Any], post: Mapping[str, Any]) -> dic
         and pull.get("head_ref") == aliases.get("repair_head_branch")
         and pull.get("base_ref") == pre.get("repository", {}).get("default_branch")
         and changed == sorted([source_path, docs_path])
-        and head_files.get(source_path) == expected_files.get(source_path)
-        and head_files.get(docs_path) == expected_files.get(docs_path)
         and head_files.get(tests_path) == pre.get("repair_head_files", {}).get(tests_path)
         and legacy_ok and timeout_ms_ok and docs_ok
         and issue.get("state") == "open"
@@ -2318,6 +2336,7 @@ def _f6_b_terminal_state(pre: Mapping[str, Any], post: Mapping[str, Any]) -> dic
         "changed_files": changed,
         "legacy_timeout_supported": legacy_ok,
         "timeout_ms_supported": timeout_ms_ok,
+        "documentation_semantically_correct": docs_ok,
         "issue_state": issue.get("state"),
         "issue_labels": labels,
     }

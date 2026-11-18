@@ -583,15 +583,13 @@ class _runtime_workspace_manager:
             return
         if self._infrastructure_subject == "open-webui":
             api = getattr(self._manager, "api")
-            session = api.authenticate_no_auth_admin()
-            admin_token = _required_text(session, "token", "Open WebUI admin session")
-            api.import_config(
-                admin_token,
-                {
-                    "tool_server.connections": [
-                        _open_webui_connection(self._settings, token)
-                    ]
-                },
+            config = {
+                "tool_server.connections": [
+                    _open_webui_connection(self._settings, token)
+                ]
+            }
+            self._open_webui_admin_operation(
+                lambda admin_token: api.import_config(admin_token, config)
             )
             return
         if self._infrastructure_subject == "agent-zero":
@@ -665,16 +663,33 @@ class _runtime_workspace_manager:
             f"(catalog sha256={_catalog_sha256(observed)})"
         )
 
-    def _probe_open_webui(self, token: str) -> tuple[bool, str]:
+    def _open_webui_admin_operation(self, operation):
         api = getattr(self._manager, "api")
         session = api.authenticate_no_auth_admin()
         admin_token = _required_text(session, "token", "Open WebUI admin session")
+        try:
+            return operation(admin_token)
+        except Exception as exc:
+            # The Open WebUI management plane uses a bearer admin session. A
+            # transient 401 before the scientific turn is recoverable by
+            # reacquiring that authority exactly once. Other statuses are not
+            # treated as authentication loss and remain fail-closed.
+            if getattr(exc, "status", None) != 401:
+                raise
+        session = api.authenticate_no_auth_admin()
+        admin_token = _required_text(session, "token", "Open WebUI admin session")
+        return operation(admin_token)
+
+    def _probe_open_webui(self, token: str) -> tuple[bool, str]:
+        api = getattr(self._manager, "api")
         request = getattr(api, "_request_json")
-        result = request(
-            "POST",
-            "/api/v1/configs/tool_servers/verify",
-            payload=_open_webui_connection(self._settings, token),
-            token=admin_token,
+        result = self._open_webui_admin_operation(
+            lambda admin_token: request(
+                "POST",
+                "/api/v1/configs/tool_servers/verify",
+                payload=_open_webui_connection(self._settings, token),
+                token=admin_token,
+            )
         )
         if result.get("status") is not True:
             return False, "Open WebUI MCP verification did not return status=true."

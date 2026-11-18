@@ -123,3 +123,8 @@ runtime resource ledger.
 
 See [`fixture_lifecycle.md`](fixture_lifecycle.md) for admission, revocation, detachment, retirement, and
 hard-crash recovery semantics.
+
+## Subject control-authority resilience
+
+Runtime admission follows one cross-subject lifecycle invariant: acquire the subject's local control authority, bind the run-scoped GitHub MCP credential, and verify the exact 42-tool catalog before the scientific turn begins. Subject adapters may realize that invariant differently. Open WebUI uses an authenticated admin API, so an HTTP 401 from an idempotent pre-turn management operation causes exactly one admin re-authentication and one replay of that same management operation. Non-authentication failures, catalog mismatches, provider actions, and agent actions are never retried by this rule. Hermes uses its local CLI control plane and Agent Zero uses its local settings API without a comparable expiring admin bearer session, so no artificial re-authentication retry is added to those subjects.
+
