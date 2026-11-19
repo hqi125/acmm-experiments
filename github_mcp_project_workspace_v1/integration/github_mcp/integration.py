@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 import hashlib
 import json
@@ -7,6 +8,8 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
+import threading
 import time
 from typing import Any, Mapping
 
@@ -27,6 +30,51 @@ from acmm_infra.process import command_runner
 _REDACTED = "<redacted>"
 _UNADMITTED_TOKEN = "acmm-runtime-admission-required"
 _AGENT_ZERO_CATALOG_RETRY_DELAYS = (0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
+
+
+@contextmanager
+def _defer_sigint(enabled: bool = True):
+    """Defer SIGINT while package-local authority containment is in flight.
+
+    The yielded mapping reports how many signals arrived.  Callers that entered
+    normally can raise KeyboardInterrupt after the critical cleanup completes;
+    callers already handling KeyboardInterrupt can re-raise their original
+    exception without allowing a second Ctrl+C to tear through containment.
+    """
+
+    state = {"count": 0}
+    if (
+        not enabled
+        or threading.current_thread() is not threading.main_thread()
+        or not hasattr(signal, "SIGINT")
+    ):
+        yield state
+        return
+
+    previous = signal.getsignal(signal.SIGINT)
+    if previous not in (signal.default_int_handler, signal.SIG_DFL):
+        # A higher lifecycle layer (notably Core interruption cleanup) already
+        # owns SIGINT semantics. Preserve that handler instead of shadowing its
+        # cooperative force-request state.
+        yield state
+        return
+
+    def _defer(_signum, _frame):
+        state["count"] += 1
+
+    try:
+        signal.signal(signal.SIGINT, _defer)
+    except (ValueError, OSError):
+        yield state
+        return
+
+    try:
+        yield state
+    finally:
+        try:
+            signal.signal(signal.SIGINT, previous)
+        except (ValueError, OSError):
+            pass
 
 
 class github_mcp_tool_result_error_interpreter:
@@ -313,17 +361,27 @@ class _github_mcp_runtime_admission:
                 repository_id,
                 subject_bound=True,
             )
-        except Exception as exc:
-            _, _, _, cleanup_errors = self._end_authority(
-                context=context,
-                manager=manager,
-                token=token,
-                revoke_installation_token=revoke_installation_token,
-                ledger_path=ledger_path,
-                repository_id=repository_id,
-            )
+        except BaseException as exc:
+            interrupted = isinstance(exc, KeyboardInterrupt)
+            with _defer_sigint(interrupted):
+                _, _, _, cleanup_errors = self._end_authority(
+                    context=context,
+                    manager=manager,
+                    token=token,
+                    revoke_installation_token=revoke_installation_token,
+                    ledger_path=ledger_path,
+                    repository_id=repository_id,
+                )
             if cleanup_errors:
                 original = str(_redact(str(exc) or exc.__class__.__name__, token))
+                if interrupted:
+                    add_note = getattr(exc, "add_note", None)
+                    if callable(add_note):
+                        add_note(
+                            "GitHub MCP admission containment encountered errors: "
+                            + "; ".join(cleanup_errors)
+                        )
+                    raise
                 raise infrastructure_error(
                     "GitHub MCP runtime admission failed: "
                     + original
@@ -348,14 +406,25 @@ class _github_mcp_runtime_admission:
         if not isinstance(handle, _runtime_admission_handle):
             raise ValueError("GitHub MCP runtime admission handle is invalid.")
 
-        token_revoked, subject_unbound, unbound_via, errors = self._end_authority(
-            context=context,
-            manager=manager,
-            token=handle.token,
-            revoke_installation_token=handle.revoke_installation_token,
-            ledger_path=handle.ledger_path,
-            repository_id=handle.repository_id,
-        )
+        with _defer_sigint() as deferred_interrupt:
+            token_revoked, subject_unbound, unbound_via, errors = self._end_authority(
+                context=context,
+                manager=manager,
+                token=handle.token,
+                revoke_installation_token=handle.revoke_installation_token,
+                ledger_path=handle.ledger_path,
+                repository_id=handle.repository_id,
+            )
+        if deferred_interrupt["count"]:
+            interrupted = KeyboardInterrupt()
+            if errors:
+                add_note = getattr(interrupted, "add_note", None)
+                if callable(add_note):
+                    add_note(
+                        "GitHub MCP revocation containment encountered errors: "
+                        + "; ".join(errors)
+                    )
+            raise interrupted
         if errors:
             raise RuntimeError(
                 "GitHub MCP runtime revocation failed: " + "; ".join(errors)

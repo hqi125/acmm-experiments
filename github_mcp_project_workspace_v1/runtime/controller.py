@@ -117,6 +117,7 @@ class github_controller_client:
         self._mutation_interval_seconds = float(mutation_interval_seconds)
         self._last_mutation_monotonic: float | None = None
         self._conditional_get_cache: dict[str, tuple[str | None, str | None, bytes]] = {}
+        self._progress_reporter: Callable[[str], None] | None = None
         self._governor = governor
         self._git_content_plane = (
             git_content_plane
@@ -128,6 +129,7 @@ class github_controller_client:
         self,
         progress: Callable[[str], None] | None,
     ) -> None:
+        self._progress_reporter = progress
         if self._governor is not None:
             self._governor.set_progress_reporter(progress)
         if self._git_content_plane is not None:
@@ -1348,6 +1350,14 @@ class github_controller_client:
             headers=headers,
             payload=data,
         )
+        if method_upper != "GET" and 200 <= status < 300:
+            # Any successful mutation can change one or more cached collection or
+            # object representations. GitHub may otherwise answer a subsequent
+            # conditional GET with 304 while the controller still holds the
+            # pre-mutation body, which violates trusted-fixture read-after-write
+            # coherence. Prefer correctness over retaining cross-mutation cache
+            # entries; fresh reads can establish new validators immediately.
+            self._conditional_get_cache.clear()
         if status == 304 and cached is not None:
             body = cached[2]
             status = 200
@@ -1412,81 +1422,101 @@ class github_controller_client:
         selected_transport = transport or self._transport
         domain = primary_domain or self._primary_domain
         rate_attempt = 0
+        transport_attempt = 0
         while True:
-            if self._governor is not None:
-                with self._governor.serialized_provider_access():
-                    self._governor.before_request(
-                        method=method,
-                        route=route,
-                        url=url,
-                        content_generating=content_generating,
-                        primary_domain=domain,
-                        recovery_retry=rate_attempt > 0,
-                        request_kind=request_kind,
-                    )
-                    try:
-                        status, response_headers, body = selected_transport(
-                            method,
-                            url,
-                            headers,
-                            payload,
+            try:
+                if self._governor is not None:
+                    with self._governor.serialized_provider_access():
+                        try:
+                            self._governor.before_request(
+                                method=method,
+                                route=route,
+                                url=url,
+                                content_generating=content_generating,
+                                primary_domain=domain,
+                                recovery_retry=rate_attempt > 0,
+                                request_kind=request_kind,
+                            )
+                            status, response_headers, body = selected_transport(
+                                method,
+                                url,
+                                headers,
+                                payload,
+                            )
+                            self._governor.observe_response(
+                                route=route,
+                                status=status,
+                                headers=response_headers,
+                                content_generating=content_generating,
+                                primary_domain=domain,
+                            )
+                            recovery = self._governor.rate_limit_recovery(
+                                status=status,
+                                headers=response_headers,
+                                detail=_safe_error_detail(body),
+                                primary_domain=domain,
+                                route=route,
+                                attempt=rate_attempt,
+                            )
+                        except BaseException as exc:
+                            self._governor.provider_request_error(
+                                f"{exc.__class__.__name__}: {exc}"
+                            )
+                            raise
+                    if recovery is not None:
+                        if rate_attempt < self._governor.policy.max_secondary_retries:
+                            self._governor.actuate_provider_recovery(
+                                recovery,
+                                attempt=rate_attempt + 1,
+                            )
+                            rate_attempt += 1
+                            continue
+                        raise github_api_error(
+                            method=method,
+                            path=url,
+                            status=status,
+                            detail=(
+                                f"{_safe_error_detail(body)}; GitHub rate-limit recovery "
+                                f"exhausted after {rate_attempt} retries"
+                            ),
                         )
-                    except BaseException as exc:
-                        self._governor.provider_request_error(
-                            f"{exc.__class__.__name__}: {exc}"
-                        )
-                        raise
-                    self._governor.observe_response(
-                        route=route,
-                        status=status,
-                        headers=response_headers,
-                        content_generating=content_generating,
-                        primary_domain=domain,
+                else:
+                    if _is_mutation_method(method):
+                        self._pace_mutation()
+                    status, response_headers, body = selected_transport(
+                        method,
+                        url,
+                        headers,
+                        payload,
                     )
-                    recovery = self._governor.rate_limit_recovery(
+                    retry_delay = _secondary_rate_limit_retry_delay(
                         status=status,
                         headers=response_headers,
                         detail=_safe_error_detail(body),
-                        primary_domain=domain,
-                        route=route,
                         attempt=rate_attempt,
                     )
-                if recovery is not None:
-                    if rate_attempt < self._governor.policy.max_secondary_retries:
-                        self._governor.actuate_provider_recovery(
-                            recovery,
-                            attempt=rate_attempt + 1,
-                        )
+                    if retry_delay is not None and rate_attempt < 2:
+                        self._sleep(retry_delay)
                         rate_attempt += 1
                         continue
-                    raise github_api_error(
-                        method=method,
-                        path=url,
-                        status=status,
-                        detail=(
-                            f"{_safe_error_detail(body)}; GitHub rate-limit recovery "
-                            f"exhausted after {rate_attempt} retries"
-                        ),
-                    )
-            else:
-                if _is_mutation_method(method):
-                    self._pace_mutation()
-                status, response_headers, body = selected_transport(
-                    method,
-                    url,
-                    headers,
-                    payload,
-                )
-                retry_delay = _secondary_rate_limit_retry_delay(
-                    status=status,
-                    headers=response_headers,
-                    detail=_safe_error_detail(body),
-                    attempt=rate_attempt,
-                )
-                if retry_delay is not None and rate_attempt < 2:
-                    self._sleep(retry_delay)
-                    rate_attempt += 1
+            except BaseException as exc:
+                if (
+                    _is_retry_safe_transport_method(method)
+                    and _is_transient_transport_failure(exc)
+                    and transport_attempt < len(_SAFE_READ_TRANSPORT_RETRY_DELAYS)
+                ):
+                    delay = _SAFE_READ_TRANSPORT_RETRY_DELAYS[transport_attempt]
+                    transport_attempt += 1
+                    if self._progress_reporter is not None:
+                        self._progress_reporter(
+                            "Retry: trusted GitHub read transport failed "
+                            f"({exc}); retrying {method.upper()} {route} "
+                            f"after ~{delay:g}s "
+                            f"({transport_attempt}/{len(_SAFE_READ_TRANSPORT_RETRY_DELAYS)})."
+                        )
+                    self._sleep(delay)
                     continue
+                raise
             return status, response_headers, body
 
     def _pace_mutation(self) -> None:
@@ -2005,6 +2035,33 @@ def _secondary_rate_limit_retry_delay(
 class _no_redirect_handler(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+
+_SAFE_READ_TRANSPORT_RETRY_DELAYS = (0.25, 1.0, 2.0)
+
+
+def _is_retry_safe_transport_method(method: str) -> bool:
+    return method.upper() in {"GET", "HEAD", "OPTIONS"}
+
+
+def _is_transient_transport_failure(exc: BaseException) -> bool:
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (TimeoutError, ConnectionError)):
+            return True
+        if isinstance(current, URLError):
+            reason = current.reason
+            if isinstance(reason, (TimeoutError, ConnectionError)):
+                return True
+        cause = current.__cause__
+        if isinstance(cause, BaseException):
+            current = cause
+            continue
+        context = current.__context__
+        current = context if isinstance(context, BaseException) else None
+    return False
 
 
 def _urllib_transport_no_redirect(

@@ -1502,3 +1502,136 @@ def test_active_provider_gate_recovery_is_not_slept_twice(
     assert client.admit_count == 1
     assert client.feedback_count == 2
     assert clock.sleeps == []
+
+
+def test_provider_gate_error_clears_local_admission_even_if_cancel_is_interrupted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+
+    class gate:
+        def __init__(self) -> None:
+            self.admit_count = 0
+
+        def active(self):
+            return True
+
+        def admit(self, **kwargs):
+            self.admit_count += 1
+            return SimpleNamespace(
+                request_id=f"request-{self.admit_count}",
+                action_id="repository.read",
+                decision_id=f"decision-{self.admit_count}",
+                admission={},
+            )
+
+        def cancel(self, admission, detail):
+            raise KeyboardInterrupt
+
+    client = gate()
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(),
+        state_path=tmp_path / "state.json",
+    )
+    governor.set_provider_gate_client(client)
+    governor.before_request(
+        method="GET",
+        route="repository.read",
+        url="https://api.github.com/repos/octo/example",
+        content_generating=False,
+    )
+
+    # Cancellation is deliberately best-effort on an already interrupted path;
+    # stale local state must not block trusted cleanup from acquiring a new gate
+    # admission.
+    governor.provider_request_error("KeyboardInterrupt")
+    governor.before_request(
+        method="GET",
+        route="repository.read",
+        url="https://api.github.com/repos/octo/example",
+        content_generating=False,
+    )
+    assert client.admit_count == 2
+
+
+def test_controller_keyboard_interrupt_during_gate_feedback_does_not_leave_stale_admission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    (
+        github_api_governor,
+        github_api_governor_policy,
+        github_controller_client,
+    ) = _load_runtime_types(tmp_path, monkeypatch)
+
+    class gate:
+        def __init__(self) -> None:
+            self.admit_count = 0
+            self.cancel_count = 0
+
+        def active(self):
+            return True
+
+        def admit(self, **kwargs):
+            self.admit_count += 1
+            return SimpleNamespace(
+                request_id=f"request-{self.admit_count}",
+                action_id="mcp.rest.read",
+                decision_id=f"decision-{self.admit_count}",
+                admission={},
+            )
+
+        def feedback(self, admission, **kwargs):
+            raise KeyboardInterrupt
+
+        def cancel(self, admission, detail):
+            self.cancel_count += 1
+
+    client_gate = gate()
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(),
+        state_path=tmp_path / "state.json",
+    )
+    governor.set_provider_gate_client(client_gate)
+
+    def transport(method, url, headers, payload):
+        del headers, payload
+        assert method == "GET"
+        return (
+            200,
+            {},
+            json.dumps(
+                {
+                    "id": 7,
+                    "name": "demo",
+                    "full_name": "octo/demo",
+                    "private": True,
+                    "owner": {"login": "octo"},
+                    "default_branch": "main",
+                }
+            ).encode("utf-8"),
+        )
+
+    client = github_controller_client(
+        "secret",
+        transport=transport,
+        redirect_transport=transport,
+        governor=governor,
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        client.repository("octo", "demo")
+    with pytest.raises(KeyboardInterrupt):
+        client.repository("octo", "demo")
+
+    assert client_gate.admit_count == 2
+    assert client_gate.cancel_count == 2

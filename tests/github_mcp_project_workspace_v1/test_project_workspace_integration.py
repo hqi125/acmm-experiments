@@ -5,6 +5,7 @@ import base64
 import json
 from pathlib import Path
 import shutil
+import signal
 from types import SimpleNamespace
 import zipfile
 from typing import Mapping
@@ -43,6 +44,7 @@ from acmm.experiment_api import (
     runtime_run_context,
     runtime_run_finalization,
     runtime_session_context,
+    runtime_session_finalization,
 )
 from acmm.runtime import (
     adapter_execution_result,
@@ -1010,6 +1012,207 @@ def test_agent_zero_failed_provider_revocation_uses_local_containment_and_still_
     assert row["token_revoked"] is False
 
 
+
+def test_agent_zero_keyboard_interrupt_during_admission_revokes_provider_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    admission = (
+        load_staged_experiment_integrations(package)[0]
+        .integration.subjects["agent-zero"]
+        .admission
+    )
+    assert admission is not None
+    order: list[str] = []
+
+    class manager:
+        def runtime_admit(self, token: str) -> None:
+            assert token == "run-token"
+            order.append("subject_admitted_then_interrupted")
+            raise KeyboardInterrupt()
+
+        def runtime_revoke(self, token: str) -> None:
+            order.append("local_settings_rewritten")
+
+    ledger = tmp_path / "ledger-admit-interrupt.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                "repositories": [
+                    {
+                        "repository_id": 12,
+                        "subject_bound": False,
+                        "subject_unbound": False,
+                        "token_revoked": False,
+                    }
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def revoke_token(token: str) -> None:
+        assert token == "run-token"
+        order.append("token_revoked")
+
+    context = SimpleNamespace(infrastructure_subject="agent-zero")
+    with pytest.raises(KeyboardInterrupt):
+        admission.admit(
+            context,
+            manager(),
+            {
+                "access_token": "run-token",
+                "repository_id": 12,
+                "repository_full_name": "octo/demo",
+                "ledger_path": str(ledger),
+                "revoke_installation_token": revoke_token,
+            },
+        )
+
+    assert order == ["subject_admitted_then_interrupted", "token_revoked"]
+    row = json.loads(ledger.read_text(encoding="utf-8"))["repositories"][0]
+    assert row["subject_bound"] is False
+    assert row["subject_unbound"] is True
+    assert row["token_revoked"] is True
+
+
+def test_runtime_revocation_defers_sigint_until_authority_cleanup_finishes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    admission = (
+        load_staged_experiment_integrations(package)[0]
+        .integration.subjects["agent-zero"]
+        .admission
+    )
+    assert admission is not None
+    order: list[str] = []
+
+    class manager:
+        def runtime_admit(self, token: str) -> None:
+            assert token == "run-token"
+
+        def runtime_revoke(self, token: str) -> None:
+            order.append("local_settings_rewritten")
+
+    ledger = tmp_path / "ledger-revoke-interrupt.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                "repositories": [
+                    {
+                        "repository_id": 13,
+                        "subject_bound": False,
+                        "subject_unbound": False,
+                        "token_revoked": False,
+                    }
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def revoke_token(token: str) -> None:
+        assert token == "run-token"
+        order.append("token_revoke_started")
+        signal.raise_signal(signal.SIGINT)
+        order.append("token_revoke_finished")
+
+    context = SimpleNamespace(infrastructure_subject="agent-zero")
+    handle = admission.admit(
+        context,
+        manager(),
+        {
+            "access_token": "run-token",
+            "repository_id": 13,
+            "repository_full_name": "octo/demo",
+            "ledger_path": str(ledger),
+            "revoke_installation_token": revoke_token,
+        },
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        admission.revoke(context, manager(), handle)
+
+    assert order == ["token_revoke_started", "token_revoke_finished"]
+    row = json.loads(ledger.read_text(encoding="utf-8"))["repositories"][0]
+    assert row["subject_unbound"] is True
+    assert row["token_revoked"] is True
+
+
+def test_runtime_revocation_preserves_outer_sigint_cleanup_handler(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    admission = (
+        load_staged_experiment_integrations(package)[0]
+        .integration.subjects["agent-zero"]
+        .admission
+    )
+    assert admission is not None
+    observed_signals: list[int] = []
+
+    class manager:
+        def runtime_admit(self, token: str) -> None:
+            assert token == "run-token"
+
+        def runtime_revoke(self, token: str) -> None:
+            raise AssertionError("Agent Zero normal run revoke must remain provider-only")
+
+    ledger = tmp_path / "ledger-outer-handler.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                "repositories": [
+                    {
+                        "repository_id": 14,
+                        "subject_bound": False,
+                        "subject_unbound": False,
+                        "token_revoked": False,
+                    }
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def revoke_token(token: str) -> None:
+        assert token == "run-token"
+        signal.raise_signal(signal.SIGINT)
+
+    context = SimpleNamespace(infrastructure_subject="agent-zero")
+    handle = admission.admit(
+        context,
+        manager(),
+        {
+            "access_token": "run-token",
+            "repository_id": 14,
+            "repository_full_name": "octo/demo",
+            "ledger_path": str(ledger),
+            "revoke_installation_token": revoke_token,
+        },
+    )
+
+    previous = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGINT, lambda signum, _frame: observed_signals.append(signum))
+    try:
+        result = admission.revoke(context, manager(), handle)
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+    assert observed_signals == [signal.SIGINT]
+    assert result["token_revoked"] is True
+    assert result["subject_unbound"] is True
+
 def test_agent_zero_subject_release_removes_static_mcp_server_after_provider_only_run_revoke(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1627,6 +1830,82 @@ def test_urllib_transport_retries_only_tls_handshake_timeouts(
     assert sleeps == []
 
 
+def test_github_controller_retries_transient_safe_read_transport_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
+    controller_module = sys.modules[type(diagnostic._client).__module__]
+
+    calls: list[str] = []
+    sleeps: list[float] = []
+    messages: list[str] = []
+
+    def transport(method, url, headers, payload):
+        del url, headers, payload
+        calls.append(method)
+        if len(calls) < 3:
+            raise TimeoutError("The read operation timed out")
+        return 200, {}, b'{"login":"octo"}'
+
+    client = controller_module.github_controller_client(
+        "controller-secret",
+        api_base="https://api.github.test",
+        transport=transport,
+        sleep=sleeps.append,
+    )
+    client.set_progress_reporter(messages.append)
+
+    assert client.current_user()["login"] == "octo"
+    assert calls == ["GET", "GET", "GET"]
+    assert sleeps == [0.25, 1.0]
+    assert len([item for item in messages if item.startswith("Retry:")]) == 2
+
+
+def test_github_controller_does_not_retry_ambiguous_mutation_transport_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
+    controller_module = sys.modules[type(diagnostic._client).__module__]
+
+    calls: list[str] = []
+    sleeps: list[float] = []
+
+    def transport(method, url, headers, payload):
+        del url, headers, payload
+        calls.append(method)
+        raise TimeoutError("The read operation timed out")
+
+    client = controller_module.github_controller_client(
+        "controller-secret",
+        api_base="https://api.github.test",
+        transport=transport,
+        sleep=sleeps.append,
+    )
+
+    with pytest.raises(TimeoutError, match="read operation timed out"):
+        client.create_issue(
+            "octo",
+            "example",
+            title="fixture",
+            body="fixture",
+        )
+
+    assert calls == ["POST"]
+    assert sleeps == []
+
+
 def test_github_controller_job_logs_follow_documented_redirect_without_forwarding_token(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1794,6 +2073,67 @@ def test_repository_archive_redirect_download_is_provider_gate_managed_as_raw(
     assert admissions[1]["metadata"]["traffic_purpose"] == "diagnostic_snapshot"
     assert admissions[1]["metadata"]["capture_phase"] == "pre_run"
     assert len(feedback) == 2
+
+
+def test_github_controller_successful_mutation_invalidates_conditional_get_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+    from urllib.parse import urlparse
+
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
+    controller_module = sys.modules[type(diagnostic._client).__module__]
+
+    issues: list[dict[str, object]] = []
+    issue_get_headers: list[dict[str, str]] = []
+
+    def transport(method, url, headers, payload):
+        path = urlparse(url).path
+        query = urlparse(url).query
+        if method == "GET" and path.endswith("/issues") and query:
+            issue_get_headers.append(dict(headers))
+            if headers.get("If-None-Match") == '"issues-v1"':
+                return 304, {"ETag": '"issues-v1"'}, b""
+            return (
+                200,
+                {"ETag": '"issues-v1"'},
+                json.dumps(issues).encode("utf-8"),
+            )
+        if method == "POST" and path.endswith("/issues"):
+            assert payload is not None
+            value = {
+                "number": 1,
+                "title": "fixture issue",
+                "body": "fixture body",
+                "state": "open",
+                "labels": [],
+            }
+            issues.append(value)
+            return 201, {}, json.dumps(value).encode("utf-8")
+        raise AssertionError((method, url))
+
+    client = controller_module.github_controller_client(
+        "controller-secret",
+        api_base="https://api.github.test",
+        transport=transport,
+    )
+
+    assert client.list_issues("octo", "example") == ()
+    client.create_issue(
+        "octo",
+        "example",
+        title="fixture issue",
+        body="fixture body",
+    )
+    refreshed = client.list_issues("octo", "example")
+
+    assert len(refreshed) == 1
+    assert len(issue_get_headers) == 2
+    assert "If-None-Match" not in issue_get_headers[1]
 
 
 def test_github_controller_paces_mutative_requests(
@@ -4939,21 +5279,23 @@ def test_f1_a_scenario_materialization_taints_and_retires_nonrestorable_history(
         body="not package-owned",
     )
 
-    with pytest.raises(RuntimeError, match="could not be restored exactly"):
-        lifecycle.run_finalize(
-            session,
-            run_context,
-            scenario,
-            prepared.handle,
-            package.contract["run_protocol"]["reset"],
-            runtime_run_finalization(
-                persisted=True,
-                validity="valid",
-                termination="agent_completed",
-                result_path="/tmp/result",
-            ),
-        )
-
+    finalized = lifecycle.run_finalize(
+        session,
+        run_context,
+        scenario,
+        prepared.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path="/tmp/result",
+        ),
+    )
+    assert finalized["restored"] is False
+    assert finalized["continuation_safe"] is True
+    assert finalized["materialization_reusable"] is False
+    assert finalized["retired"] is True
     assert materialization.tainted is True
     assert materialization.retired is True
     assert client.exists is False
@@ -4965,6 +5307,100 @@ def test_f1_a_scenario_materialization_taints_and_retires_nonrestorable_history(
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["failure_phase"] == "shared_run_restore"
         assert "unexpected issue" in manifest["failure_reason"]
+
+
+
+
+def test_shared_materialization_finalizer_exception_retires_and_allows_continuation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    lifecycle._controller = client
+    lifecycle._app_client = _fake_app_client()
+    lifecycle._sleep = lambda _seconds: None
+
+    session_dir = tmp_path / "materialized-finalizer-exception-session"
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="execution-materialized-finalizer-exception",
+            selected_run_indices=(0,),
+            session_dir=str(session_dir),
+        )
+    )
+    scenario = next(
+        item
+        for item in package.contract["scenarios"]
+        if item["id"] == "f1_a_regression_disposition"
+    )
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-materialized-finalizer-exception",
+        key="scenario_id=f1_a_regression_disposition",
+        selected_run_indices=(0,),
+        subject_ids=("hermes_gpt_oss120b",),
+        scenario_ids=("f1_a_regression_disposition",),
+        repetitions=(1,),
+        session_dir=str(session_dir),
+    )
+    materialization = lifecycle.materialization_initialize(
+        session,
+        materialization_context,
+    )
+    run_context = runtime_run_context(
+        execution_id="execution-materialized-finalizer-exception",
+        run_index=0,
+        subject_id="hermes_gpt_oss120b",
+        scenario_id="f1_a_regression_disposition",
+        repetition=1,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    prepared = lifecycle.run_prepare(
+        session,
+        run_context,
+        scenario,
+        package.contract["run_protocol"]["reset"],
+    )
+
+    def fail_finalize(*_args, **_kwargs):
+        raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr(prepared.handle.fixture, "finalize", fail_finalize)
+
+    finalized = lifecycle.run_finalize(
+        session,
+        run_context,
+        scenario,
+        prepared.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path="/tmp/result-finalizer-exception",
+        ),
+    )
+
+    assert finalized["restored"] is False
+    assert finalized["continuation_safe"] is True
+    assert finalized["materialization_reusable"] is False
+    assert finalized["retired"] is True
+    assert finalized["restoration"]["exception_type"] == "TimeoutError"
+    assert finalized["restoration"]["detail"] == "The read operation timed out"
+    assert materialization.tainted is True
+    assert materialization.retired is True
+    assert client.exists is False
+    assert session.active_repositories == {}
+    assert len(session.forensic_archives) == 1
 
 
 
@@ -5178,21 +5614,23 @@ def test_f1_b_scenario_materialization_taints_on_new_actions_history(
         inputs={"candidate": "rogue-history"},
     )
 
-    with pytest.raises(RuntimeError, match="could not be restored exactly"):
-        lifecycle.run_finalize(
-            session,
-            run_context,
-            scenario,
-            prepared.handle,
-            package.contract["run_protocol"]["reset"],
-            runtime_run_finalization(
-                persisted=True,
-                validity="valid",
-                termination="agent_completed",
-                result_path="/tmp/result-f1-b-taint",
-            ),
-        )
-
+    finalized = lifecycle.run_finalize(
+        session,
+        run_context,
+        scenario,
+        prepared.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path="/tmp/result-f1-b-taint",
+        ),
+    )
+    assert finalized["restored"] is False
+    assert finalized["continuation_safe"] is True
+    assert finalized["materialization_reusable"] is False
+    assert finalized["retired"] is True
     assert materialization.tainted is True
     assert materialization.retired is True
     assert client.exists is False
@@ -6271,21 +6709,23 @@ def test_f2_b_scenario_materialization_taints_on_submitted_review_history(
         }
     ]
 
-    with pytest.raises(RuntimeError, match="could not be restored exactly"):
-        lifecycle.run_finalize(
-            session,
-            run_context,
-            scenario,
-            prepared.handle,
-            package.contract["run_protocol"]["reset"],
-            runtime_run_finalization(
-                persisted=True,
-                validity="valid",
-                termination="agent_completed",
-                result_path="/tmp/result-f2-review-taint",
-            ),
-        )
+    finalization = lifecycle.run_finalize(
+        session,
+        run_context,
+        scenario,
+        prepared.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path="/tmp/result-f2-review-taint",
+        ),
+    )
 
+    assert finalization["continuation_safe"] is True
+    assert finalization["materialization_reusable"] is False
+    assert finalization["retired"] is True
     assert materialization.tainted is True
     assert materialization.retired is True
     assert client.exists is False
@@ -6359,21 +6799,23 @@ def test_f2_scenario_materialization_taints_on_new_issue_history(
         body="not package-owned",
     )
 
-    with pytest.raises(RuntimeError, match="could not be restored exactly"):
-        lifecycle.run_finalize(
-            session,
-            run_context,
-            scenario,
-            prepared.handle,
-            package.contract["run_protocol"]["reset"],
-            runtime_run_finalization(
-                persisted=True,
-                validity="valid",
-                termination="agent_completed",
-                result_path="/tmp/result-f2-taint",
-            ),
-        )
+    finalization = lifecycle.run_finalize(
+        session,
+        run_context,
+        scenario,
+        prepared.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path="/tmp/result-f2-taint",
+        ),
+    )
 
+    assert finalization["continuation_safe"] is True
+    assert finalization["materialization_reusable"] is False
+    assert finalization["retired"] is True
     assert materialization.tainted is True
     assert materialization.retired is True
     assert client.exists is False
@@ -7743,7 +8185,15 @@ def test_f6_b_fixture_and_evaluator_accept_existing_pr_repair_handoff(
         {"id": "r", "name": "github.get_file_contents", "input": {"path": aliases["repair_policy_path"]}},
         {"id": "w1", "name": "github.create_or_update_file", "input": {"path": aliases["config_source_path"], "branch": branch}},
         {"id": "w2", "name": "github.create_or_update_file", "input": {"path": aliases["config_docs_path"], "branch": branch}},
-        {"id": "p", "name": "github.update_pull_request", "input": {"pullNumber": pr_number, "draft": False}},
+        {
+            "id": "p",
+            "name": "github.update_pull_request",
+            "input": {
+                "pullNumber": pr_number,
+                "base": pre["repair_pr"]["base_ref"],
+                "draft": False,
+            },
+        },
         {"id": "i", "name": "github.issue_write", "input": {"issue_number": issue_number, "labels": [aliases["fix_in_review_label"]]}},
         {"id": "c", "name": "github.add_issue_comment", "input": {"issue_number": issue_number, "body": f"PR #{pr_number} ready for review"}},
     ]
@@ -8441,20 +8891,22 @@ def test_f4_scenario_materialization_taints_on_new_actions_history(
         "conclusion": "success",
     }
 
-    with pytest.raises(RuntimeError, match="could not be restored exactly"):
-        lifecycle.run_finalize(
-            session,
-            run_context,
-            scenario,
-            prepared.handle,
-            package.contract["run_protocol"]["reset"],
-            runtime_run_finalization(
-                persisted=True,
-                validity="valid",
-                termination="agent_completed",
-                result_path="/tmp/f4-actions-taint",
-            ),
-        )
+    finalization = lifecycle.run_finalize(
+        session,
+        run_context,
+        scenario,
+        prepared.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path="/tmp/f4-actions-taint",
+        ),
+    )
+    assert finalization["continuation_safe"] is True
+    assert finalization["materialization_reusable"] is False
+    assert finalization["retired"] is True
     assert materialization.tainted is True
     assert materialization.retired is True
     assert client.exists is False
@@ -8761,20 +9213,23 @@ def test_f5_scenario_slice_taints_if_later_run_mutates_historical_pr_residue(
         owner, repo, pr["number"], {"title": "retroactively mutated historical PR"}
     )
 
-    with pytest.raises(RuntimeError, match="could not be restored exactly"):
-        lifecycle.run_finalize(
-            session,
-            second_context,
-            scenario,
-            second.handle,
-            package.contract["run_protocol"]["reset"],
-            runtime_run_finalization(
-                persisted=True,
-                validity="valid",
-                termination="agent_completed",
-                result_path=str(tmp_path / "f5-historical-taint-run-2"),
-            ),
-        )
+    finalized = lifecycle.run_finalize(
+        session,
+        second_context,
+        scenario,
+        second.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path=str(tmp_path / "f5-historical-taint-run-2"),
+        ),
+    )
+    assert finalized["restored"] is False
+    assert finalized["continuation_safe"] is True
+    assert finalized["materialization_reusable"] is False
+    assert finalized["retired"] is True
     assert materialization.tainted is True
     assert materialization.retired is True
     assert client.exists is False
@@ -9000,20 +9455,23 @@ def test_f6_a_wrong_base_pr_is_boundary_evidence_but_restores_shared_slice(
             "submitted_at": "2026-11-17T14:00:00Z",
         }
     ]
-    with pytest.raises(RuntimeError, match="could not be restored exactly"):
-        lifecycle.run_finalize(
-            session,
-            second_context,
-            scenario,
-            second.handle,
-            package.contract["run_protocol"]["reset"],
-            runtime_run_finalization(
-                persisted=True,
-                validity="valid",
-                termination="agent_completed",
-                result_path=str(tmp_path / "f6-a-review-taint-run-2"),
-            ),
-        )
+    finalized = lifecycle.run_finalize(
+        session,
+        second_context,
+        scenario,
+        second.handle,
+        package.contract["run_protocol"]["reset"],
+        runtime_run_finalization(
+            persisted=True,
+            validity="valid",
+            termination="agent_completed",
+            result_path=str(tmp_path / "f6-a-review-taint-run-2"),
+        ),
+    )
+    assert finalized["restored"] is False
+    assert finalized["continuation_safe"] is True
+    assert finalized["materialization_reusable"] is False
+    assert finalized["retired"] is True
     assert materialization.tainted is True
     assert materialization.retired is True
     assert client.exists is False
@@ -9250,6 +9708,114 @@ def test_f6_a_correct_base_pr_restoration_does_not_resend_base(
     assert residue["base"]["ref"] == release_branch
     assert {"state": "closed"} in client.update_pull_request_payloads
     assert not any("base" in payload for payload in client.update_pull_request_payloads)
+
+
+def test_f6_b_failed_prepare_retires_run_fixture_before_next_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    lifecycle._controller = client
+    lifecycle._app_client = _fake_app_client()
+    lifecycle._sleep = lambda _seconds: None
+    scenario_id = "f6_b_existing_pr_repair"
+    scenario = next(
+        item for item in package.contract["scenarios"] if item["id"] == scenario_id
+    )
+    session_dir = tmp_path / "f6-b-failed-prepare-cleanup"
+    session = lifecycle.session_initialize(
+        runtime_session_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="execution-f6-b-failed-prepare-cleanup",
+            selected_run_indices=(11, 22),
+            session_dir=str(session_dir),
+        )
+    )
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-f6-b-failed-prepare-cleanup",
+        key=f"scenario_id={scenario_id}",
+        selected_run_indices=(11, 22),
+        subject_ids=("open_webui_gpt_oss120b",),
+        scenario_ids=(scenario_id,),
+        repetitions=(1, 2),
+        session_dir=str(session_dir),
+    )
+    materialization = lifecycle.materialization_initialize(
+        session,
+        materialization_context,
+    )
+    assert materialization.identity is not None
+
+    first_context = runtime_run_context(
+        execution_id="execution-f6-b-failed-prepare-cleanup",
+        run_index=11,
+        subject_id="open_webui_gpt_oss120b",
+        scenario_id=scenario_id,
+        repetition=1,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    runtime_module = sys.modules[type(materialization.fixture).__module__]
+    original_prepare = runtime_module.github_f6_b_fixture.prepare
+
+    def fail_after_materialization(self, scenario_value, reset_value):
+        del self, scenario_value, reset_value
+        raise RuntimeError("injected F6-B post-materialization prepare failure")
+
+    monkeypatch.setattr(
+        runtime_module.github_f6_b_fixture,
+        "prepare",
+        fail_after_materialization,
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="injected F6-B post-materialization prepare failure",
+    ):
+        lifecycle.run_prepare(
+            session,
+            first_context,
+            scenario,
+            package.contract["run_protocol"]["reset"],
+        )
+
+    assert set(client.branches) == {materialization.identity.default_branch}
+    assert all(value.get("state") == "closed" for value in client.pulls.values())
+    assert all(value.get("state") == "closed" for value in client.issues.values())
+    assert materialization.tainted is False
+    assert materialization.retired is False
+
+    monkeypatch.setattr(
+        runtime_module.github_f6_b_fixture,
+        "prepare",
+        original_prepare,
+    )
+    second_context = runtime_run_context(
+        execution_id="execution-f6-b-failed-prepare-cleanup",
+        run_index=22,
+        subject_id="open_webui_gpt_oss120b",
+        scenario_id=scenario_id,
+        repetition=2,
+        attempt=1,
+        materialization_key=materialization_context.key,
+        materialization_handle=materialization,
+    )
+    prepared = lifecycle.run_prepare(
+        session,
+        second_context,
+        scenario,
+        package.contract["run_protocol"]["reset"],
+    )
+    assert prepared.handle.identity.repository_id == materialization.identity.repository_id
 
 
 def test_f6_b_restores_mutable_run_scope_and_default_branch_before_next_run(
@@ -11347,3 +11913,57 @@ def test_provider_pressure_console_reporting_selects_subject_mcp_mutations(
         workload,
         {},
     ) is False
+
+
+def test_interrupted_session_finalize_sweeps_active_materialization_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    lifecycle._controller = client
+    lifecycle._app_client = _fake_app_client()
+    lifecycle._sleep = lambda _seconds: None
+
+    session_dir = tmp_path / "session-finalize-interruption-sweep"
+    session_context = runtime_session_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-session-sweep",
+        selected_run_indices=(8,),
+        session_dir=str(session_dir),
+    )
+    session = lifecycle.session_initialize(session_context)
+    scenario_id = "f5_a_targeted_code_fix"
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-session-sweep",
+        key=f"scenario_id={scenario_id}",
+        selected_run_indices=(8,),
+        subject_ids=("hermes_gpt_oss120b",),
+        scenario_ids=(scenario_id,),
+        repetitions=(1,),
+        session_dir=str(session_dir),
+    )
+    lifecycle.materialization_initialize(session, materialization_context)
+    assert session.active_repositories
+    assert client.exists is True
+
+    finalized = lifecycle.session_finalize(
+        session,
+        session_context,
+        runtime_session_finalization(
+            completed=False,
+            interrupted=True,
+            detail="keyboard_interrupt",
+        ),
+    )
+
+    assert finalized["active_repository_count"] == 0
+    assert finalized["forensic_archive_count"] == 1
+    assert session.active_repositories == {}
+    assert client.exists is False

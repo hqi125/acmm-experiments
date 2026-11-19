@@ -96,12 +96,19 @@ class github_resource_ledger:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(self.path.suffix + ".tmp")
         data = (json.dumps(dict(value), indent=2, sort_keys=True) + "\n").encode("utf-8")
-        with temporary.open("wb") as handle:
-            handle.write(data)
-            handle.flush()
-            import os
-            os.fsync(handle.fileno())
-        temporary.replace(self.path)
+        try:
+            with temporary.open("wb") as handle:
+                handle.write(data)
+                handle.flush()
+                import os
+                os.fsync(handle.fileno())
+            temporary.replace(self.path)
+        except BaseException:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
 
 def github_runtime_resource_ledger_path(session_dir: str | Path) -> Path:

@@ -225,36 +225,57 @@ class github_api_governor:
             except BaseException as exc:
                 if admission is not None:
                     assert self._provider_gate_client is not None
-                    self._provider_gate_client.feedback(
-                        admission,
-                        status=None,
-                        headers={},
-                        body="",
-                        error=f"{exc.__class__.__name__}: {exc}",
-                        attempt=0,
-                        metadata={
-                            **self._provider_request_metadata,
-                            "route": operation,
-                            "git_operation": True,
-                        },
-                    )
+                    try:
+                        if isinstance(exc, KeyboardInterrupt):
+                            self._provider_gate_client.cancel(
+                                admission,
+                                f"{exc.__class__.__name__}: {exc}",
+                            )
+                        else:
+                            self._provider_gate_client.feedback(
+                                admission,
+                                status=None,
+                                headers={},
+                                body="",
+                                error=f"{exc.__class__.__name__}: {exc}",
+                                attempt=0,
+                                metadata={
+                                    **self._provider_request_metadata,
+                                    "route": operation,
+                                    "git_operation": True,
+                                },
+                            )
+                    except BaseException:
+                        # Preserve the original provider/Git interruption. Core's
+                        # gate quiescence will terminalize any orphan admission.
+                        pass
                     self._metrics["provider_gate_errors"] += 1
                 raise
             else:
                 if admission is not None:
                     assert self._provider_gate_client is not None
-                    self._provider_gate_client.feedback(
-                        admission,
-                        status=200,
-                        headers={},
-                        body="",
-                        attempt=0,
-                        metadata={
-                            **self._provider_request_metadata,
-                            "route": operation,
-                            "git_operation": True,
-                        },
-                    )
+                    try:
+                        self._provider_gate_client.feedback(
+                            admission,
+                            status=200,
+                            headers={},
+                            body="",
+                            attempt=0,
+                            metadata={
+                                **self._provider_request_metadata,
+                                "route": operation,
+                                "git_operation": True,
+                            },
+                        )
+                    except BaseException as exc:
+                        try:
+                            self._provider_gate_client.cancel(
+                                admission,
+                                f"feedback interrupted: {exc.__class__.__name__}: {exc}",
+                            )
+                        except BaseException:
+                            pass
+                        raise
                     self._metrics["provider_gate_results"] += 1
 
     def provider_gate_active(self) -> bool:
@@ -521,7 +542,14 @@ class github_api_governor:
             return
         try:
             assert self._provider_gate_client is not None
-            self._provider_gate_client.cancel(admission, detail)
+            try:
+                self._provider_gate_client.cancel(admission, detail)
+            except BaseException:
+                # Cancellation is best-effort on an already-failing path. The
+                # local admission must still be cleared so trusted interruption
+                # cleanup cannot deadlock behind stale controller state. Core's
+                # gate quiescence records any orphaned admission as interrupted.
+                pass
         finally:
             self._provider_gate_admission = None
             self._provider_gate_attempt = 0

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
 import re
+import signal
+import threading
 import time
 from typing import Any, Mapping
 from uuid import uuid4
@@ -18,6 +20,8 @@ from acmm.experiment_api import (
     runtime_materialization_context,
     runtime_materialization_finalization,
     runtime_run_context,
+    runtime_run_recovery_error,
+    runtime_run_recovery_result,
     runtime_subject_admission_request,
     runtime_run_finalization,
     runtime_session_context,
@@ -73,6 +77,44 @@ from .f6 import (
     github_f6_b_spec,
 )
 from .f6_runtime import github_f6_a_fixture, github_f6_b_fixture, github_f6_b_slice_fixture
+
+
+@contextmanager
+def _defer_sigint_during_cleanup(enabled: bool = True):
+    """Prevent a later Ctrl+C from tearing through package-owned cleanup."""
+
+    if (
+        not enabled
+        or threading.current_thread() is not threading.main_thread()
+        or not hasattr(signal, "SIGINT")
+    ):
+        yield
+        return
+
+    previous = signal.getsignal(signal.SIGINT)
+    if previous not in (signal.default_int_handler, signal.SIG_DFL):
+        # A higher lifecycle layer (notably Core interruption cleanup) already
+        # owns SIGINT semantics. Preserve that handler instead of shadowing its
+        # cooperative force-request state.
+        yield
+        return
+
+    def _defer(_signum, _frame):
+        return None
+
+    try:
+        signal.signal(signal.SIGINT, _defer)
+    except (ValueError, OSError):
+        yield
+        return
+
+    try:
+        yield
+    finally:
+        try:
+            signal.signal(signal.SIGINT, previous)
+        except (ValueError, OSError):
+            pass
 
 
 @dataclass
@@ -342,27 +384,52 @@ class github_workspace_disposable_lifecycle:
             )
         except (Exception, KeyboardInterrupt) as exc:
             cleanup_errors: list[str] = []
-            if installation_attached:
-                try:
-                    self._controller.remove_repository_from_app_installation(
-                        installation_id=self._app_client.installation_id,
-                        repository_id=repository_id,
-                    )
-                    session_handle.ledger.update(repository_id, installation_detached=True)
-                except Exception as cleanup_exc:
-                    cleanup_errors.append(f"App detachment: {cleanup_exc}")
             archive_context = self._materialization_archive_context(context)
-            archive_path = self._archive_then_delete_failed_repository(
-                session_handle,
-                archive_context,
-                owner=owner,
-                repository_name=repository_name,
-                full_name=full_name,
-                repository_id=repository_id,
-                phase="materialization_initialization",
-                reason=str(exc) or exc.__class__.__name__,
-            )
-            self._write_api_usage_artifact(session_handle)
+            try:
+                with _defer_sigint_during_cleanup():
+                    if installation_attached:
+                        try:
+                            self._controller.remove_repository_from_app_installation(
+                                installation_id=self._app_client.installation_id,
+                                repository_id=repository_id,
+                            )
+                            session_handle.ledger.update(
+                                repository_id, installation_detached=True
+                            )
+                        except Exception as cleanup_exc:
+                            cleanup_errors.append(f"App detachment: {cleanup_exc}")
+                    archive_path = self._archive_then_delete_failed_repository(
+                        session_handle,
+                        archive_context,
+                        owner=owner,
+                        repository_name=repository_name,
+                        full_name=full_name,
+                        repository_id=repository_id,
+                        phase="materialization_initialization",
+                        reason=str(exc) or exc.__class__.__name__,
+                    )
+                    self._write_api_usage_artifact(session_handle)
+            except Exception as cleanup_exc:
+                if isinstance(exc, KeyboardInterrupt):
+                    raise
+                detail = (
+                    f"Scenario materialization initialization failed for {full_name} "
+                    f"({exc}), and trusted retirement could not be established: "
+                    f"{cleanup_exc}"
+                )
+                raise runtime_run_recovery_error(
+                    runtime_run_recovery_result(
+                        safe_to_continue=False,
+                        materialization_reusable=False,
+                        retryable=False,
+                        detail=detail,
+                        observations={
+                            "phase": "materialization_initialization",
+                            "repository": full_name,
+                            "repository_id": repository_id,
+                        },
+                    )
+                ) from cleanup_exc
             if isinstance(exc, KeyboardInterrupt):
                 raise
             detail = (
@@ -372,7 +439,21 @@ class github_workspace_disposable_lifecycle:
             )
             if cleanup_errors:
                 detail += "; cleanup warnings: " + "; ".join(cleanup_errors)
-            raise github_controller_error(detail) from exc
+            raise runtime_run_recovery_error(
+                runtime_run_recovery_result(
+                    safe_to_continue=True,
+                    materialization_reusable=False,
+                    retryable=False,
+                    detail=detail,
+                    observations={
+                        "phase": "materialization_initialization",
+                        "repository": full_name,
+                        "repository_id": repository_id,
+                        "forensic_archive": archive_path,
+                        "retired": True,
+                    },
+                )
+            ) from exc
 
     def materialization_finalize(
         self,
@@ -544,14 +625,19 @@ class github_workspace_disposable_lifecycle:
         )
         prepare_for_run = getattr(fixture, "prepare_for_run", None)
         run_fixture = fixture
-        if callable(prepare_for_run):
-            run_fixture, prepared = prepare_for_run(scenario, reset, context)
-        else:
-            prepared = fixture.prepare(scenario, reset)
-
+        prepared = None
         diagnostic_snapshots: tuple[str, ...] = ()
         issued_token = None
         try:
+            # Run-scoped fixture preparation is part of the guarded preparation
+            # transaction. Some fixtures create provider-visible state before a
+            # prepared_environment exists, so failures here must enter the same
+            # restoration/retirement path as later preparation failures.
+            if callable(prepare_for_run):
+                run_fixture, prepared = prepare_for_run(scenario, reset, context)
+            else:
+                prepared = fixture.prepare(scenario, reset)
+
             if context.capture_environment_snapshots:
                 pre_snapshot = self._write_diagnostic_snapshot(
                     session_handle,
@@ -625,62 +711,124 @@ class github_workspace_disposable_lifecycle:
             )
         except BaseException as exc:
             cleanup_errors: list[str] = []
-            if issued_token is not None:
-                try:
-                    self._app_client.revoke(issued_token.token)
+            with _defer_sigint_during_cleanup():
+                if issued_token is not None:
                     try:
-                        session_handle.ledger.update(
-                            identity.repository_id,
-                            token_revoked=True,
-                        )
-                    except Exception as ledger_exc:
+                        self._app_client.revoke(issued_token.token)
+                        try:
+                            session_handle.ledger.update(
+                                identity.repository_id,
+                                token_revoked=True,
+                            )
+                        except Exception as ledger_exc:
+                            cleanup_errors.append(
+                                "resource ledger could not record prepare-failure token "
+                                f"revocation: {ledger_exc}"
+                            )
+                    except Exception as revoke_exc:
                         cleanup_errors.append(
-                            "resource ledger could not record prepare-failure token "
-                            f"revocation: {ledger_exc}"
+                            f"prepare-failure App token revocation failed: {revoke_exc}"
                         )
-                except Exception as revoke_exc:
-                    cleanup_errors.append(
-                        f"prepare-failure App token revocation failed: {revoke_exc}"
-                    )
 
-            try:
-                restoration = run_fixture.finalize(
-                    scenario,
-                    prepared.handle,
-                    reset,
-                )
-            except Exception as restore_exc:
-                restoration = {
-                    "restored": False,
-                    "detail": str(restore_exc) or restore_exc.__class__.__name__,
-                }
-            if not (
-                isinstance(restoration, Mapping)
-                and restoration.get("restored") is True
-            ):
-                cleanup_errors.append(
-                    "prepare-failure fixture restoration did not re-establish the "
-                    f"shared-run invariant: {restoration!r}"
-                )
+                try:
+                    if prepared is not None:
+                        restoration = run_fixture.finalize(
+                            scenario,
+                            prepared.handle,
+                            reset,
+                        )
+                    else:
+                        cleanup_failed_prepare = getattr(
+                            fixture,
+                            "cleanup_failed_prepare",
+                            None,
+                        )
+                        if callable(cleanup_failed_prepare):
+                            restoration = cleanup_failed_prepare(
+                                scenario,
+                                reset,
+                                context,
+                            )
+                        else:
+                            restoration = {
+                                "restored": False,
+                                "detail": (
+                                    "fixture preparation failed before a run handle "
+                                    "existed and the fixture provides no "
+                                    "cleanup_failed_prepare hook"
+                                ),
+                            }
+                except Exception as restore_exc:
+                    restoration = {
+                        "restored": False,
+                        "detail": str(restore_exc) or restore_exc.__class__.__name__,
+                    }
+                if not (
+                    isinstance(restoration, Mapping)
+                    and restoration.get("restored") is True
+                ):
+                    cleanup_errors.append(
+                        "prepare-failure fixture restoration did not re-establish the "
+                        f"shared-run invariant: {restoration!r}"
+                    )
 
             if cleanup_errors:
                 materialization_handle.tainted = True
-                archive_path = self._archive_then_delete_failed_repository(
-                    session_handle,
-                    context,
-                    owner=identity.owner,
-                    repository_name=identity.name,
-                    full_name=identity.full_name,
-                    repository_id=identity.repository_id,
-                    phase="shared_run_prepare",
-                    reason="; ".join(cleanup_errors),
-                )
+                try:
+                    archive_path = self._archive_then_delete_failed_repository(
+                        session_handle,
+                        context,
+                        owner=identity.owner,
+                        repository_name=identity.name,
+                        full_name=identity.full_name,
+                        repository_id=identity.repository_id,
+                        phase="shared_run_prepare",
+                        reason="; ".join(cleanup_errors),
+                    )
+                except Exception as archive_exc:
+                    if isinstance(exc, KeyboardInterrupt):
+                        raise
+                    detail = (
+                        f"Run {context.run_index} preparation failed ({exc}); cleanup "
+                        "could not re-establish the shared-run invariant and trusted "
+                        f"materialization retirement also failed: {archive_exc}"
+                    )
+                    raise runtime_run_recovery_error(
+                        runtime_run_recovery_result(
+                            safe_to_continue=False,
+                            materialization_reusable=False,
+                            retryable=False,
+                            detail=detail,
+                            observations={
+                                "phase": "shared_run_prepare",
+                                "repository": identity.full_name,
+                                "repository_id": identity.repository_id,
+                            },
+                        )
+                    ) from archive_exc
                 materialization_handle.retired = True
-                raise github_controller_error(
+                if isinstance(exc, KeyboardInterrupt):
+                    raise
+                detail = (
                     f"Run {context.run_index} preparation failed ({exc}); cleanup could "
                     f"not re-establish the shared-run invariant. The materialization "
                     f"was archived and retired: {archive_path}. Cleanup detail: "
                     + "; ".join(cleanup_errors)
+                )
+                raise runtime_run_recovery_error(
+                    runtime_run_recovery_result(
+                        safe_to_continue=True,
+                        materialization_reusable=False,
+                        retryable=False,
+                        detail=detail,
+                        observations={
+                            "phase": "shared_run_prepare",
+                            "repository": identity.full_name,
+                            "repository_id": identity.repository_id,
+                            "forensic_archive": archive_path,
+                            "retired": True,
+                        },
+                    )
                 ) from exc
             raise
 
@@ -742,17 +890,28 @@ class github_workspace_disposable_lifecycle:
                 "tainted": True,
                 "retired": True,
                 "archived": True,
+                "continuation_safe": True,
+                "materialization_reusable": False,
+                "retryable": False,
+                "recovery_detail": reason,
                 "forensic_archive": archive_path,
                 "repository": identity.full_name,
                 "repository_id": identity.repository_id,
                 "reason": reason,
             }
 
-        restoration = handle.fixture.finalize(
-            scenario,
-            handle.fixture_handle,
-            reset,
-        )
+        try:
+            restoration = handle.fixture.finalize(
+                scenario,
+                handle.fixture_handle,
+                reset,
+            )
+        except Exception as restore_exc:
+            restoration = {
+                "restored": False,
+                "detail": str(restore_exc) or restore_exc.__class__.__name__,
+                "exception_type": restore_exc.__class__.__name__,
+            }
         restored = (
             isinstance(restoration, Mapping)
             and restoration.get("restored") is True
@@ -775,9 +934,25 @@ class github_workspace_disposable_lifecycle:
             )
             materialization_handle.retired = True
             self._write_api_usage_artifact(session_handle)
-            raise github_controller_error(
-                f"{reason}. The materialization was archived and retired: {archive_path}"
-            )
+            return {
+                "shared": True,
+                "restored": False,
+                "tainted": True,
+                "retired": True,
+                "archived": True,
+                "continuation_safe": True,
+                "materialization_reusable": False,
+                "retryable": False,
+                "recovery_detail": reason,
+                "forensic_archive": archive_path,
+                "repository": identity.full_name,
+                "repository_id": identity.repository_id,
+                "restoration": (
+                    dict(restoration)
+                    if isinstance(restoration, Mapping)
+                    else restoration
+                ),
+            }
 
         diagnostic_snapshots = list(handle.diagnostic_snapshots)
         if context.capture_environment_snapshots:
@@ -863,16 +1038,72 @@ class github_workspace_disposable_lifecycle:
         context: runtime_session_context,
         outcome: runtime_session_finalization,
     ) -> Mapping[str, Any]:
-        del context
         if not isinstance(session_handle, github_disposable_session):
             raise TypeError("Disposable GitHub session handle is invalid.")
+
+        sweep_errors: list[str] = []
+        if session_handle.active_repositories:
+            if outcome.completed:
+                names = ", ".join(
+                    sorted(session_handle.active_repositories.values())
+                )
+                raise github_controller_error(
+                    "Completed GitHub lifecycle session still owns active "
+                    f"repository materialization(s): {names}."
+                )
+
+            for repository_id, full_name in list(
+                session_handle.active_repositories.items()
+            ):
+                if "/" not in full_name:
+                    sweep_errors.append(
+                        f"repository id {repository_id}: malformed full name {full_name!r}"
+                    )
+                    continue
+                owner, repository_name = full_name.split("/", 1)
+                cleanup_context = runtime_run_context(
+                    execution_id=context.execution_id,
+                    run_index=(
+                        int(context.selected_run_indices[0])
+                        if context.selected_run_indices
+                        else 0
+                    ),
+                    subject_id="session_cleanup",
+                    scenario_id="session_cleanup",
+                    repetition=0,
+                    attempt=0,
+                    materialization_key="session_cleanup",
+                )
+                try:
+                    self._archive_then_delete_failed_repository(
+                        session_handle,
+                        cleanup_context,
+                        owner=owner,
+                        repository_name=repository_name,
+                        full_name=full_name,
+                        repository_id=repository_id,
+                        phase="session_finalization_sweep",
+                        reason=(
+                            outcome.detail
+                            or (
+                                "interrupted session finalization sweep"
+                                if outcome.interrupted
+                                else "failed session finalization sweep"
+                            )
+                        ),
+                    )
+                except Exception as exc:
+                    sweep_errors.append(
+                        f"{full_name} (repository id={repository_id}): {exc}"
+                    )
+
         usage_path, usage = self._write_api_usage_artifact(session_handle)
         mcp_usage_path = Path(session_handle.session_dir) / "mcp_subject_api_usage.json"
         mcp_usage = json.loads(mcp_usage_path.read_text(encoding="utf-8"))
         set_progress = getattr(self._controller, "set_progress_reporter", None)
         if callable(set_progress):
             set_progress(None)
-        return {
+        result = {
             "completed": outcome.completed,
             "interrupted": outcome.interrupted,
             "active_repository_count": len(session_handle.active_repositories),
@@ -887,6 +1118,13 @@ class github_workspace_disposable_lifecycle:
             "mcp_subject_api_usage_artifact": str(mcp_usage_path),
             "mcp_subject_api_usage": mcp_usage["delta"],
         }
+        if sweep_errors:
+            result["cleanup_warnings"] = tuple(sweep_errors)
+            raise github_controller_error(
+                "GitHub lifecycle session cleanup sweep could not retire all active "
+                "repositories: " + "; ".join(sweep_errors)
+            )
+        return result
 
     def _write_api_usage_artifact(
         self,
@@ -905,11 +1143,18 @@ class github_workspace_disposable_lifecycle:
         usage_path = Path(session_handle.session_dir) / "apparatus_api_usage.json"
         usage_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = usage_path.with_suffix(usage_path.suffix + ".tmp")
-        temporary.write_text(
-            json.dumps(usage, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(usage_path)
+        try:
+            temporary.write_text(
+                json.dumps(usage, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            temporary.replace(usage_path)
+        except BaseException:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
         self._write_mcp_usage_artifact(session_handle)
         return usage_path, usage
 
@@ -940,11 +1185,18 @@ class github_workspace_disposable_lifecycle:
         usage_path = Path(session_handle.session_dir) / "mcp_subject_api_usage.json"
         usage_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = usage_path.with_suffix(usage_path.suffix + ".tmp")
-        temporary.write_text(
-            json.dumps(usage, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(usage_path)
+        try:
+            temporary.write_text(
+                json.dumps(usage, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            temporary.replace(usage_path)
+        except BaseException:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
         return usage_path, usage
 
     def _mcp_usage_snapshot(self) -> Mapping[str, Any]:

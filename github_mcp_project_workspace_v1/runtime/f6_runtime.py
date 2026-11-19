@@ -118,6 +118,37 @@ class github_f6_b_slice_fixture:
         fixture = github_f6_b_fixture(self._client, materializer, scoped_spec)
         return fixture, fixture.prepare(scenario, reset)
 
+    def cleanup_failed_prepare(self, scenario, reset, context):
+        del scenario
+        del reset
+        scoped_spec = github_f6_b_run_scoped_spec(
+            self._spec,
+            run_index=context.run_index,
+        )
+        owner, separator, repository_name = (
+            self._expected_repository_full_name.partition("/")
+        )
+        if not separator or repository_name != self._repository_name:
+            return {
+                "restored": False,
+                "detail": "F6-B materialization identity is malformed.",
+            }
+        identity = self._client.repository_identity(owner, repository_name)
+        if (
+            identity.full_name != self._expected_repository_full_name
+            or identity.repository_id != self._expected_repository_id
+            or identity.default_branch != self._expected_default_branch
+        ):
+            return {
+                "restored": False,
+                "detail": "F6-B materialization identity changed during failed preparation.",
+            }
+        return _retire_partial_f6_b_prepare(
+            self._client,
+            identity,
+            scoped_spec,
+        )
+
 
 class github_f6_b_fixture:
     def __init__(self, client, materializer, spec) -> None:
@@ -837,6 +868,125 @@ def _restore_f6_a_slice(
             "slice_owned_pull_residue": tuple(
                 int(key) for key in new_pull_keys
             ),
+            "non_restorable": tuple(non_restorable),
+        }
+    except Exception as exc:
+        return {
+            "restored": False,
+            "changed": True,
+            "detail": str(exc) or exc.__class__.__name__,
+        }
+
+
+
+def _retire_partial_f6_b_prepare(
+    client: github_controller_client,
+    identity: github_repository_identity,
+    spec: github_f6_b_spec,
+) -> dict[str, Any]:
+    """Retire provider-visible F6-B state when preparation fails before a run handle exists."""
+    try:
+        changed = False
+        non_restorable: list[str] = []
+
+        pulls = tuple(client.list_pull_requests(identity.owner, identity.name))
+        target_pull_markers = {spec.repair_pr.marker, spec.unrelated_pr.marker}
+        for pull in pulls:
+            if not isinstance(pull, Mapping):
+                continue
+            body = str(pull.get("body") or "")
+            if not any(marker in body for marker in target_pull_markers):
+                continue
+            number = pull.get("number")
+            if not isinstance(number, int):
+                non_restorable.append("run-scoped pull request has no numeric identifier")
+                continue
+            if pull.get("merged") is True or pull.get("merged_at"):
+                non_restorable.append(
+                    f"run-scoped pull request #{number} was merged during preparation"
+                )
+                continue
+            _retire_run_owned_pull_interactions(
+                client,
+                identity,
+                number,
+                non_restorable,
+            )
+            if pull.get("state") != "closed":
+                client.update_pull_request(
+                    identity.owner,
+                    identity.name,
+                    number,
+                    {"state": "closed"},
+                )
+                changed = True
+
+        issues = tuple(
+            item
+            for item in client.list_issues(identity.owner, identity.name)
+            if isinstance(item, Mapping) and "pull_request" not in item
+        )
+        for issue in issues:
+            body = str(issue.get("body") or "")
+            if spec.repair_issue.marker not in body:
+                continue
+            number = issue.get("number")
+            if not isinstance(number, int):
+                non_restorable.append("run-scoped issue has no numeric identifier")
+                continue
+            if issue.get("state") != "closed":
+                client.update_issue(
+                    identity.owner,
+                    identity.name,
+                    number,
+                    {"state": "closed"},
+                )
+                changed = True
+
+        branch_names = {
+            str(item.get("name"))
+            for item in client.list_branches(identity.owner, identity.name)
+            if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+        }
+        for branch in (spec.repair_branch, spec.unrelated_branch):
+            if branch in branch_names:
+                client.delete_ref(identity.owner, identity.name, branch)
+                changed = True
+
+        remaining_branches = {
+            str(item.get("name"))
+            for item in client.list_branches(identity.owner, identity.name)
+            if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+        }
+        if remaining_branches != {identity.default_branch}:
+            non_restorable.append(
+                "failed F6-B preparation left unexpected active branches: "
+                f"{sorted(remaining_branches)}"
+            )
+
+        for pull in client.list_pull_requests(identity.owner, identity.name):
+            if not isinstance(pull, Mapping):
+                continue
+            body = str(pull.get("body") or "")
+            if any(marker in body for marker in target_pull_markers):
+                if pull.get("state") != "closed" or pull.get("merged") is True:
+                    non_restorable.append(
+                        f"run-scoped pull request #{pull.get('number')} did not retire"
+                    )
+
+        for issue in client.list_issues(identity.owner, identity.name):
+            if not isinstance(issue, Mapping) or "pull_request" in issue:
+                continue
+            body = str(issue.get("body") or "")
+            if spec.repair_issue.marker in body and issue.get("state") != "closed":
+                non_restorable.append(
+                    f"run-scoped issue #{issue.get('number')} did not retire"
+                )
+
+        return {
+            "restored": not non_restorable,
+            "changed": changed,
+            "restoration_semantics": "retire_failed_run_scoped_fixture",
             "non_restorable": tuple(non_restorable),
         }
     except Exception as exc:

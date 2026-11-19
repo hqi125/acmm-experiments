@@ -9,6 +9,9 @@ from urllib.request import Request, urlopen
 import uuid
 
 
+_CONTROL_REQUEST_TIMEOUT_SECONDS = 180.0
+
+
 @dataclass(frozen=True)
 class github_provider_gate_admission:
     request_id: str
@@ -195,7 +198,10 @@ class github_provider_gate_client:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=None) as response:  # noqa: S310 - loopback control plane
+            with urlopen(
+                request,
+                timeout=_CONTROL_REQUEST_TIMEOUT_SECONDS,
+            ) as response:  # noqa: S310 - loopback control plane
                 body = response.read(256 * 1024)
                 status = int(response.status)
         except HTTPError as exc:
