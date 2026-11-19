@@ -1751,7 +1751,7 @@ def test_controller_client_mutation_primitives_are_namespaced_and_explicit(
     ]
 
 
-def test_urllib_transport_retries_only_tls_handshake_timeouts(
+def test_urllib_transport_performs_exactly_one_provider_attempt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1764,57 +1764,34 @@ def test_urllib_transport_retries_only_tls_handshake_timeouts(
     diagnostic = loaded.runtime.diagnostics["github_fixture_controller"]
     controller_module = sys.modules[type(diagnostic._client).__module__]
 
-    class response:
-        status = 200
-        headers = {}
+    attempts: list[str] = []
+    sleeps: list[float] = []
 
-        def __enter__(self):
-            return self
+    def timed_out_urlopen(request, *, timeout):
+        del timeout
+        attempts.append(request.get_method())
+        raise URLError(
+            TimeoutError("_ssl.c:1109: The handshake operation timed out")
+        )
 
-        def __exit__(self, exc_type, exc, traceback):
-            del exc_type, exc, traceback
-            return False
-
-        def read(self):
-            return b'{"ok":true}'
-
-    attempts = []
-
-    def flaky_urlopen(request, *, timeout):
-        del request, timeout
-        attempts.append("call")
-        if len(attempts) < 3:
-            raise URLError(
-                TimeoutError("_ssl.c:1109: The handshake operation timed out")
-            )
-        return response()
-
-    sleeps = []
-    monkeypatch.setattr(controller_module, "urlopen", flaky_urlopen)
+    monkeypatch.setattr(controller_module, "urlopen", timed_out_urlopen)
     monkeypatch.setattr(controller_module.time, "sleep", sleeps.append)
 
-    status, headers, body = controller_module._urllib_transport(
-        "POST",
-        "https://api.github.test/repos/example",
-        {"Authorization": "Bearer secret"},
-        b'{"name":"fixture"}',
-    )
-    assert status == 200
-    assert headers == {}
-    assert body == b'{"ok":true}'
-    assert len(attempts) == 3
-    assert sleeps == [0.25, 1.0]
+    with pytest.raises(
+        controller_module.github_controller_error,
+        match="Could not reach GitHub API during POST",
+    ):
+        controller_module._urllib_transport(
+            "POST",
+            "https://api.github.test/repos/example",
+            {"Authorization": "Bearer secret"},
+            b'{"name":"fixture"}',
+        )
+
+    assert attempts == ["POST"]
+    assert sleeps == []
 
     attempts.clear()
-    sleeps.clear()
-
-    def ambiguous_urlopen(request, *, timeout):
-        del request, timeout
-        attempts.append("call")
-        raise URLError(TimeoutError("timed out"))
-
-    monkeypatch.setattr(controller_module, "urlopen", ambiguous_urlopen)
-
     with pytest.raises(
         controller_module.github_controller_error,
         match="Could not reach GitHub API during GET",
@@ -1826,7 +1803,7 @@ def test_urllib_transport_retries_only_tls_handshake_timeouts(
             None,
         )
 
-    assert len(attempts) == 1
+    assert attempts == ["GET"]
     assert sleeps == []
 
 

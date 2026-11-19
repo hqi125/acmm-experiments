@@ -2109,25 +2109,16 @@ def _urllib_transport_with_open(
         headers=dict(headers),
         method=method,
     )
-    retry_delays = (0.25, 1.0, 2.0)
-    for attempt in range(len(retry_delays) + 1):
-        try:
-            with open_request(request, timeout=30.0) as response:
-                return response.status, dict(response.headers.items()), response.read()
-        except HTTPError as exc:
-            return exc.code, dict(exc.headers.items()), exc.read()
-        except URLError as exc:
-            if _is_tls_handshake_timeout(exc) and attempt < len(retry_delays):
-                time.sleep(retry_delays[attempt])
-                continue
-            raise github_controller_error(
-                f"Could not reach GitHub API during {method} {url}: {exc.reason}"
-            ) from exc
-
-    raise AssertionError("unreachable GitHub transport retry state")
-
-
-def _is_tls_handshake_timeout(exc: URLError) -> bool:
-    reason = exc.reason
-    rendered = str(reason).strip().casefold()
-    return "handshake operation timed out" in rendered
+    try:
+        with open_request(request, timeout=30.0) as response:
+            return response.status, dict(response.headers.items()), response.read()
+    except HTTPError as exc:
+        return exc.code, dict(exc.headers.items()), exc.read()
+    except URLError as exc:
+        # Transport performs exactly one provider attempt. Retry classification
+        # belongs in _provider_request so every safe-read retry re-enters the
+        # governor/Core Provider Gate. Ambiguous mutations must never be replayed
+        # below that admission boundary.
+        raise github_controller_error(
+            f"Could not reach GitHub API during {method} {url}: {exc.reason}"
+        ) from exc
