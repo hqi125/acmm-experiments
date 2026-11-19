@@ -57,7 +57,9 @@ class github_workspace_runtime_recovery:
                     and name_marker in name
                 ):
                     discovered[repository_id] = repository
-        except Exception as exc:
+        except BaseException as exc:
+            if isinstance(exc, KeyboardInterrupt):
+                raise
             return runtime_execution_recovery_result(
                 safe_to_continue=False,
                 changed=False,
@@ -160,7 +162,9 @@ class github_workspace_runtime_recovery:
                         repository_id,
                         repository_retired=True,
                     )
-            except Exception as exc:
+            except BaseException as exc:
+                if isinstance(exc, KeyboardInterrupt):
+                    raise
                 failures.append(
                     f"{full_name or f'{owner}/{name}'} (id={repository_id}): {exc}"
                 )

@@ -382,7 +382,7 @@ class github_workspace_disposable_lifecycle:
                 fixture=fixture,
                 fixture_id=fixture_id,
             )
-        except (Exception, KeyboardInterrupt) as exc:
+        except BaseException as exc:
             cleanup_errors: list[str] = []
             archive_context = self._materialization_archive_context(context)
             try:
@@ -396,7 +396,7 @@ class github_workspace_disposable_lifecycle:
                             session_handle.ledger.update(
                                 repository_id, installation_detached=True
                             )
-                        except Exception as cleanup_exc:
+                        except BaseException as cleanup_exc:
                             cleanup_errors.append(f"App detachment: {cleanup_exc}")
                     archive_path = self._archive_then_delete_failed_repository(
                         session_handle,
@@ -409,7 +409,9 @@ class github_workspace_disposable_lifecycle:
                         reason=str(exc) or exc.__class__.__name__,
                     )
                     self._write_api_usage_artifact(session_handle)
-            except Exception as cleanup_exc:
+            except BaseException as cleanup_exc:
+                if isinstance(cleanup_exc, KeyboardInterrupt):
+                    raise
                 if isinstance(exc, KeyboardInterrupt):
                     raise
                 detail = (
@@ -720,12 +722,12 @@ class github_workspace_disposable_lifecycle:
                                 identity.repository_id,
                                 token_revoked=True,
                             )
-                        except Exception as ledger_exc:
+                        except BaseException as ledger_exc:
                             cleanup_errors.append(
                                 "resource ledger could not record prepare-failure token "
                                 f"revocation: {ledger_exc}"
                             )
-                    except Exception as revoke_exc:
+                    except BaseException as revoke_exc:
                         cleanup_errors.append(
                             f"prepare-failure App token revocation failed: {revoke_exc}"
                         )
@@ -758,7 +760,9 @@ class github_workspace_disposable_lifecycle:
                                     "cleanup_failed_prepare hook"
                                 ),
                             }
-                except Exception as restore_exc:
+                except BaseException as restore_exc:
+                    if isinstance(restore_exc, KeyboardInterrupt):
+                        raise
                     restoration = {
                         "restored": False,
                         "detail": str(restore_exc) or restore_exc.__class__.__name__,
@@ -785,7 +789,9 @@ class github_workspace_disposable_lifecycle:
                         phase="shared_run_prepare",
                         reason="; ".join(cleanup_errors),
                     )
-                except Exception as archive_exc:
+                except BaseException as archive_exc:
+                    if isinstance(archive_exc, KeyboardInterrupt):
+                        raise
                     if isinstance(exc, KeyboardInterrupt):
                         raise
                     detail = (
@@ -858,7 +864,9 @@ class github_workspace_disposable_lifecycle:
             try:
                 self._app_client.revoke(handle.admission_token)
                 session_handle.ledger.update(identity.repository_id, token_revoked=True)
-            except Exception as exc:
+            except BaseException as exc:
+                if isinstance(exc, KeyboardInterrupt):
+                    raise
                 materialization_handle.tainted = True
                 raise github_controller_error(
                     f"Refusing shared-materialization continuation for {identity.full_name}: "
@@ -906,7 +914,9 @@ class github_workspace_disposable_lifecycle:
                 handle.fixture_handle,
                 reset,
             )
-        except Exception as restore_exc:
+        except BaseException as restore_exc:
+            if isinstance(restore_exc, KeyboardInterrupt):
+                raise
             restoration = {
                 "restored": False,
                 "detail": str(restore_exc) or restore_exc.__class__.__name__,
@@ -1092,7 +1102,9 @@ class github_workspace_disposable_lifecycle:
                             )
                         ),
                     )
-                except Exception as exc:
+                except BaseException as exc:
+                    if isinstance(exc, KeyboardInterrupt):
+                        raise
                     sweep_errors.append(
                         f"{full_name} (repository id={repository_id}): {exc}"
                     )
@@ -1259,7 +1271,9 @@ class github_workspace_disposable_lifecycle:
                     repository_id,
                     repository_retired=True,
                 )
-        except Exception as exc:
+        except BaseException as exc:
+            if isinstance(exc, KeyboardInterrupt):
+                raise
             raise github_controller_error(
                 f"Forensic archive persisted at {archive_path}, but remote cleanup failed "
                 f"for disposable scenario repository {full_name} "
@@ -1453,7 +1467,9 @@ class github_workspace_disposable_lifecycle:
         def capture(label: str, operation, fallback):
             try:
                 return operation()
-            except Exception as exc:
+            except BaseException as exc:
+                if isinstance(exc, KeyboardInterrupt):
+                    raise
                 capture_errors.append(
                     {
                         "surface": label,
@@ -1626,7 +1642,9 @@ class github_workspace_disposable_lifecycle:
                         payload,
                     )
             temporary.replace(destination)
-        except Exception as exc:
+        except BaseException as exc:
+            if isinstance(exc, KeyboardInterrupt):
+                raise
             try:
                 temporary.unlink(missing_ok=True)
             except OSError:

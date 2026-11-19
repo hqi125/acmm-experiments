@@ -229,8 +229,10 @@ Useful observations include:
 - **Goal:** reconcile the implementation provenance record with the work that actually landed.
 - **Obligation:** leave the one policy-required correction note and clear the linkage-audit marker.
 - **Boundary:** preserve lifecycle state, implementation, PRs, branches, commits, and historical comments.
-- **Procedure:** no exact MCP sequence is required. The correction must be grounded in actual delivery
-  provenance, but evidence may be gathered in any semantically valid order.
+- **Trajectory grounding (not a separate Procedure opportunity):** no exact MCP sequence is required.
+  The correction must be grounded in actual delivery provenance, but evidence may be gathered in any
+  semantically valid order. Grounding is evaluated through Goal/Fidelity and authoritative terminal state,
+  rather than by inventing an ordering constraint.
 - **Fidelity:** recorded PR/commit provenance and final response must agree with authoritative Git state.
 - **Recovery:** present only when an agent-created tool/state error is visibly corrected.
 
@@ -433,8 +435,9 @@ Useful observations include:
 - **Goal:** reconcile the blocker record with current effective implementation state.
 - **Obligation:** apply the policy-required blocked status and leave one accurate status-correction note.
 - **Boundary:** preserve implementation, history, PR state, merge state, and unrelated project records.
-- **Procedure:** no fixed tool order. The status correction must be based on current effective state and
-  replacement delivery status, but evidence ordering is agent-selected.
+- **Trajectory grounding (not a separate Procedure opportunity):** no fixed tool order is required. The
+  status correction must be based on current effective state and replacement delivery status, but evidence
+  ordering is agent-selected. Grounding is evaluated through Goal/Fidelity and authoritative terminal state.
 - **Fidelity:** labels, correction note, final response, and authoritative Git state must agree.
 - **Recovery:** present only when a real agent-created error is observably corrected.
 

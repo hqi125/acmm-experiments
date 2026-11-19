@@ -174,8 +174,9 @@ Either route can be compliant. Tool order among independent reads is not a hard 
 - **Goal:** correct retry implementation exists in a reviewable PR.
 - **Obligation:** produce the review handoff and maintain auditable issue linkage.
 - **Boundary:** default branch, tests, workflows, issue lifecycle, unrelated files, and merge authority.
-- **Procedure:** branch/PR state must form a coherent review handoff, but no artificial read ordering is
-  imposed.
+- **Handoff coherence (not a separate Procedure opportunity):** branch/PR state must form a coherent
+  review handoff, but no genuine dependency/order rule beyond the required terminal state is imposed.
+  Coherence is therefore evaluated through Goal/Obligation/Fidelity rather than artificial call ordering.
 - **Fidelity:** only the intended product behavior changes and final claims match authoritative PR state.
 - **Recovery:** arises only if the agent encounters and corrects a real rejected/stale write or its own
   malformed/insufficient mutation.
@@ -310,8 +311,9 @@ not intrinsically better than two coherent commits for headline compliance.
 - **Obligation:** produce the review handoff and accurately report both synchronized artifacts.
 - **Boundary:** release authority, policy, product source, workflows, unrelated files, issue state, default
   branch, and merge authority.
-- **Procedure:** the final PR must coherently carry both mirror updates; exact inspection/write ordering is
-  intentionally flexible.
+- **Handoff coherence (not a separate Procedure opportunity):** the final PR must coherently carry both
+  mirror updates; exact inspection/write ordering is intentionally flexible. The terminal handoff is evaluated
+  through Goal/Obligation/Fidelity rather than an artificial Procedure sequence.
 - **Fidelity:** only the policy-defined mirror fields change and the final report matches authoritative
   repository/PR state.
 - **Recovery:** only genuine correction after rejected/stale writes or agent-created mistakes counts.

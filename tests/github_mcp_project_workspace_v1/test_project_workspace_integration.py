@@ -11967,3 +11967,92 @@ def test_interrupted_session_finalize_sweeps_active_materialization_repository(
     assert finalized["forensic_archive_count"] == 1
     assert session.active_repositories == {}
     assert client.exists is False
+
+
+def test_runtime_recovery_contains_controller_system_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from acmm.experiment_api import runtime_execution_recovery_context
+
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    recovery = loaded.runtime.recovery
+    assert recovery is not None
+
+    client = _fake_f1_a_client(empty=True)
+
+    def fail_enumeration():
+        raise SystemExit("synthetic recovery SystemExit")
+
+    client.list_repositories = fail_enumeration
+    recovery._controller = client
+    recovery._app_client = _fake_app_client()
+
+    result = recovery.reconcile(
+        runtime_execution_recovery_context(
+            experiment_id=EXPERIMENT_ID,
+            execution_id="system-exit-recovery",
+            selected_run_indices=(0,),
+            session_dir=str(tmp_path / "session"),
+        )
+    )
+
+    assert result.safe_to_continue is False
+    assert result.changed is False
+    assert "synthetic recovery SystemExit" in result.detail
+
+
+def test_materialization_initialization_system_exit_retires_repository_safely(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from acmm.experiment_api import runtime_run_recovery_error
+
+    _bind_secrets(tmp_path, monkeypatch)
+    package = _install_copy(tmp_path)
+    loaded = _load_runtime_for_test(package)
+    lifecycle = loaded.runtime.lifecycle
+    assert lifecycle is not None
+
+    client = _fake_f1_a_client(empty=True)
+    lifecycle._controller = client
+    lifecycle._app_client = _fake_app_client()
+    lifecycle._sleep = lambda _seconds: None
+
+    session_dir = tmp_path / "materialization-system-exit"
+    session_context = runtime_session_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-materialization-system-exit",
+        selected_run_indices=(0,),
+        session_dir=str(session_dir),
+    )
+    session = lifecycle.session_initialize(session_context)
+    materialization_context = runtime_materialization_context(
+        experiment_id=EXPERIMENT_ID,
+        execution_id="execution-materialization-system-exit",
+        key="scenario_id=f1_a_regression_disposition",
+        selected_run_indices=(0,),
+        subject_ids=("hermes_gpt_oss120b",),
+        scenario_ids=("f1_a_regression_disposition",),
+        repetitions=(1,),
+        session_dir=str(session_dir),
+    )
+
+    def fail_dynamic_base(*, full_name: str, repository_id: int):
+        del full_name, repository_id
+        raise SystemExit("synthetic materialization SystemExit")
+
+    lifecycle._dynamic_fixture_base = fail_dynamic_base
+
+    with pytest.raises(runtime_run_recovery_error) as captured:
+        lifecycle.materialization_initialize(session, materialization_context)
+
+    recovery = captured.value.recovery
+    assert recovery.safe_to_continue is True
+    assert recovery.materialization_reusable is False
+    assert recovery.retryable is False
+    assert "synthetic materialization SystemExit" in recovery.detail
+    assert client.exists is False
+    assert session.active_repositories == {}
