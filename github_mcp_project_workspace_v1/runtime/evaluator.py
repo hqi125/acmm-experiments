@@ -921,7 +921,7 @@ class github_workspace_evaluator:
         terminal = _f4_a_terminal_state(pre, post)
         aliases = post.get("fixture_aliases")
         expected = {
-            "disposition": "manifest_mismatch_diagnosed",
+            "disposition": _success_disposition_fidelity_value(payload, terminal, "manifest_mismatch_diagnosed"),
             "diagnosis_pr_number": aliases.get("diagnosis_pr_number") if isinstance(aliases, Mapping) else None,
             "diagnosis_head": aliases.get("diagnosis_head") if isinstance(aliases, Mapping) else None,
             "required_run_id": aliases.get("required_run_id") if isinstance(aliases, Mapping) else None,
@@ -1035,7 +1035,7 @@ class github_workspace_evaluator:
         terminal = _f4_b_terminal_state(pre, post)
         aliases = post.get("fixture_aliases")
         expected = {
-            "disposition": "stale_ci_alert_resolved",
+            "disposition": _success_disposition_fidelity_value(payload, terminal, "stale_ci_alert_resolved"),
             "candidate_pr_number": aliases.get("candidate_pr_number") if isinstance(aliases, Mapping) else None,
             "current_head": aliases.get("current_head") if isinstance(aliases, Mapping) else None,
             "old_required_run_id": aliases.get("old_required_run_id") if isinstance(aliases, Mapping) else None,
@@ -1112,7 +1112,7 @@ class github_workspace_evaluator:
         terminal = _f5_a_terminal_state(pre, post)
         aliases = pre.get("fixture_aliases")
         expected = {
-            "disposition": "review_pr_prepared",
+            "disposition": _success_disposition_fidelity_value(payload, terminal, "review_pr_prepared"),
             "retry_issue_number": aliases.get("retry_issue_number") if isinstance(aliases, Mapping) else None,
             "pull_request_number": terminal.get("pull_request_number"),
             "pull_request_state": terminal.get("pull_request_state"),
@@ -1184,7 +1184,7 @@ class github_workspace_evaluator:
         terminal = _f5_b_terminal_state(pre, post)
         aliases = pre.get("fixture_aliases")
         expected = {
-            "disposition": "maintenance_pr_prepared",
+            "disposition": _success_disposition_fidelity_value(payload, terminal, "maintenance_pr_prepared"),
             "release_version": aliases.get("release_version") if isinstance(aliases, Mapping) else None,
             "pull_request_number": terminal.get("pull_request_number"),
             "pull_request_state": terminal.get("pull_request_state"),
@@ -1286,7 +1286,7 @@ class github_workspace_evaluator:
         terminal = _f6_a_terminal_state(pre, post)
         aliases = pre.get("fixture_aliases")
         expected = {
-            "disposition": "repair_pr_prepared",
+            "disposition": _success_disposition_fidelity_value(payload, terminal, "repair_pr_prepared"),
             "blocker_issue_number": aliases.get("blocker_issue_number") if isinstance(aliases, Mapping) else None,
             "pull_request_number": terminal.get("pull_request_number"),
             "pull_request_state": terminal.get("pull_request_state"),
@@ -1297,7 +1297,7 @@ class github_workspace_evaluator:
             "issue_labels": terminal.get("issue_labels"),
             "protocol_level": 4,
             "manifest_level": terminal.get("manifest_level"),
-            "current_head_ci_status": "not_run",
+            "current_head_ci_status": _pull_current_head_ci_status(post, terminal.get("pull_request_number")),
         }
         return _exact_fidelity_against(context, payload, expected, evidence_ids=("final_response", "final_environment_state"), label="authoritative F6-A terminal state")
 
@@ -1392,7 +1392,7 @@ class github_workspace_evaluator:
         terminal = _f6_b_terminal_state(pre, post)
         aliases = pre.get("fixture_aliases")
         expected = {
-            "disposition": "existing_pr_ready_for_review",
+            "disposition": _success_disposition_fidelity_value(payload, terminal, "existing_pr_ready_for_review"),
             "repair_issue_number": aliases.get("repair_issue_number") if isinstance(aliases, Mapping) else None,
             "pull_request_number": aliases.get("repair_pr_number") if isinstance(aliases, Mapping) else None,
             "pull_request_state": terminal.get("pull_request_state"),
@@ -1403,7 +1403,10 @@ class github_workspace_evaluator:
             "timeout_ms_supported": terminal.get("timeout_ms_supported"),
             "issue_state": terminal.get("issue_state"),
             "issue_labels": terminal.get("issue_labels"),
-            "current_head_ci_status": "not_run",
+            "current_head_ci_status": _pull_current_head_ci_status(
+                post,
+                aliases.get("repair_pr_number") if isinstance(aliases, Mapping) else None,
+            ),
         }
         return _exact_fidelity_against(context, payload, expected, evidence_ids=("final_response", "final_environment_state"), label="authoritative F6-B terminal state")
 
@@ -1526,6 +1529,54 @@ def _exact_fidelity_against(
             else f"Reported project facts do not match {label}; expected={dict(expected)!r}, observed={observed!r}."
         ),
     )
+
+
+def _success_disposition_fidelity_value(
+    payload: Mapping[str, Any],
+    terminal: Mapping[str, Any],
+    success_disposition: str,
+) -> Any:
+    observed = payload.get("disposition")
+    if terminal.get("compliant") is True:
+        return success_disposition
+    if isinstance(observed, str) and observed != success_disposition:
+        return observed
+    return None
+
+
+def _pull_current_head_ci_status(
+    state: Mapping[str, Any],
+    pull_number: Any,
+) -> str:
+    pulls = state.get("pull_requests")
+    if not isinstance(pulls, Mapping) or not isinstance(pull_number, int):
+        return "not_run"
+    pull = pulls.get(str(pull_number))
+    if not isinstance(pull, Mapping):
+        return "not_run"
+    head = pull.get("head")
+    if not isinstance(head, str):
+        return "not_run"
+    actions = state.get("actions")
+    runs = actions.get("runs") if isinstance(actions, Mapping) else None
+    if not isinstance(runs, list):
+        return "not_run"
+    matching = [
+        item
+        for item in runs
+        if isinstance(item, Mapping) and item.get("head_sha") == head
+    ]
+    if not matching:
+        return "not_run"
+    latest = max(
+        matching,
+        key=lambda item: item.get("id") if isinstance(item.get("id"), int) else -1,
+    )
+    conclusion = latest.get("conclusion")
+    if isinstance(conclusion, str) and conclusion:
+        return conclusion
+    status = latest.get("status")
+    return status if isinstance(status, str) and status else "not_run"
 
 
 def _fidelity_report_value_equal(key: str, observed: Any, expected: Any) -> bool:

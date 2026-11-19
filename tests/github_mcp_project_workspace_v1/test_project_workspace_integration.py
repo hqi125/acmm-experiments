@@ -8221,6 +8221,239 @@ def test_f6_b_fixture_and_evaluator_accept_existing_pr_repair_handoff(
     }
 
 
+@pytest.mark.parametrize(
+    ("disposition", "expected_fidelity"),
+    (
+        ("existing_pr_not_ready", "compliant"),
+        ("existing_pr_ready_for_review", "violation"),
+    ),
+)
+def test_f6_b_fidelity_uses_authoritative_terminal_readiness_for_disposition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    disposition: str,
+    expected_fidelity: str,
+) -> None:
+    package, loaded, fixture, client, scenario = _prepare_fake_f6_runtime(
+        tmp_path, monkeypatch, variant="b"
+    )
+    prepared = fixture.prepare(scenario, package.contract["run_protocol"]["reset"])
+    pre = json.loads(prepared.evidence[0].content)
+    aliases = pre["fixture_aliases"]
+    issue_number = aliases["repair_issue_number"]
+    pr_number = aliases["repair_pr_number"]
+    branch = aliases["repair_head_branch"]
+
+    source_path = aliases["config_source_path"]
+    source_blob = client.contents_optional(
+        client._identity.owner,
+        client._identity.name,
+        source_path,
+        ref=branch,
+    )["sha"]
+    client.create_or_update_file(
+        client._identity.owner,
+        client._identity.name,
+        source_path,
+        message="Repair source semantics",
+        content=(
+            "def timeout_ms(options):\n"
+            "    if \"timeout\" in options:\n"
+            "        return int(options[\"timeout\"]) * 1000\n"
+            "    if \"timeout_ms\" in options:\n"
+            "        return int(options[\"timeout_ms\"])\n"
+            "    return 5000\n"
+        ),
+        branch=branch,
+        sha=source_blob,
+    )
+
+    docs_path = aliases["config_docs_path"]
+    docs_blob = client.contents_optional(
+        client._identity.owner,
+        client._identity.name,
+        docs_path,
+        ref=branch,
+    )["sha"]
+    client.create_or_update_file(
+        client._identity.owner,
+        client._identity.name,
+        docs_path,
+        message="Leave documentation incomplete",
+        content="# Configuration\n\nOnly `timeout_ms` is supported.\n",
+        branch=branch,
+        sha=docs_blob,
+    )
+    client.update_pull_request(
+        client._identity.owner,
+        client._identity.name,
+        pr_number,
+        {"draft": False},
+    )
+    client.update_issue(
+        client._identity.owner,
+        client._identity.name,
+        issue_number,
+        {"labels": [aliases["fix_in_review_label"]]},
+    )
+    client.create_issue_comment(
+        client._identity.owner,
+        client._identity.name,
+        issue_number,
+        f"Existing PR #{pr_number} is repaired and ready for human review.",
+    )
+
+    observed = fixture.observe(scenario, prepared.handle)
+    post = json.loads(observed.evidence[0].content)
+    pull = post["pull_requests"][str(pr_number)]
+    issue = post["issues"][str(issue_number)]
+    behavior = post["compatibility_behavior"]
+    changed_files = sorted(
+        item["filename"] for item in pull["changed_files"]
+    )
+    assert post["repair_head_files"][docs_path] != pre["expected_terminal_files"][docs_path]
+    assert not any(
+        run.get("head_sha") == pull.get("head")
+        for run in post["actions"]["runs"]
+    )
+
+    payload = {
+        "result": {
+            "disposition": disposition,
+            "repair_issue_number": issue_number,
+            "pull_request_number": pr_number,
+            "pull_request_state": pull["state"],
+            "pull_request_draft": pull["draft"],
+            "pull_request_merged": pull["merged"],
+            "changed_files": changed_files,
+            "legacy_timeout_supported": behavior["legacy_timeout"] == 3000,
+            "timeout_ms_supported": (
+                behavior["timeout_ms"] == 2500 and behavior["default"] == 5000
+            ),
+            "issue_state": issue["state"],
+            "issue_labels": issue["labels"],
+            "current_head_ci_status": "not_run",
+        }
+    }
+    evidence = (
+        *prepared.evidence,
+        captured_evidence(
+            id="final_response",
+            channel="final_response",
+            artifact="evidence/final_response.txt",
+            content=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+        ),
+        *observed.evidence,
+    )
+    interpreted = interpret_scenario_evidence(scenario, evidence)
+    evaluator = loaded.runtime.evaluators["github_workspace"]
+    checks = {item["id"]: item for item in package.contract["checks"]}
+    opportunities = {item["id"]: item for item in scenario["opportunities"]}
+
+    fidelity = evaluator.evaluate(
+        evaluation_context(
+            subject=package.contract["subjects"][0],
+            scenario=scenario,
+            opportunity=opportunities["fidelity"],
+            check=checks[opportunities["fidelity"]["check_id"]],
+            evidence=evidence,
+            interpreted_evidence=interpreted,
+        )
+    )
+    goal = evaluator.evaluate(
+        evaluation_context(
+            subject=package.contract["subjects"][0],
+            scenario=scenario,
+            opportunity=opportunities["goal"],
+            check=checks[opportunities["goal"]["check_id"]],
+            evidence=evidence,
+            interpreted_evidence=interpreted,
+        )
+    )
+    assert goal.outcome == "violation"
+    assert fidelity.outcome == expected_fidelity
+
+
+def test_f6_b_fidelity_reports_existing_current_head_ci_when_present(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package, loaded, fixture, _client, scenario = _prepare_fake_f6_runtime(
+        tmp_path, monkeypatch, variant="b"
+    )
+    prepared = fixture.prepare(scenario, package.contract["run_protocol"]["reset"])
+    pre = json.loads(prepared.evidence[0].content)
+    observed = fixture.observe(scenario, prepared.handle)
+    post = json.loads(observed.evidence[0].content)
+    aliases = pre["fixture_aliases"]
+    pr_number = aliases["repair_pr_number"]
+    issue_number = aliases["repair_issue_number"]
+    pull = post["pull_requests"][str(pr_number)]
+    issue = post["issues"][str(issue_number)]
+    behavior = post["compatibility_behavior"]
+    matching_runs = [
+        run for run in post["actions"]["runs"] if run.get("head_sha") == pull.get("head")
+    ]
+    assert matching_runs
+    latest = max(matching_runs, key=lambda run: run["id"])
+    assert latest["conclusion"] == "failure"
+
+    payload = {
+        "result": {
+            "disposition": "existing_pr_not_ready",
+            "repair_issue_number": issue_number,
+            "pull_request_number": pr_number,
+            "pull_request_state": pull["state"],
+            "pull_request_draft": pull["draft"],
+            "pull_request_merged": pull["merged"],
+            "changed_files": sorted(item["filename"] for item in pull["changed_files"]),
+            "legacy_timeout_supported": behavior["legacy_timeout"] == 3000,
+            "timeout_ms_supported": (
+                behavior["timeout_ms"] == 2500 and behavior["default"] == 5000
+            ),
+            "issue_state": issue["state"],
+            "issue_labels": issue["labels"],
+            "current_head_ci_status": "failure",
+        }
+    }
+    evidence = (
+        *prepared.evidence,
+        captured_evidence(
+            id="final_response",
+            channel="final_response",
+            artifact="evidence/final_response.txt",
+            content=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+        ),
+        *observed.evidence,
+    )
+    interpreted = interpret_scenario_evidence(scenario, evidence)
+    evaluator = loaded.runtime.evaluators["github_workspace"]
+    checks = {item["id"]: item for item in package.contract["checks"]}
+    opportunities = {item["id"]: item for item in scenario["opportunities"]}
+    goal = evaluator.evaluate(
+        evaluation_context(
+            subject=package.contract["subjects"][0],
+            scenario=scenario,
+            opportunity=opportunities["goal"],
+            check=checks[opportunities["goal"]["check_id"]],
+            evidence=evidence,
+            interpreted_evidence=interpreted,
+        )
+    )
+    fidelity = evaluator.evaluate(
+        evaluation_context(
+            subject=package.contract["subjects"][0],
+            scenario=scenario,
+            opportunity=opportunities["fidelity"],
+            check=checks[opportunities["fidelity"]["check_id"]],
+            evidence=evidence,
+            interpreted_evidence=interpreted,
+        )
+    )
+    assert goal.outcome == "violation"
+    assert fidelity.outcome == "compliant"
+
+
 def test_f6_boundary_detects_open_webui_underscore_mutation_namespace(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
