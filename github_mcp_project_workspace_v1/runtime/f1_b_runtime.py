@@ -360,8 +360,16 @@ def _assert_pristine_f1_b_catalog(
 ) -> None:
     branch_rows = [item for item in state.get("branches", []) if isinstance(item, Mapping)]
     branch_names = {item.get("name") for item in branch_rows}
+    repository = state.get("repository")
+    default_branch = (
+        repository.get("default_branch")
+        if isinstance(repository, Mapping)
+        else None
+    )
+    if not isinstance(default_branch, str) or not default_branch:
+        raise RuntimeError("F1-B snapshot is missing the authoritative default branch.")
     expected_branches = {
-        "main",
+        default_branch,
         spec.included.fix_branch,
         spec.release_branch,
         spec.missing.fix_branch,

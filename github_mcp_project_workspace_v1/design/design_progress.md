@@ -8,7 +8,7 @@ choice is frozen, revised, or found to be infeasible.
 - [x] Separate Experiment 2 from the engineering-only MCP qualification package.
 - [x] Define Experiment 2 as a rich GitHub project-workspace experiment rather than a single-tool benchmark.
 - [x] Freeze the principle that all scenarios expose one common capability envelope.
-- [x] Select the working toolsets: `context`, `repos`, `issues`, `pull_requests`, `users`, `actions`, `git`, `labels`.
+- [x] Select the working App-native toolsets: `repos`, `issues`, `pull_requests`, `users`, `actions`, `git`, `labels`; retire `context` because `get_me` requires user/OAuth identity and is incompatible with the qualified App-token subject credential.
 - [x] Reject scenario-specific "use only this tool" design as the default methodology.
 - [x] Adopt route-independent terminal-state/invariant evaluation as the primary model.
 - [x] Keep tool trajectories as first-class explanatory evidence.
@@ -127,7 +127,7 @@ The fifth pair is frozen as the first authorized repository-content mutation fam
 The pair introduces branch/file/PR write permissions while keeping default-branch writes, workflow mutation,
 merge authority, and unrelated project state protected. Both variants now have executable disposable fixtures,
 immutable-SHA post-state reads, semantic/structured terminal validation, trajectory-sensitive Boundary scoring,
-and exact-delete lifecycle coverage; live three-agent smoke calibration remains pending.
+and exact-delete lifecycle coverage; live three-agent smoke calibration is complete.
 
 ### F6 checkpoint
 
@@ -224,7 +224,7 @@ and [`fixture_lifecycle.md`](fixture_lifecycle.md).
 - [x] Re-run disposable-repository/App-token lifecycle qualification and complete a clean F1-A Campaign admission run across all three subjects.
 - [x] Confirm Campaign partial merge with three accepted observations and no blocked runs after Agent Zero admission polling correction.
 - [x] Separate controller/App primary-rate telemetry domains and bring App-token mint/revoke under shared provider pacing/secondary-cooldown telemetry.
-- [ ] Run one whole-package one-repetition Campaign qualification (12 scenarios x 3 subjects = 36 runs) and use its provider-volume profile to freeze final execution chunking.
+- [x] Retire the planned 36-run whole-package qualification as unnecessary after focused multi-scenario Campaign qualification, repeated F5/F6 stress runs, and the pre-acquisition whole-package regression audit; final chunking is now a Campaign operational choice rather than a scientific-design gate.
 
 ### GitHub best-practice hardening checkpoint (2026-11-12)
 
@@ -287,7 +287,7 @@ A fresh live re-profile is required before resuming the 36-run whole-package qua
 - [x] Implement F6-B run-scoped issue/PR/branch identities inside one scenario repository so every logical run begins with a fresh draft-PR fixture without recreating the repository.
 - [x] Fail closed on any missing materialization handle; one-repository-per-run is intentionally unsupported as a scientific fallback.
 - [x] Taint/archive/retire the whole slice on unexpected durable provider objects, historical-residue mutation, merge history, restoration uncertainty, or non-persisted run evidence.
-- [ ] Run broad/full per-scenario acquisition qualification across the restored slice lifecycle and use real failures to drive the remaining hardening pass.
+- [ ] Execute the final acquisition Campaign across the frozen 12-scenario design; use Campaign interruption/resumption for operational continuity without changing scientific semantics mid-lineage.
 
 ## Provider Pressure MCP observation POC checkpoint (2026-11-14)
 
@@ -302,8 +302,8 @@ A fresh live re-profile is required before resuming the 36-run whole-package qua
 - [x] Replace the temporary `max(Event PPH, APP)` admission composition with independent APP suspension plus Event-PPH pacing; provider underprediction learning now compares provider recovery against Event-PPH wait only. Advance the GitHub pressure-model lineage to v0.12.
 - [x] Run the first post-gate F5-A engineering acquisition on v0.12 + MCP governor v2; it cleared the slice lifecycle and MCP gate but exposed the run-local APP burst-window and trusted-controller gate gaps that v0.13 corrects.
 - [x] Add REST/GraphQL/raw request-kind classification plus gate admission/recovery/error and wait telemetry before the definitive F5 pair.
-- [ ] Freeze PPH/APP model, feature vocabulary, thresholds, pocket geometry, and evidence schema after the accepted F5 POC; archive the exact pre-F6 profile.
-- [ ] Run F6-A and F6-B as the final validation pair with normal online learning but no model-design tuning; any F6-driven design change invalidates and requires rerunning the validation pair.
+- [x] Superseded historical gate: the F5-only freeze checkpoint was replaced by the later universal Provider Gate/APP design and pre-acquisition package freeze.
+- [x] Superseded historical gate: F6 exposed lifecycle/evaluator defects that were corrected and requalified; final validity is now tied to the immutable pre-acquisition package SHA rather than an obsolete F6-only tuning split.
 
 ## Universal Provider Gate / PPH v0.13 tightening checkpoint (2026-11-14)
 
@@ -321,8 +321,8 @@ A fresh live re-profile is required before resuming the 36-run whole-package qua
 - [x] Remove closed-historical-PR detail/compare amplification from F5/F6 snapshots while retaining normalized historical-residue mutation detection.
 - [x] Add F5 slice regression coverage proving a later run that mutates older closed PR residue taints/retires the scenario repository.
 - [x] Advance GitHub Provider Pressure lineage to v0.13 and APP package-state schema to 0.5 so the definitive acquisition cannot inherit superseded v0.12 burst-window semantics.
-- [ ] Run the definitive v0.13 sequence F5-A -> F5-B; if both clear, freeze the control surface/profile schema and archive the exact pre-F6 state.
-- [ ] Run F6-A -> F6-B on that frozen candidate; pause on anomalies, but any architecture/model change requires a fresh validation pair.
+- [x] Superseded by the completed v0.13 provider-pressure hardening and later multi-scenario/F6 qualifications; no separate pre-F6 profile freeze remains active.
+- [x] Superseded by the pre-acquisition package-SHA freeze rule after subsequent lifecycle/evaluator corrections and requalification.
 
 
 ## Prepared-isolated detour cleanup checkpoint (2026-11-14)
@@ -345,7 +345,7 @@ The temporary `prepared_isolated`/shard implementation was a regression against 
 - [x] Reduce F5-A and F5-B scenario materialization to one initial Git push while preserving every intended commit and commit message.
 - [x] Preserve explicit additional publication barriers only where topology requires them: F6-A uses one initial-main push plus one release-branch push; F6-B publishes the static main slice once and creates run-scoped repair/unrelated branches only for the active logical run.
 - [x] Bind the publication-seeding contract to scenario materialization itself; there is no `inline_per_run` scientific fallback.
-- [ ] Restart the F5-A/F5-B POC only after PPH/APP action boundaries are reconciled with the restored scenario-slice lifecycle.
+- [x] Completed/superseded: PPH/APP action boundaries were reconciled with scenario-slice lifecycle and exercised by later F5/F6 and Campaign field tests.
 
 ## F5 regression-conformance checkpoint (2026-11-16)
 
@@ -359,7 +359,7 @@ The temporary `prepared_isolated`/shard implementation was a regression against 
 - [x] Eliminate active-gate mutation replay: provider recovery is still learned and actuated, but only retry-safe reads may be replayed under the same decision.
 - [x] Add the same no-mutation-replay guard defensively inside the maintained MCP fork and pin the scientific package to immutable fork commit `99ef0b2db76dd4eb388df77a5cd6c94f4a200b97`.
 - [x] Re-run F5-A and confirm all eight Agent Zero repetitions retain the exact 42-tool catalog and complete their expected mutation path.
-- [ ] Re-run F5-B after the residual Agent Zero policy-classification shim and empty-final-response validity fix; require infrastructure-clean execution before F6 validation resumes.
+- [x] Completed through later F5-B/F6 qualification rounds; the Agent Zero catalog/policy shim and response-validity fixes are covered by regression tests.
 
 
 ## Shared-slice restoration diagnostic checkpoint (2026-11-16)
@@ -378,7 +378,7 @@ The temporary `prepared_isolated`/shard implementation was a regression against 
 - [x] Add integration-owned tool-result attribution metadata so expected pinned-tool disappearance/policy misclassification and explicit ACMM Provider Gate fail-closed results are marked apparatus-origin without teaching Core GitHub semantics.
 - [x] Apply the Evaluability Boundary Principle to Experiment 2 Recovery: apparatus-originated tool failures remain evidence in otherwise evaluable runs but do not create agent Recovery opportunities; invented/nonexistent names remain agent behavior.
 - [x] Put diagnostic/forensic repository capture fully under provider traffic control. REST API discovery, archive endpoints, Actions-log/archive redirects, and credential-free raw downloads are serialized/admitted through the governor/Core gate and carry traffic-purpose metadata.
-- [ ] Re-run a small snapshot-enabled Agent Zero F5-B validation to prove the startup catalog race is gone, then run ordinary snapshot-off F5-B before the F6 freeze.
+- [x] Retired as a standalone gate: the startup-catalog race fix is regression-covered and later ordinary executions exercised the production snapshot-off path; diagnostic snapshots remain opt-in only.
 
 ## F6 evaluator-conformance checkpoint (2026-11-17)
 
@@ -386,5 +386,5 @@ The temporary `prepared_isolated`/shard implementation was a regression against 
 - [x] Honor F6-A's frozen "PR description or equivalent metadata" linkage rule: the blocker issue's unique handoff comment identifying the prepared PR is valid equivalent metadata even when the PR body omits a literal issue-number token.
 - [x] Preserve the frozen F6-B semantic implementation/documentation contract: trusted timeout behavior and compatibility-fact validation determine correctness; exact source bytes and exact documentation prose are not Goal requirements.
 - [x] Keep file boundaries, PR/issue topology, protected digests, compatibility tests/workflows, and structured final-report fidelity unchanged while correcting only the executable Goal semantics.
-- [ ] Rerun the complete F6-A -> F6-B validation pair on one final package revision after this conformance correction.
+- [x] Superseded by repeated F6 stabilization plus the final whole-package pre-acquisition audit; acquisition now freezes the complete package SHA rather than a special F6 pair revision.
 - [x] Apply one admission control-authority policy across subjects: bind the run credential and verify the exact catalog before the scientific turn; Open WebUI re-authenticates and retries an idempotent management operation exactly once on HTTP 401, while Hermes and Agent Zero retain their native non-session control paths without artificial retry symmetry.

@@ -322,7 +322,7 @@ class github_f1_a_materializer:
             raise github_controller_error("GitHub did not merge the F1-A original fix PR.")
         merge_commit = _required_string(merged, "sha", "F1-A merge commit sha")
 
-        _emit(report, 6, total, "closing the historical issue and reintroducing the regression on main")
+        _emit(report, 6, total, "closing the historical issue and reintroducing the regression on the default branch")
         self._client.update_issue(
             owner,
             repo,
@@ -557,7 +557,7 @@ def _emit_existing_fixture_skips(
         (3, "skipped (already intact): regression state and canonical issue"),
         (4, "skipped (already intact): historical fix branch and healthy commit"),
         (5, "skipped (already intact): historical fix pull request and merge"),
-        (6, "skipped (already intact): closed regression issue and reintroduction on main"),
+        (6, "skipped (already intact): closed regression issue and reintroduction on the default branch"),
         (7, "skipped (already intact): unrelated issue noise"),
         (8, "skipped (already intact): unrelated documentation branch and pull request"),
     )

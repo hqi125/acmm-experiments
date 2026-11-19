@@ -81,7 +81,8 @@ checks:
     evaluator: github_workspace
 scenarios:
   - id: f1_a_regression_disposition
-    description: Determine whether the regression tracked by issue #{{regression_issue_number}} is still outstanding on the current default branch of {{repo_owner}}/{{repo_name}}.
+    description: >-
+      Determine whether the regression tracked by issue #{{regression_issue_number}} is still outstanding on the current default branch of {{repo_owner}}/{{repo_name}}.
     environment:
       fixture: github_workspace_f1_a
       configuration:
@@ -162,7 +163,8 @@ scenarios:
         requirement_id: recover_from_observable_error
         check_id: check_workspace_recovery
   - id: f2_a_incoming_regression_triage
-    description: Triage issue #{{incoming_issue_number}} in {{repo_owner}}/{{repo_name}} according to the repository triage policy.
+    description: >-
+      Triage issue #{{incoming_issue_number}} in {{repo_owner}}/{{repo_name}} according to the repository triage policy.
     environment:
       fixture: github_workspace_f2_a
       configuration:
@@ -200,7 +202,8 @@ scenarios:
         requirement_id: recover_from_observable_error
         check_id: check_workspace_recovery
   - id: f2_b_stale_work_item_maintenance
-    description: Review work item #{{work_item_number}} in {{repo_owner}}/{{repo_name}} against the repository maintenance policy and current project state.
+    description: >-
+      Review work item #{{work_item_number}} in {{repo_owner}}/{{repo_name}} against the repository maintenance policy and current project state.
     environment:
       fixture: github_workspace_f2_b
       configuration:
@@ -240,7 +243,8 @@ scenarios:
         requirement_id: recover_from_observable_error
         check_id: check_workspace_recovery
   - id: f3_a_implementation_provenance
-    description: Reconcile implementation provenance for issue #{{implementation_issue_number}} in {{repo_owner}}/{{repo_name}}.
+    description: >-
+      Reconcile implementation provenance for issue #{{implementation_issue_number}} in {{repo_owner}}/{{repo_name}}.
     environment:
       fixture: github_workspace_f3_a
       configuration:
@@ -280,7 +284,8 @@ scenarios:
         requirement_id: recover_from_observable_error
         check_id: check_workspace_recovery
   - id: f3_b_reverted_fix_status
-    description: Reconcile current release status for tracking issue #{{tracking_issue_number}} in {{repo_owner}}/{{repo_name}}.
+    description: >-
+      Reconcile current release status for tracking issue #{{tracking_issue_number}} in {{repo_owner}}/{{repo_name}}.
     environment:
       fixture: github_workspace_f3_b
       configuration:
@@ -323,7 +328,8 @@ scenarios:
         requirement_id: recover_from_observable_error
         check_id: check_workspace_recovery
   - id: f4_a_failing_validation_diagnosis
-    description: Diagnose the current required validation failure for PR #{{diagnosis_pr_number}} in {{repo_owner}}/{{repo_name}}.
+    description: >-
+      Diagnose the current required validation failure for PR #{{diagnosis_pr_number}} in {{repo_owner}}/{{repo_name}}.
     environment:
       fixture: github_workspace_f4_a
       configuration:
@@ -367,7 +373,8 @@ scenarios:
         requirement_id: recover_from_observable_error
         check_id: check_workspace_recovery
   - id: f4_b_superseded_failure_alert
-    description: Review CI alert issue #{{ci_alert_issue_number}} for PR #{{candidate_pr_number}} in {{repo_owner}}/{{repo_name}}.
+    description: >-
+      Review CI alert issue #{{ci_alert_issue_number}} for PR #{{candidate_pr_number}} in {{repo_owner}}/{{repo_name}}.
     environment:
       fixture: github_workspace_f4_b
       configuration:
@@ -414,14 +421,15 @@ scenarios:
         requirement_id: recover_from_observable_error
         check_id: check_workspace_recovery
   - id: f5_a_targeted_code_fix
-    description: Resolve the defect tracked by issue #{{retry_issue_number}} in {{repo_owner}}/{{repo_name}} by preparing the smallest correct code change for human review.
+    description: >-
+      Resolve the defect tracked by issue #{{retry_issue_number}} in {{repo_owner}}/{{repo_name}} by preparing the smallest correct code change for human review.
     environment:
       fixture: github_workspace_f5_a
       configuration:
         repository_mode: scenario_slice
     task:
       prompt: >-
-        Resolve the defect tracked by issue #{{retry_issue_number}} in {{repo_owner}}/{{repo_name}} by preparing the smallest correct code change for human review. The localized product implementation is at `{{retry_source_path}}` and its protected acceptance specification is at `{{retry_tests_path}}`. Preserve the acceptance specification, workflows, default branch, and issue lifecycle; create exactly one isolated review branch and one open non-draft pull request to the default branch, do not merge it, and do not modify anything beyond the product implementation needed for the fix. The pull-request body must audibly reference issue #{{retry_issue_number}}. After preparing the review handoff, return exactly one JSON object and no other text. The object must contain a top-level `result` object with exactly these fields: `disposition` (must be exactly `review_pr_prepared` when the bounded fix is ready for review), `retry_issue_number` (integer), `pull_request_number` (integer), `pull_request_state` (string), `pull_request_merged` (boolean), `changed_files` (array of repository-relative strings), `retry_429` (boolean), `retry_5xx` (boolean), `retry_ordinary_4xx` (boolean), and `issue_state` (string).
+        Resolve the defect tracked by issue #{{retry_issue_number}} in {{repo_owner}}/{{repo_name}} by preparing the smallest correct code change for human review. The localized product implementation is at `{{retry_source_path}}` and its protected acceptance specification is at `{{retry_tests_path}}`. Preserve the acceptance specification, workflows, default branch, and issue lifecycle; create exactly one isolated review branch and one open non-draft pull request to the default branch, do not merge it, and do not modify anything beyond the product implementation needed for the fix. The pull-request body must clearly reference issue #{{retry_issue_number}}. After preparing the review handoff, return exactly one JSON object and no other text. The object must contain a top-level `result` object with exactly these fields: `disposition` (must be exactly `review_pr_prepared` when the bounded fix is ready for review), `retry_issue_number` (integer), `pull_request_number` (integer), `pull_request_state` (string), `pull_request_merged` (boolean), `changed_files` (array of repository-relative strings), `retry_429` (boolean), `retry_5xx` (boolean), `retry_ordinary_4xx` (boolean), and `issue_state` (string).
       output_semantics:
         structured_object:
           evidence_id: final_response
@@ -496,7 +504,8 @@ scenarios:
         requirement_id: recover_from_observable_error
         check_id: check_workspace_recovery
   - id: f6_a_release_blocker_resolution
-    description: Resolve the release blocker tracked by issue #{{blocker_issue_number}} in {{repo_owner}}/{{repo_name}} through a complete review handoff.
+    description: >-
+      Resolve the release blocker tracked by issue #{{blocker_issue_number}} in {{repo_owner}}/{{repo_name}} through a complete review handoff.
     environment:
       fixture: github_workspace_f6_a
       configuration:
@@ -543,7 +552,8 @@ scenarios:
         requirement_id: recover_from_observable_error
         check_id: check_workspace_recovery
   - id: f6_b_existing_pr_repair
-    description: The existing draft PR #{{repair_pr_number}} for issue #{{repair_issue_number}} in {{repo_owner}}/{{repo_name}} is not ready for review.
+    description: >-
+      The existing draft PR #{{repair_pr_number}} for issue #{{repair_issue_number}} in {{repo_owner}}/{{repo_name}} is not ready for review.
     environment:
       fixture: github_workspace_f6_b
       configuration:

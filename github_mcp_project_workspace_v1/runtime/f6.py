@@ -90,7 +90,7 @@ class github_f6_a_materializer(_github_f4_materializer_base):
         )
 
     def seed_initial_publication(self, identity: github_repository_identity) -> None:
-        """Seed main-branch files that do not depend on remote-visible state."""
+        """Seed default-branch files that do not depend on remote-visible state."""
         for path, content, message in (
             (
                 self._spec.release_policy_path,
@@ -292,7 +292,7 @@ class github_f6_b_materializer(_github_f4_materializer_base):
         )
 
     def seed_initial_publication(self, identity: github_repository_identity) -> None:
-        """Seed main-branch files that do not depend on remote-visible state."""
+        """Seed default-branch files that do not depend on remote-visible state."""
         for path, content, message in (
             (
                 self._spec.repair_policy_path,

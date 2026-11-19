@@ -1,7 +1,7 @@
 # GitHub MCP Project Workspace Baseline
 
-> **Status:** APP-NATIVE MCP GOVERNOR QUALIFIED; SCENARIO MATERIALIZATION POLICY IMPLEMENTED.
-> The exact 42-tool App-native surface and governed v2.1.0 MCP fork are qualified across all three subjects. Historical stress work exposed repeatable provider pressure in the original per-run repository lifecycle; the current apparatus uses package-declared scenario materialization, a universal active-run Provider Gate, and separate Event-PPH/APP controls without changing the subject-visible MCP surface.
+> **Status:** PRE-ACQUISITION CANDIDATE; ALL TWELVE SCIENTIFIC SCENARIOS IMPLEMENTED AND QUALIFIED.
+> The exact 42-tool App-native surface and governed v2.1.0 MCP fork are qualified across all three subjects. The current apparatus uses package-declared scenario materialization, fresh per-run App authority, a universal active-run Provider Gate, bounded whole-run retry, and separate Event-PPH/APP controls without changing the subject-visible MCP surface.
 > All F1-F6 families use the package-declared scenario slice as the repository lifetime. One private materialized repository can span many logical runs while Core enforces subject-major ordering underneath the slice. Run-owned active state is restored/retired between observations; explicitly allowed closed/unmerged history remains slice-owned evidence, and mutation of prior residue or other non-restorable contamination taints and retires the whole slice. The Git content plane composes fixture-base and scenario-owned commits into one initial publication phase whenever no intermediate remote state is semantically required; later pushes are explicit topology barriers rather than materializer boundaries.
 
 `github_mcp_project_workspace_v1` is the working identity for the second experiment in the reworked
@@ -182,14 +182,14 @@ or the runtime resource ledger. See [`design/fixture_lifecycle.md`](design/fixtu
 
 ## Implementation checkpoint
 
-The design/pre-coding gate is closed and executable implementation is underway. The package now provides:
+The design/pre-coding gate is closed and the package is in pre-acquisition cleanup. The package now provides:
 
-- package schema v0.3 with Experiment-scoped controller PAT and GitHub App private-key secrets;
+- package schema v0.4 with Experiment-scoped controller PAT and GitHub App private-key secrets;
 - the frozen 12-scenario x 8-repetition Contract;
 - pinned GitHub MCP Server v2.1.0 integration built from the maintained ACMM governor fork while preserving the qualified 42-tool App-native catalog;
 - static subject deployments remain intentionally unadmitted; exact 42-tool catalog verification occurs after each run-scoped App token is bound;
 - a trusted controller diagnostic and explicit `initialize` apparatus action for the pinned private repository;
-- an engineering-reference repository used to qualify F1-A/F1-B semantics, while final scientific acquisition
+- historical engineering-reference actions retained only for qualification/debugging, while scientific acquisition
   uses one disposable private repository per scenario materialization slice;
 - `qualify_disposable_repositories`, now invoked through `acmm run apparatus exec`, with one successful live
   create/App-attach/one-repo-token-write/revoke/detach/exact-ID-delete qualification workflow;
@@ -225,15 +225,20 @@ The design/pre-coding gate is closed and executable implementation is underway. 
   keeps the PAT out of remote URLs/command arguments through `GIT_ASKPASS`, reports Git transport telemetry, and
   exposes a canonical ref fingerprint for later unchanged-state fast paths.
 
-F1-B scientific execution now uses the scenario-slice lifecycle. Its controller creates the fresh private repository,
-materializes the release topology, dispatches and waits for the deterministic required-check workflow, captures
-authoritative pre/post state, and deletes the exact repository only after durable run evidence. F2-A/F2-B reuse
-that lifecycle with bounded-mutation versus true-no-op semantics. The first F2-A live smokes exposed two apparatus
-issues now covered by regressions: GitHub default-label convergence and eventual-consistency lag in newly created
-issue list views. Historical PAT-era smoke work demonstrated that remotely quarantined repositories were scientifically
-discoverable under all-repositories subject access. The lifecycle therefore no longer uses normal remote quarantine:
-failed apparatus state is archived locally first, the exact repository is deleted and disappearance verified, and only
-then may the next independent run begin.
+All twelve scenarios now execute through the same scenario-slice lifecycle. The trusted controller materializes the
+scenario topology, completes any deterministic pre-seeded CI evidence before subject timing, captures authoritative
+pre/post state, restores the reusable slice between logical runs, and retires/archives a slice when exact continuation
+safety cannot be established. Historical PAT-era remote-quarantine behavior is not an active fallback: failed apparatus
+state is archived locally first, the exact repository is deleted and disappearance verified, and only then may execution
+continue on a fresh materialization.
+
+## Pre-acquisition freeze rule
+
+The final campaign should use one immutable installed package SHA. Engineering runs, partial campaigns, and prior
+provider-pressure learning are qualification evidence only. Once the acquisition campaign starts, scenario prompts,
+fixture semantics, evaluator predicates, provider-pressure feature definitions, and the 42-tool capability envelope are
+frozen; an engineering correction that changes those scientific semantics requires a new package SHA and a new
+acquisition campaign rather than mutating or resuming the old scientific lineage.
 
 See [`design/controller_runtime_checkpoint.md`](design/controller_runtime_checkpoint.md),
 [`design/fixture_lifecycle.md`](design/fixture_lifecycle.md), and

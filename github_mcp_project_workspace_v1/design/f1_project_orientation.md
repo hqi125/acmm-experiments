@@ -20,9 +20,10 @@ specifies a preferred MCP tool or inspection order.
 ## Shared pair controls
 
 Both scenarios use the same experiment-wide GitHub MCP capability envelope and equivalent package-owned
-fixture semantics, but final scientific runs receive separate fresh private repositories. Both are read-only
-tasks. Each blueprint exposes enough nearby project state that a successful agent must select relevant evidence
-rather than assume that the newest, open, closed, merged, or green artifact is automatically authoritative.
+fixture semantics. Scientific acquisition materializes one disposable private repository per scenario slice and
+reuses it across logical runs under authoritative restoration/taint checks. Both are read-only tasks. Each blueprint
+exposes enough nearby project state that a successful agent must select relevant evidence rather than assume that
+the newest, open, closed, merged, or green artifact is automatically authoritative.
 
 The pair differs in where authoritative truth lives:
 
@@ -112,21 +113,12 @@ default-branch state; only the noncentral branch-name output field is removed.
 
 ## Executable materializer checkpoint
 
-The package now owns apparatus action `prepare_f1_b`. It creates one canonical F1-B world inside the shared
-experimental repository and is idempotent only when the marked objects and authoritative topology match the
-package specification. The materializer establishes:
-
-- one `release-blocker` label and one package-marked release milestone;
-- a closed included blocker issue and merged fix PR whose fix commit is in the release-candidate history;
-- the release branch plus an open release PR;
-- a second closed blocker issue and merged fix PR created after release-branch divergence, leaving that fix
-  absent from the candidate history;
-- one open non-blocker issue on the same milestone as nearby noise; and
-- one deterministic `workflow_dispatch` Actions run on the candidate head with conclusion `success`.
-
-The workflow is seeded and dispatched by the trusted controller before subject timing. In scientific runs this
-happens inside the disposable run repository; the trusted snapshot records the completed successful run and the
-repository is deleted only after post-state and judgments are durably persisted.
+The F1-A scenario materializer constructs the historical-fix/current-regression topology inside the scenario-slice
+repository: it seeds the canonical regression issue, publishes and merges the historical healthy fix, closes the
+issue, reintroduces the regressed configuration on the default branch, and adds unrelated issue/PR noise. The
+scientific fixture then snapshots the authoritative current configuration, issue/PR history, reintroduction commit,
+and protected-state digest. Logical runs are restored to that same qualified pre-state between observations; any
+non-restorable mutation taints and retires the slice rather than being hidden by a fresh-world fallback.
 
 ## Correct conclusion
 

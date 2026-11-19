@@ -2,8 +2,8 @@
 
 This directory is the living design and implementation record for `github_mcp_project_workspace_v1`.
 The experiment was deliberately designed in documentation first because tool availability, fixture state,
-and route-independent evaluation determine the scientific tone of the study. F1 and F2 now have executable
-disposable scientific runtimes; later families remain design-frozen until implemented.
+and route-independent evaluation determine the scientific tone of the study. All twelve F1-A through F6-B
+scenarios now have executable scenario-slice runtimes and are in the pre-acquisition freeze stage.
 
 ## Documents
 
@@ -13,8 +13,8 @@ disposable scientific runtimes; later families remain design-frozen until implem
   catalog expectation, laboratory exclusions, and effective-catalog digest.
 - [`controller_runtime_checkpoint.md`](controller_runtime_checkpoint.md) - implemented trusted-controller
   runtime/doctor foundation and the repository-identity pinning gate before mutation;
-- [`fixture_lifecycle.md`](fixture_lifecycle.md) - frozen single-repository fixture model, subject/controller
-  credential separation, merge containment, CI seeding, and run isolation.
+- [`fixture_lifecycle.md`](fixture_lifecycle.md) - current scenario-slice repository lifecycle, subject/controller
+  credential separation, taint/retirement containment, CI seeding, restoration, and run isolation.
 - [`scenario_architecture.md`](scenario_architecture.md) - common authoring philosophy, difficulty
   model, A/B independence requirements, and route-choice principles.
 - [`scenario_matrix.md`](scenario_matrix.md) - current twelve-scenario working matrix and the
@@ -28,8 +28,9 @@ disposable scientific runtimes; later families remain design-frozen until implem
 - [`f5_controlled_implementation.md`](f5_controlled_implementation.md) - frozen F5-A/F5-B controlled-implementation designs.
 - [`f6_multi_stage_resolution.md`](f6_multi_stage_resolution.md) - frozen F6-A/F6-B multi-stage resolution designs.
 - [`pre_coding_checkpoint.md`](pre_coding_checkpoint.md) - frozen scenario-set implications for credentials, fixture lifecycle, CI evidence, scale, and the explicit implementation gate.
-- [`design_progress.md`](design_progress.md) - design ledger, open decisions, and the explicit
-  pre-coding gate.
+- [`design_progress.md`](design_progress.md) - historical-to-current design ledger and remaining acquisition work.
+- [`pre_acquisition_audit.md`](pre_acquisition_audit.md) - final twelve-scenario scientific/conformance review and
+  package-freeze rules before the long Campaign acquisition.
 
 ## Design-to-implementation convention
 
