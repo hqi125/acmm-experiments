@@ -33,6 +33,9 @@ _LOCAL_LOCKS: dict[str, threading.RLock] = {}
 class github_api_governor_policy:
     request_interval_seconds: float = 1.0
     mutation_interval_seconds: float = 2.0
+    # GitHub documents general content-generation secondary limits of 80/minute
+    # and 500/hour, while noting that lower undisclosed limits may apply and may
+    # change without notice. ACMM intentionally keeps a lower local fallback.
     content_requests_per_minute: int = 60
     content_requests_per_hour: int = 360
     primary_remaining_floor: int = 1000
@@ -1131,6 +1134,17 @@ class github_api_governor:
                         "admission_content_budget_wait_seconds",
                         content_wait,
                     )
+                    self._report_admission_detail(
+                        "content",
+                        content_wait,
+                        {
+                            "source": "configured_secondary_fallback",
+                            "used_last_hour": len(hour),
+                            "hour_limit": content_limit,
+                            "forecast": int(forecast_content_requests),
+                            "admitted_forecast": required_content,
+                        },
+                    )
                     self._report_wait(
                         "GitHub scenario admission content budget",
                         content_wait,
@@ -1160,11 +1174,11 @@ class github_api_governor:
                     "forecast": forecast,
                 }
                 continue
-            reserve = min(self._policy.primary_remaining_floor, max(0, limit - 1))
-            usable_window = max(0, limit - reserve)
-            admitted_forecast = min(forecast, usable_window)
-            required_remaining = reserve + admitted_forecast
-            blocked = remaining < required_remaining and reset > now
+            # GitHub documents x-ratelimit-* response headers as authoritative
+            # and requires waiting for reset when remaining reaches zero. Avoid
+            # turning ACMM's separate fallback headroom floor into a proactive
+            # one-hour admission barrier while provider-authoritative mode is active.
+            blocked = remaining == 0 and reset > now
             wait = (reset - now + self._policy.primary_reset_grace_seconds) if blocked else 0.0
             if wait > 0:
                 waits.append(wait)
@@ -1174,16 +1188,26 @@ class github_api_governor:
                 "limit": limit,
                 "remaining": remaining,
                 "reset": reset,
-                "reserve": reserve,
+                "policy_primary_remaining_floor": self._policy.primary_remaining_floor,
+                "admission_reserve": 0,
                 "forecast": forecast,
-                "admitted_forecast": admitted_forecast,
-                "requires_in_slice_pacing": forecast > usable_window,
+                "admitted_forecast": min(forecast, limit),
+                "forecast_exceeds_remaining": forecast > remaining,
+                "requires_in_slice_pacing": forecast > remaining,
                 "blocked_before_admission": blocked,
+                "blocking_rule": "provider_remaining_zero",
             }
 
         if waits:
             primary_wait = max(waits)
             self._record_wait("admission_primary_wait_seconds", primary_wait)
+            for domain, decision in sorted(primary_decisions.items()):
+                if isinstance(decision, Mapping) and decision.get("blocked_before_admission") is True:
+                    self._report_admission_detail(
+                        f"primary/{domain}",
+                        primary_wait,
+                        decision,
+                    )
             self._report_wait("GitHub scenario admission primary budget", primary_wait)
             self._sleep(primary_wait)
             self._refresh_state()
@@ -1302,6 +1326,24 @@ class github_api_governor:
             self._pressure_action_id,
             self._pressure_features,
             {**self._pressure_metadata, **dict(metadata or {})},
+        )
+
+    def _report_admission_detail(
+        self,
+        kind: str,
+        seconds: float,
+        detail: Mapping[str, Any],
+    ) -> None:
+        if self._progress is None or seconds < 60.0:
+            return
+        rendered = ", ".join(
+            f"{key}={value}"
+            for key, value in detail.items()
+            if value is not None
+        )
+        self._progress(
+            f"PQE admission detail: {kind}, {rendered}, "
+            f"wait ~{_approximate_duration(seconds)}."
         )
 
     def _report_wait(self, reason: str, seconds: float) -> None:

@@ -21,7 +21,7 @@ from .api_governor import github_api_governor, github_api_usage_delta
 from .controller import github_controller_client
 
 
-_ESTIMATOR = "provider_quota_estimator_historical_max_x1.25_v2"
+_ESTIMATOR = "provider_quota_estimator_historical_max_per_run_x1.25_v3"
 _SAFETY_FACTOR = 1.25
 
 
@@ -106,7 +106,7 @@ class github_execution_resource_governor:
         return runtime_resource_governor_session(
             handle=handle,
             record={
-                "id": "github_provider_quota_estimator_v2",
+                "id": "github_provider_quota_estimator_v3",
                 "estimator": _ESTIMATOR,
                 "safety_factor": self._safety_factor,
                 "history_sample_count": len(samples),
@@ -368,9 +368,12 @@ def _forecast(
         run_count = int(_non_negative_number(sample.get("run_count")))
         if run_count <= 0:
             return 1.0
-        # Never scale a measured fixed setup cost downward. Scaling upward is
-        # intentionally linear and therefore conservative when setup is shared.
-        return max(1.0, target_run_count / run_count)
+        # Historical samples cover an entire materialization. For sparse resume
+        # selections, scale the measured total by run count instead of charging
+        # the full historical slice again. The 1.25 safety factor remains the
+        # conservative margin; provider-enforced recovery still handles any
+        # fixed setup cost that the per-run estimate underpredicts.
+        return target_run_count / run_count
 
     scalar_keys = (
         "content_requests",

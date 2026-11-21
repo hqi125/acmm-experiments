@@ -960,11 +960,13 @@ def test_forecast_admission_uses_provider_primary_headers_before_fallback(
         forecast_primary_requests={"controller": 50},
     )
 
-    assert clock.sleeps == [13.0]
+    assert clock.sleeps == []
     assert admission["primary"]["controller"]["source"] == "provider_headers"
     assert admission["primary"]["controller"]["limit"] == 5000
-    assert admission["primary"]["controller"]["blocked_before_admission"] is True
-    assert admission["primary_wait_seconds"] == 13.0
+    assert admission["primary"]["controller"]["policy_primary_remaining_floor"] == 100
+    assert admission["primary"]["controller"]["admission_reserve"] == 0
+    assert admission["primary"]["controller"]["blocked_before_admission"] is False
+    assert admission["primary_wait_seconds"] == 0.0
 
 
 def test_forecast_admission_uses_persisted_content_ledger_as_secondary_fallback(
@@ -1002,6 +1004,8 @@ def test_forecast_admission_uses_persisted_content_ledger_as_secondary_fallback(
         )
         clock.value += 1.0
 
+    lines: list[str] = []
+    governor.set_progress_reporter(lines.append)
     admission = governor.wait_for_forecast_capacity(
         forecast_content_requests=2,
         forecast_primary_requests={},
@@ -1011,6 +1015,97 @@ def test_forecast_admission_uses_persisted_content_ledger_as_secondary_fallback(
     assert admission["content"]["hour_limit"] == 3
     assert admission["content"]["wait_seconds"] > 3500
     assert clock.sleeps[-1] > 3500
+    assert any(
+        line.startswith("PQE admission detail: content")
+        and "used_last_hour=2" in line
+        and "hour_limit=3" in line
+        for line in lines
+    )
+
+
+def test_forecast_admission_waits_only_for_authoritative_primary_exhaustion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_api_governor, github_api_governor_policy, _ = _load_runtime_types(
+        tmp_path, monkeypatch
+    )
+    clock = _fake_clock(start=1000.0)
+    governor = github_api_governor(
+        scope="https://api.github.com|octo",
+        policy=github_api_governor_policy(
+            request_interval_seconds=0.0,
+            mutation_interval_seconds=0.0,
+            primary_remaining_floor=1000,
+            primary_reset_grace_seconds=3.0,
+        ),
+        state_path=tmp_path / "governor.json",
+        clock=clock.now,
+        sleep=clock.sleep,
+    )
+    lines: list[str] = []
+    governor.set_progress_reporter(lines.append)
+    governor.observe_response(
+        route="repository.read",
+        status=200,
+        headers={
+            "X-RateLimit-Limit": "5000",
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Used": "5000",
+            "X-RateLimit-Reset": "1100",
+            "X-RateLimit-Resource": "core",
+        },
+        content_generating=False,
+        primary_domain="controller",
+    )
+
+    admission = governor.wait_for_forecast_capacity(
+        forecast_content_requests=0,
+        forecast_primary_requests={"controller": 50},
+    )
+
+    assert clock.sleeps == [103.0]
+    decision = admission["primary"]["controller"]
+    assert decision["blocked_before_admission"] is True
+    assert decision["blocking_rule"] == "provider_remaining_zero"
+    assert admission["primary_wait_seconds"] == 103.0
+    assert any(
+        line.startswith("PQE admission detail: primary/controller")
+        and "remaining=0" in line
+        and "blocking_rule=provider_remaining_zero" in line
+        for line in lines
+    )
+
+
+def test_sparse_resume_forecast_scales_historical_slice_by_run_count(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _load_runtime_types(tmp_path, monkeypatch)
+    resource_module = next(
+        module
+        for name, module in sys.modules.items()
+        if name.endswith(".resource_governor") and hasattr(module, "_forecast")
+    )
+    sample = {
+        "content_requests": 480,
+        "mutations": 96,
+        "requests": 2400,
+        "non_304_requests": 1920,
+        "primary_requests": {"controller": 240, "installation": 1200},
+        "git_pushes": 24,
+        "run_count": 24,
+    }
+
+    forecast = resource_module._forecast([sample], 1.25, target_run_count=1)
+
+    assert forecast["target_run_count"] == 1
+    assert forecast["content_requests"] == 25
+    assert forecast["mutations"] == 5
+    assert forecast["requests"] == 125
+    assert forecast["non_304_requests"] == 100
+    assert forecast["primary_requests"] == {"controller": 13, "installation": 63}
+    assert forecast["git_pushes"] == 2
 
 
 def test_provider_pressure_watchdog_receives_runtime_cooldown_before_retry_action(
