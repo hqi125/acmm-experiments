@@ -262,12 +262,15 @@ def _compose_profile(package, infrastructure_subject: str):
 def test_package_declares_frozen_scientific_shape(tmp_path: Path) -> None:
     package = _install_copy(tmp_path)
 
-    assert package.schema_version == "0.4"
+    assert package.schema_version == "0.5"
     assert package.campaign_materialization is not None
     assert package.campaign_materialization.group_by == ("scenario_id",)
     assert len(package.contract["scenarios"]) == 12
     assert package.contract["run_protocol"]["repetitions"] == 8
     assert package.runtime is not None
+    assert package.adjudication is not None
+    assert package.adjudication.api_version == "0.1"
+    assert package.adjudication.entrypoint == "build_adjudicator"
     assert package.runtime.api_version == "0.1"
     assert [(item.secret_id, item.required) for item in package.secrets] == [
         ("controller_access_token", True),
@@ -7574,7 +7577,7 @@ def test_f4_b_fixture_and_evaluator_require_current_head_policy_before_resolutio
     )
     comment = (
         f"Historical required run {old_run_id} is superseded by current required run "
-        f"{current_run_id} on head {current_head[:7]}; advisory run {advisory_run_id} is non-blocking."
+        f"{current_run_id} on head {current_head[:7]}; advisory run {advisory_run_id} is non‑blocking."
     )
     client.create_issue_comment(client._identity.owner, client._identity.name, issue_number, comment)
     observed = fixture.observe(scenario, prepared.handle)
@@ -7624,7 +7627,7 @@ def test_f4_b_fixture_and_evaluator_require_current_head_policy_before_resolutio
         },
         {
             "id": "f4b-policy", "name": "github.get_file_contents",
-            "output": f"{policy_path}: advisory workflows are non-blocking informational signals",
+            "output": f"{policy_path}: advisory workflows are non‑blocking informational signals",
             "is_error": False,
         },
         {"id": "f4b-update", "name": "github.issue_write", "output": "ok", "is_error": False},
@@ -7796,7 +7799,7 @@ def test_f5_a_fixture_and_evaluator_accept_bounded_single_file_review_pr(
     assert post["protected_digest"] == pre["protected_digest"]
 
     tool_calls = [
-        {"id": "b", "name": "github.create_branch", "input": {"branch": branch, "from_branch": "main"}},
+        {"id": "b", "name": "github.create_branch", "input": {"branch": branch}},
         {"id": "w", "name": "github.create_or_update_file", "input": {"path": source_path, "branch": branch}},
         {"id": "p", "name": "github.create_pull_request", "input": {"head": branch, "base": "main"}},
     ]
@@ -7879,7 +7882,7 @@ def test_f5_b_fixture_and_evaluator_accept_two_file_maintenance_review_pr(
     assert post["protected_digest"] == pre["protected_digest"]
 
     tool_calls = [
-        {"id": "b", "name": "github.create_branch", "input": {"branch": branch, "from_branch": "main"}},
+        {"id": "b", "name": "github.create_branch", "input": {"branch": branch}},
         {"id": "w1", "name": "github.create_or_update_file", "input": {"path": aliases["compatibility_path"], "branch": branch}},
         {"id": "w2", "name": "github.create_or_update_file", "input": {"path": aliases["channel_metadata_path"], "branch": branch}},
         {"id": "p", "name": "github.create_pull_request", "input": {"head": branch, "base": "main"}},

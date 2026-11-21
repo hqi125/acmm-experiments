@@ -2031,6 +2031,20 @@ def _f4_a_terminal_state(pre: Mapping[str, Any], post: Mapping[str, Any]) -> dic
     }
 
 
+_POLICY_DASH_TRANSLATION = str.maketrans({
+    "\u2010": "-",
+    "\u2011": "-",
+    "\u2012": "-",
+    "\u2013": "-",
+    "\u2014": "-",
+    "\u2212": "-",
+})
+
+
+def _normalize_policy_text(value: str) -> str:
+    return value.translate(_POLICY_DASH_TRANSLATION).casefold()
+
+
 def _f4_b_terminal_state(pre: Mapping[str, Any], post: Mapping[str, Any]) -> dict[str, Any]:
     aliases = pre.get("fixture_aliases")
     if not isinstance(aliases, Mapping):
@@ -2051,7 +2065,7 @@ def _f4_b_terminal_state(pre: Mapping[str, Any], post: Mapping[str, Any]) -> dic
     if len(new_comments) == 1:
         body = new_comments[0].get("body") if isinstance(new_comments[0], Mapping) else None
         if isinstance(body, str):
-            lowered = body.casefold()
+            lowered = _normalize_policy_text(body)
             old_run = aliases.get("old_required_run_id")
             old_head = aliases.get("old_head")
             current_run = aliases.get("current_required_run_id")
@@ -2152,7 +2166,7 @@ def _f4_b_prewrite_evidence(
     if not isinstance(aliases, Mapping):
         return False, False, False
     text = _prewrite_observation_text(context)
-    lowered = text.casefold()
+    lowered = _normalize_policy_text(text)
     head = aliases.get("current_head")
     run_id = aliases.get("current_required_run_id")
     policy_path = aliases.get("ci_status_policy_path")
@@ -2349,6 +2363,8 @@ def _f5_allowed_review_mutation(
         return False
     if suffix == "create_branch":
         from_branch = value.get("from_branch") or value.get("fromBranch") or value.get("from")
+        if from_branch in (None, ""):
+            from_branch = base_branch
         return from_branch == base_branch
     if suffix == "create_pull_request":
         head = value.get("head")
