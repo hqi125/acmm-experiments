@@ -14,7 +14,7 @@ question and task design lead the experiment.
 
 ## Research question
 
-The working research question is:
+The research question is:
 
 > Under the same qualified LLM and each agent system's minimal controlled configuration, how
 > reliably do the agent systems complete structured, multi-step tasks when no experiment-provided
@@ -32,26 +32,24 @@ agents are internally identical.
 
 ## Why this baseline is tool-free
 
-The roadmap intentionally separates two useful baselines:
+The research program separates two useful baselines:
 
 1. **Minimal Agent Baseline** — no experiment-provided tools. This is the cleanest reference for
    the agent layer itself.
-2. **Real-tool baseline** — a later independent experiment introduces exactly one controlled real
-   capability and asks what changes when the agent must orchestrate it.
+2. **Real-tool baseline** — Experiment 2 introduces one controlled real capability environment and
+   asks what changes when the agent must orchestrate a rich GitHub workspace.
 
 Combining both into this experiment would turn the first study into a tool-availability factorial,
-double the condition space, and blur the reference condition. The later tool experiment can be
-statistically mature in its own right and can deliberately carry forward matched task constructs
-where causal comparison is useful.
+double the condition space, and blur the reference condition. The real-tool experiment is statistically mature in its own right and deliberately preserves
+matched design principles where comparison is useful.
 
 No dummy tool, empty fake integration, or artificial tool-violation scenario should be introduced to
 make a tool-free study fit old infrastructure assumptions.
 
-## Planned scale
+## Study scale
 
-The scientific plan targets breadth and within-scenario stability directly rather than starting
-with an intentionally undersized study. Small engineering smoke runs remain appropriate, but the
-planned acquisition should be mature from the outset.
+The frozen study uses the selected breadth/repetition balance below. Engineering smoke runs are
+separate from the scientific acquisition.
 
 | Candidate design | Runs / agent | Total runs | Main tradeoff |
 | --- | ---: | ---: | --- |
@@ -64,7 +62,7 @@ planned acquisition should be mature from the outset.
 The selected design is therefore:
 
 **3 agents x 8 task families x 2 independently authored scenario variants x 8 repetitions = 384
-planned executions.**
+scientific executions.**
 
 Sixteen scenarios provide breadth across task constructs. Eight fresh repetitions per scenario
 provide substantially better resolution of stochastic stability than five repetitions while keeping
@@ -107,7 +105,7 @@ The study contains eight conceptual task families with two variants each. Varian
 share a construct, not a template: surface representation, entities, and solution path should differ
 while overall difficulty remains comparable.
 
-| ID | Family | Working scenario | Primary challenge |
+| ID | Family | Scenario | Primary challenge |
 | --- | --- | --- | --- |
 | P1-A | Constraint planning | Workshop Schedule | Two-dimensional time/room construction under interacting constraints |
 | P1-B | Constraint planning | Batch Sequence | Linear sequencing with precedence, adjacency, separation, and position rules |
@@ -127,7 +125,7 @@ while overall difficulty remains comparable.
 | G1-B | Goal decomposition | Conditional Release Sequence | Build a shared release prefix plus mutually exclusive pass/fail branches |
 
 Detailed design notes live under [`design/`](design/README.md). All eight families — P1, P2, S1,
-D1, R1, V1, W1, and G1 — have concrete frozen-draft instances and calibration results. The current
+D1, R1, V1, W1, and G1 — have frozen instances and calibration results. The
 implementation translates all sixteen designs into `assets/scenarios/*.json`, `experiment.yaml`, and
 a package runtime that evaluates every declared opportunity deterministically.
 
@@ -179,14 +177,14 @@ than hidden inside evaluator code. R1-B declares only `result.configuration.quot
 `integer` with both native JSON and `canonical_string` serialization accepted. All undeclared fields keep
 their existing strict/package-specific semantics.
 
-For the first implementation checkpoint, validation is being performed collaboratively and manually
-rather than by adding package-local test files. Core package validation, staged runtime activation,
-and an end-to-end reference-answer sweep across every declared opportunity are used as immediate
-implementation checks. Automated package tests may still be added later if they become useful.
+The frozen package is covered by Core package validation, reference-answer/evaluator checks, and the
+repository-level regression suite under `../tests/minimal_agent_baseline_v1/`. Development tests remain
+outside the deployable package directory so test-only maintenance does not change the installed package
+revision.
 
-## Current design checkpoint
+## Frozen design
 
-All eight pairs are provisionally frozen at the design level:
+All eight pairs are frozen at the design level:
 
 - **P1 Constraint Planning** — concrete rules and exhaustive feasibility calibration complete.
 - **P2 Allocation** — concrete rules and exhaustive feasibility calibration complete.
@@ -207,13 +205,13 @@ The scenario-design phase is therefore complete. See
 [`design/design_checkpoint.md`](design/design_checkpoint.md) for the cross-family checkpoint and
 implementation transition.
 
-## Implementation checkpoint
+## Frozen implementation
 
-The first executable checkpoint contains:
+The executable package contains:
 
 - `experiment-package.yaml` with runtime API `0.1` and no integration declaration;
 - `experiment.yaml` with the three qualified `gpt_oss_120b_cloud_v1` subjects, all 16 stable
-  scenarios, 8 repetitions, cyclic scenario rotation, and 384 planned executions;
+  scenarios, 8 repetitions, cyclic scenario rotation, and 384 scientific executions;
 - explicit empty experiment-tool capability lists on every scenario;
 - one JSON scenario asset per frozen task under `assets/scenarios/`;
 - `runtime/` with JSON response parsing, scenario asset loading, deterministic state/reference
@@ -223,5 +221,5 @@ The Contract uses seven experiment-level ACMM requirements: one Goal, one Obliga
 package evaluator entrypoint; the evaluator uses the scenario ID and opportunity ID to select the
 appropriate deterministic check.
 
-See [`design/implementation_checkpoint.md`](design/implementation_checkpoint.md) for the concrete
-design-to-code decisions and current validation status.
+See [`design/implementation_checkpoint.md`](design/implementation_checkpoint.md) for the historical
+design-to-code checkpoint and validation decisions that led to the frozen package.

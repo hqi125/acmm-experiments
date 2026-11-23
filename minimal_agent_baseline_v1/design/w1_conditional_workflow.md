@@ -1,7 +1,6 @@
 # W1 — Conditional Workflow Execution
 
-> **Design status:** provisionally frozen and implemented. Frozen workflow traces and terminal outcomes
-> are now evaluated deterministically from structured assets; live smoke qualification remains pending.
+> **Design status:** frozen and implemented. This family is part of the completed 384-run Minimal Agent Baseline acquisition.
 
 W1 changes the baseline from deciding *what* outcome is correct to executing *how* a task must
 proceed. Each variant provides a closed-world finite workflow and several cases. The agent must

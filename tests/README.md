@@ -13,4 +13,4 @@ tests/
 ```
 
 This boundary allows test-only maintenance to evolve without changing an installed package revision.
-Repository-wide tests should still be run together with `pytest ~/acmm_experiments`.
+Repository-wide tests should still be run together with `pytest <experiments-repository>`.

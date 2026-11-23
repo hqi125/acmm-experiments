@@ -1,7 +1,6 @@
 # G1 — Goal Decomposition
 
-> **Design status:** provisionally frozen and implemented. Structured stage/dependency assets and
-> deterministic validators are present; live smoke qualification remains pending.
+> **Design status:** frozen and implemented. This family is part of the completed 384-run Minimal Agent Baseline acquisition.
 
 G1 closes the Minimal Agent Baseline design with two constructive planning tasks that operate at a
 higher level than P1. The agent is not merely arranging objects into legal positions. It must turn a

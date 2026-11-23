@@ -1,48 +1,61 @@
 # GitHub MCP Project Workspace Baseline
 
-> **Status:** PRE-ACQUISITION CANDIDATE; ALL TWELVE SCIENTIFIC SCENARIOS IMPLEMENTED AND QUALIFIED.
-> The exact 42-tool App-native surface and governed v2.1.0 MCP fork are qualified across all three subjects. The current apparatus uses package-declared scenario materialization, fresh per-run App authority, a universal active-run Provider Gate, bounded whole-run retry, and separate Event-PPH/APP controls without changing the subject-visible MCP surface.
-> All F1-F6 families use the package-declared scenario slice as the repository lifetime. One private materialized repository can span many logical runs while Core enforces subject-major ordering underneath the slice. Run-owned active state is restored/retired between observations; explicitly allowed closed/unmerged history remains slice-owned evidence, and mutation of prior residue or other non-restorable contamination taints and retires the whole slice. The Git content plane composes fixture-base and scenario-owned commits into one initial publication phase whenever no intermediate remote state is semantically required; later pushes are explicit topology barriers rather than materializer boundaries.
+> **Status: FROZEN SCIENTIFIC PACKAGE.** The twelve-scenario Experiment 2 design was acquired at
+> 3 agents x 12 scenarios x 8 repetitions = **288 scientific runs**. Engineering qualification runs
+> are separate from the scientific dataset. The package retains the exact App-native GitHub MCP
+> capability envelope, scenario-slice fixture lifecycle, trusted-controller boundary, and provider-
+> pressure controls used for acquisition.
 
-`github_mcp_project_workspace_v1` is the working identity for the second experiment in the reworked
-ACMM research roadmap. It follows the frozen `minimal_agent_baseline_v1` and introduces one real
-external capability environment: the official GitHub MCP Server operating against controller-created,
-private disposable repositories. The original apparatus tied one remote repository to every logical run; the current
-materialization milestone replaces that provider-heavy lifecycle with package-defined outer slices. This package groups by
-`scenario_id`, materializes one repository for the selected scenario runs, and lets Core preserve subject-major execution
-inside that slice.
+`github_mcp_project_workspace_v1` is the second experiment in the reworked ACMM research program. It
+follows the tool-free [`minimal_agent_baseline_v1`](../minimal_agent_baseline_v1/README.md) and adds one
+real external capability environment: a pinned GitHub MCP Server operating against trusted-controller-
+created private repositories.
 
-The experiment is intentionally **not** a single-tool or tool-call benchmark. Every subject should
-receive the same rich GitHub project workspace in every scenario. Scenarios define goals, authority,
-preservation requirements, and acceptable terminal states; they should not encode the agent's route
-by hiding all tools except the expected one or by naming a golden tool sequence.
+The experiment is deliberately not a single-tool or golden-tool-sequence benchmark. Every subject sees
+the same rich GitHub project workspace. Scenarios define goals, authority, preservation requirements,
+and acceptable terminal states while leaving legitimate tool selection and sequencing to the agent.
 
-## Working research question
+## Important execution warning
 
-> Under the same qualified LLM and minimal controlled agent configuration, how effectively and
-> reliably do Hermes, Open WebUI, and Agent Zero select, compose, sequence, verify, and recover across
-> a realistic shared GitHub MCP capability environment while completing controlled software-project
-> tasks?
+> **Do not run this experiment with your primary everyday personal GitHub account.** A full Experiment 2
+> campaign creates and manipulates real private repositories and produces sustained GitHub REST, MCP,
+> and Git traffic over a long execution window. Use a dedicated experiment account or similarly isolated
+> organization/App environment that you can safely subject to heavy automated activity.
+>
+> Do not run multiple Experiment 2 campaigns concurrently against the same GitHub account/App/provider
+> plane. GitHub recommends serial request behavior to reduce secondary-rate pressure, and concurrency can
+> increase throttling while also contaminating the traffic conditions the experiment is trying to control.
 
-The study is intended to characterize both **whether the work is completed correctly** and **how the
-agent system navigates a non-trivial real-tool environment to get there**.
+Read [`REPRODUCTION.md`](REPRODUCTION.md) before provisioning credentials or starting a campaign. The
+provider-control rationale and sourced pacing defaults are recorded in
+[`design/provider_rate_policy_sources.md`](design/provider_rate_policy_sources.md).
 
-## Relationship to earlier work
+## Research question
 
-The roadmap now has three distinct reference conditions:
+> Under the same qualified LLM and minimal controlled agent configuration, how effectively and reliably
+> do Hermes, Open WebUI, and Agent Zero select, compose, sequence, verify, and recover across a realistic
+> shared GitHub MCP capability environment while completing controlled software-project tasks?
 
-1. `minimal_agent_baseline_v1` - minimal controlled agent, no experiment-provided tools.
-2. `github_mcp_project_workspace_v1` - minimal controlled agent plus a fixed rich GitHub MCP workspace.
-3. A later experiment - the same GitHub MCP workspace plus one isolated agent-side feature.
+The study characterizes both **whether project work is completed correctly** and **how the agent system
+navigates a non-trivial real-tool environment to get there**.
 
-The engineering-only `github_mcp_integration_qualification_v1` remains separate. It proved that the
-pinned GitHub MCP integration can be provisioned, discovered, executed, normalized, and adjudicated
-across all three agents. Its read-comment-read workflow is infrastructure qualification evidence and
-should not be promoted into the Experiment 2 scientific dataset.
+## Relationship to the other packages
+
+The repository contains three distinct roles:
+
+1. [`minimal_agent_baseline_v1`](../minimal_agent_baseline_v1/README.md) establishes the minimal,
+   no-experiment-tool reference condition.
+2. [`github_mcp_integration_qualification_v1`](../github_mcp_integration_qualification_v1/README.md)
+   is engineering-only qualification evidence for native GitHub MCP discovery and execution. It is not
+   part of the Experiment 2 dataset.
+3. `github_mcp_project_workspace_v1` is the substantive real-tool experiment described here.
+
+A later study may add an isolated agent-side feature while preserving the real-tool environment, but
+that is outside this package's scientific scope.
 
 ## Fixed capability envelope
 
-The App-native toolset envelope is:
+The selected GitHub MCP toolsets are:
 
 ```text
 repos
@@ -54,192 +67,114 @@ git
 labels
 ```
 
-This is a coherent GitHub software-development workspace rather than the literal `all` toolset. The same
-42-tool surface is expected for every subject and scenario after run-time admission. The `context` toolset
-is intentionally absent because its `get_me` path requires a user identity and is incompatible with the
-qualified GitHub App installation-token credential. ACMM does not emulate that identity.
+The frozen package expects an exact 42-tool App-native surface for every admitted subject run. The
+`context` toolset is intentionally absent because its `get_me` path requires a user identity and is
+incompatible with the qualified GitHub App installation-token credential. ACMM does not emulate that
+identity.
 
-The exact pinned server image, 42-tool catalog, and normalized catalog digest are frozen apparatus
-provenance before acquisition.
-
-See [`design/capability_envelope.md`](design/capability_envelope.md) for the full boundary model.
-
-Provider/API behavior is governed as a shared apparatus control plane rather than by scenario-local retries.
-See [`design/github_api_control_plane.md`](design/github_api_control_plane.md) for persistent request budgeting,
-secondary-limit coordination, API telemetry, and the implemented Git repository content/history plane used
-to remove controller Contents-API writes/reads before stable acquisition.
+The package pins the maintained ACMM GitHub MCP Server fork to upstream v2.1.0 and records the exact
+catalog digest and source commit in `experiment-package.yaml`. See
+[`design/pinned_mcp_catalog.md`](design/pinned_mcp_catalog.md) and
+[`design/capability_envelope.md`](design/capability_envelope.md).
 
 ## Core design rule
 
 > **The experiment controls the world and the goals, not the agent's route through the world.**
 
-The package controls:
+The package controls the dedicated fixture state, visible capability envelope, credential scope,
+laboratory-protection exclusions, prompts, authorization boundaries, authoritative pre/post-state,
+acceptable terminal-state predicates, protected invariants, and genuine dependency constraints.
 
-- the dedicated repository and fixture state;
-- the pinned GitHub MCP server and visible capability envelope;
-- the credential scope and laboratory-protection exclusions;
-- scenario prompts and authorization boundaries;
-- authoritative pre-state and post-state observation;
-- acceptable terminal-state predicates;
-- protected invariants and forbidden side effects;
-- true dependency/procedure constraints where the task actually requires them.
+The agent controls what it inspects first, which relevant tools it chooses, how it sequences legitimate
+intermediate work, whether and how it verifies the result, how it responds to tool/schema/state errors,
+and which valid route it uses to reach an acceptable terminal state. A novel route is acceptable when it
+satisfies the task and preserves every governing invariant.
 
-The agent controls:
+## Frozen study design
 
-- what it inspects first;
-- which relevant tools it selects;
-- which overlapping repository/discovery/write capabilities it chooses;
-- how it sequences legitimate intermediate work;
-- whether and how it verifies its result;
-- how it reacts to tool/schema/state errors;
-- which valid route it takes to an acceptable terminal state.
+The experiment contains six task families with two independently authored variants each:
 
-A novel route should be accepted when it satisfies the task and preserves every governing invariant.
-
-## Working scenario architecture
-
-The current design targets six decision/work families with two independently authored variants each.
-All F1-A/F1-B through F6-A/F6-B scenarios are now frozen at the design level.
-
-| ID | Family | Working scenario concept | Primary challenge |
+| ID | Family | Scenario | Primary challenge |
 | --- | --- | --- | --- |
-| F1-A | Project orientation | Regression Disposition | Reconcile stale resolved metadata with a later default-branch reintroduction; **design frozen** |
-| F1-B | Project orientation | Release Candidate Status | Reconcile green CI/closed blockers with a required fix absent from the candidate branch; **design frozen** |
-| F2-A | Triage and bounded action | Incoming Regression Triage | Identify the true duplicate and apply only the repository-required incoming-issue triage transition; **runtime implemented, live smoke qualified** |
-| F2-B | Triage and bounded action | Stale Work Item Maintenance | Reconcile historical blocker evidence with already-correct current status and perform a true no-op; **runtime implemented, live smoke qualified** |
-| F3-A | Cross-artifact reconciliation | Implementation Provenance | Distinguish the merged PR/commit that actually delivered implementation and correct stale provenance metadata only; **runtime implemented, live smoke qualified** |
-| F3-B | Cross-artifact reconciliation | Reverted Fix Status | Reconcile merged fix, later revert, and open replacement work to correct stale release-blocker status only; **runtime implemented, live smoke qualified** |
-| F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Diagnose a current required-check failure from completed CI + repository evidence and record only the diagnosis; **live-smoke qualified** |
-| F4-B | Diagnosis under CI evidence | Superseded Failure Alert | Reconcile superseded required-check failure plus current advisory failure, then correct only the stale CI alert; **live-smoke qualified** |
-| F5-A | Controlled implementation | Targeted Code Fix | Repair one product-code behavior and prepare an isolated review PR while preserving tests, issue state, and protected infrastructure; **live-smoke qualified** |
-| F5-B | Controlled implementation | Release Metadata Synchronization | Synchronize two policy-defined maintenance mirrors with repository release authority and prepare one review PR; **live-smoke qualified** |
-| F6-A | Multi-stage project resolution | Release Blocker Resolution | Diagnose a candidate-branch blocker, prepare the bounded release-targeted repair PR, and leave an accurate review handoff; **live-smoke qualified** |
-| F6-B | Multi-stage project resolution | Existing PR Repair | Repair an existing draft PR in place, preserve its identity, and transition PR/issue state to an accurate review handoff; **live-smoke qualified** |
+| F1-A | Project orientation | Regression Disposition | Reconcile stale resolved metadata with a later default-branch reintroduction |
+| F1-B | Project orientation | Release Candidate Status | Reconcile green CI/closed blockers with a required fix absent from the candidate branch |
+| F2-A | Triage and bounded action | Incoming Regression Triage | Identify the true duplicate and perform only the repository-required triage transition |
+| F2-B | Triage and bounded action | Stale Work Item Maintenance | Reconcile historical blocker evidence with already-correct current status and perform a true no-op |
+| F3-A | Cross-artifact reconciliation | Implementation Provenance | Identify the PR/commit that actually delivered implementation and correct stale provenance only |
+| F3-B | Cross-artifact reconciliation | Reverted Fix Status | Reconcile a merged fix, later revert, and open replacement work to correct stale status only |
+| F4-A | Diagnosis under CI evidence | Failing Validation Diagnosis | Diagnose a required-check failure from completed CI and repository evidence before acting |
+| F4-B | Diagnosis under CI evidence | Superseded Failure Alert | Reconcile superseded/current CI evidence and correct only the stale alert |
+| F5-A | Controlled implementation | Targeted Code Fix | Make one bounded product-code repair and prepare an isolated review PR |
+| F5-B | Controlled implementation | Release Metadata Synchronization | Synchronize policy-defined maintenance mirrors and prepare one review PR |
+| F6-A | Multi-stage project resolution | Release Blocker Resolution | Diagnose, repair against the correct release target, and leave an accurate review handoff |
+| F6-B | Multi-stage project resolution | Existing PR Repair | Repair an existing PR in place and transition PR/issue state to an accurate handoff |
 
-The detailed matrix and per-family notes live under [`design/`](design/README.md).
+The scientific scale is fixed at:
 
-## Candidate scale
+**3 agents x 6 task families x 2 scenario variants x 8 repetitions = 288 executions.**
 
-The design should aim directly at a statistically useful balance point rather than use a deliberately
-undersized scientific acquisition. Engineering smoke runs are separate from the final study.
+ACMM opportunities inside one run are nested diagnostic evidence, not independent scientific samples.
+Headline analysis should therefore remain scenario/family balanced rather than treating every opportunity
+as an independent observation.
 
-| Candidate design | Runs / agent | Total runs | Main tradeoff |
-| --- | ---: | ---: | --- |
-| 10 scenarios x 6 reps | 60 | 180 | Economical, but narrow task breadth and weaker repeatability |
-| 12 scenarios x 6 reps | 72 | 216 | Good breadth, moderate within-scenario stability |
-| **12 scenarios x 8 reps** | **96** | **288** | **Current preference: strong breadth and repeatability for a narrower real-tool domain** |
-| 16 scenarios x 6 reps | 96 | 288 | More breadth at the cost of shallower scenario repetition and more fixture burden |
-| 12 scenarios x 10 reps | 120 | 360 | Excellent stability, but less marginal value than adding/validating task diversity |
+See [`design/scenario_matrix.md`](design/scenario_matrix.md) for the complete scenario matrix and the
+per-family design documents.
 
-The current working target is therefore:
+## Evaluation model
 
-**3 agents x 6 task families x 2 scenario variants x 8 repetitions = 288 planned executions.**
+Evaluation is route-independent wherever possible. Each scenario defines authoritative initial state,
+acceptable terminal-state predicates, required preservation predicates, forbidden side effects,
+task-specific obligations, genuine partial-order dependencies, and final-response claims that can be
+checked against trusted state.
 
-With all twelve scenarios concretely authored, **288 executions is now the frozen design-level
-acquisition target**. Engineering smoke/pilot runs remain separate, and the scale should be reopened only
-if implementation or pilot evidence shows a scenario is infeasible, non-independent, or materially
-miscalibrated.
+Tool trajectories are behavioral evidence rather than a golden sequence. Useful trace-level observations
+include tool relevance, exploration breadth, redundant calls, mutation timing, verification, recovery,
+collateral activity, and route complexity. See [`design/evaluation_model.md`](design/evaluation_model.md).
 
-As in the baseline, ACMM opportunities inside one run are nested diagnostic evidence, not independent
-scientific samples. Headline analysis should remain scenario/family balanced.
+## Credential and fixture boundary
 
-## Evaluation direction
+Experiment 2 separates trusted apparatus credentials from subject authority:
 
-Evaluation should be route-independent wherever possible. Each scenario should define:
+- `controller_access_token` is a trusted-controller secret used for repository lifecycle, fixture
+  materialization, authoritative observation, and App-installation management.
+- `github_app_private_key` is used to mint short-lived GitHub App installation tokens.
+- Each scientific subject run receives only fresh, repository-scoped App authority for the active
+  materialized repository; persistent controller credentials are never exposed to the subject.
 
-- authoritative initial state;
-- acceptable terminal-state predicates;
-- required preservation predicates;
-- forbidden side effects;
-- task-specific obligations;
-- true partial-order dependencies, if any;
-- expected final-response claims that can be checked against authoritative state.
+The checked-in repository/App identifiers are **apparatus provenance, not credentials**. Secret values
+and run tokens are not stored in package source, campaign provenance, or the runtime resource ledger.
+For public reproduction, provision your own isolated GitHub apparatus and create a new package revision
+rather than treating the original-study identifiers as reusable infrastructure. See
+[`REPRODUCTION.md`](REPRODUCTION.md) and [`design/fixture_lifecycle.md`](design/fixture_lifecycle.md).
 
-Tool trajectories are then analyzed as behavioral evidence rather than compared against one golden
-sequence. Useful trace-level observations include tool relevance, exploration breadth, redundant
-calls, mutation timing, verification, recovery, collateral activity, and route complexity.
+## Scenario-slice lifecycle and provider control
 
-See [`design/evaluation_model.md`](design/evaluation_model.md).
+The package groups campaign materialization by `scenario_id`. One private repository can therefore span
+multiple logical runs of the same scenario while Core preserves the intended subject-major run order
+inside the slice. Trusted package code restores or retires run-owned active state between observations;
+explicitly allowed closed/unmerged history may remain slice-owned evidence. Non-restorable contamination
+taints and retires the slice.
 
-## Credential and safety boundary
+During an active logical run, the Core Provider Gate is the admission surface for participating GitHub
+REST/GraphQL/raw, trusted-controller/App, MCP, and Git smart-protocol traffic. Event-PPH and APP remain
+separate controls, and provider-directed recovery overrides shorter local heuristic waits. Local MCP/Git
+governors are conservative fallback controls when no active Core gate owns the action.
 
-The experiment now separates a trusted controller PAT from the subject-facing credential model. The controller
-PAT performs repository lifecycle, fixture materialization, deterministic CI setup, authoritative observation, and
-selected-repository App-installation assignment. The subject receives no persistent GitHub credential.
+See [`design/github_api_control_plane.md`](design/github_api_control_plane.md),
+[`design/provider_pressure_heuristics.md`](design/provider_pressure_heuristics.md), and
+[`design/provider_rate_policy_sources.md`](design/provider_rate_policy_sources.md).
 
-For each scenario slice, trusted package code attaches only that materialized repository to the private
-`acmm-github-app` installation. For each scientific run inside the slice it mints a fresh installation token narrowed to that exact repository. The token
-contains Metadata read, Contents read/write, Issues read/write, Pull requests read/write, and Actions read;
-Workflows and repository/administrative authority are absent. Core admits the token only across the subject
-execution window, then explicitly ends usable subject authority before trusted post-state capture. Hermes/Open WebUI
-restore their non-secret sentinel; Agent Zero uses provider revocation between runs and removes the GitHub MCP server
-at subject release to avoid asynchronous refresh races.
+## Documentation map
 
-The App private key is the package secret `github_app_private_key`; the controller PAT remains
-`controller_access_token`. Neither secret nor any run token is stored in package source, campaign provenance,
-or the runtime resource ledger. See [`design/fixture_lifecycle.md`](design/fixture_lifecycle.md) and
-[`design/pinned_mcp_catalog.md`](design/pinned_mcp_catalog.md).
-
-## Implementation checkpoint
-
-The design/pre-coding gate is closed and the package is in pre-acquisition cleanup. The package now provides:
-
-- package schema v0.4 with Experiment-scoped controller PAT and GitHub App private-key secrets;
-- the frozen 12-scenario x 8-repetition Contract;
-- pinned GitHub MCP Server v2.1.0 integration built from the maintained ACMM governor fork while preserving the qualified 42-tool App-native catalog;
-- static subject deployments remain intentionally unadmitted; exact 42-tool catalog verification occurs after each run-scoped App token is bound;
-- a trusted controller diagnostic and explicit `initialize` apparatus action for the pinned private repository;
-- historical engineering-reference actions retained only for qualification/debugging, while scientific acquisition
-  uses one disposable private repository per scenario materialization slice;
-- `qualify_disposable_repositories`, now invoked through `acmm run apparatus exec`, with one successful live
-  create/App-attach/one-repo-token-write/revoke/detach/exact-ID-delete qualification workflow;
-- a Core-owned typed execution lifecycle with package hooks for session/run prepare, observe, and deferred
-  evidence-last finalization;
-- typed apparatus cleanup via `acmm run apparatus cleanup --execution <execution-dir>`, using the controller
-  credential and exact repository IDs recorded by legacy quarantines or failed archive/delete cleanup to remove
-  residual disposable repositories;
-- archive-then-delete failure isolation: ordinary invalid/preparation failures preserve a forensic ZIP inside the
-  execution directory, delete and verify the exact remote repository, then allow later independent runs to proceed;
-  a new session still refuses stale `acmm-e2-run-*` repositories left by crashes or failed cleanup;
-- a fully runnable/cross-agent-qualified F1-A Regression Disposition scenario now instantiated inside the
-  scenario materialization repository and restored between logical runs;
-- the GitHub App + Campaign path is live-qualified across Hermes, Open WebUI, and Agent Zero with one clean F1-A
-  observation per subject, exact 42-tool admission, explicit token revocation, repository detach/delete, credential
-  log redaction, and a provenance-preserving partial Campaign merge;
-- an F1-B `prepare_f1_b` materializer that creates the release milestone, blocker label, included/missing
-  blocker histories, release candidate branch/PR, non-blocker noise, and a deterministic passing Actions run
-  on the candidate head.
-- F3-A/F3-B live qualification completed with six valid disposable runs and exact-ID cleanup; the calibrated
-  task surfaces now bound candidate artifacts so fresh-repository search indexing is not a hidden treatment variable;
-- F4-A/F4-B executable Actions fixtures: trusted controller-seeded completed workflow runs/jobs/logs, immutable
-  run/head association, authoritative pre/post Actions inventory, real Procedure opportunities requiring evidence before
-  mutation, and bounded diagnosis/alert-reconciliation evaluators.
-- controller/App transport hardening for Actions/job-log downloads and GitHub abuse protection: API redirect hops are
-  captured without forwarding the controller PAT to signed download hosts while both REST and credential-free raw
-  download hops remain admitted through the shared provider traffic-control plane; trusted controller and App lifecycle
-  mutations share provider pacing/cooldown state, primary quota snapshots remain separated by credential domain, and
-  only explicit secondary-rate-limit responses are retried according to GitHub backoff guidance; ambiguous transport
-  failures remain fail-closed;
-- PPH v0.13 keeps provider-directed recovery arbitration, the APP-only episode/probe model, cold-start prior, and evidence-driven pocket geometry. APP remains an independent burst suspension gate rather than an Event-PPH pressure component; Event PPH remains feature/event based with no episode semantics. During active logical runs the Core Provider Gate now covers subject MCP REST/GraphQL/raw traffic, trusted controller REST/App requests, and Git smart-protocol admission/result accounting. A quiet 1s request / 2s mutation baseline is separate from learned pressure, APP suspensions and provider-recovery misses are visible, and local governors are fallback-only while the gate is active;
-- a production Git content/history plane now transparently backs controller file writes and ref-addressed file reads,
-  keeps the PAT out of remote URLs/command arguments through `GIT_ASKPASS`, reports Git transport telemetry, and
-  exposes a canonical ref fingerprint for later unchanged-state fast paths.
-
-All twelve scenarios now execute through the same scenario-slice lifecycle. The trusted controller materializes the
-scenario topology, completes any deterministic pre-seeded CI evidence before subject timing, captures authoritative
-pre/post state, restores the reusable slice between logical runs, and retires/archives a slice when exact continuation
-safety cannot be established. Historical PAT-era remote-quarantine behavior is not an active fallback: failed apparatus
-state is archived locally first, the exact repository is deleted and disappearance verified, and only then may execution
-continue on a fresh materialization.
-
-## Pre-acquisition freeze rule
-
-The final campaign should use one immutable installed package SHA. Engineering runs, partial campaigns, and prior
-provider-pressure learning are qualification evidence only. Once the acquisition campaign starts, scenario prompts,
-fixture semantics, evaluator predicates, provider-pressure feature definitions, and the 42-tool capability envelope are
-frozen; an engineering correction that changes those scientific semantics requires a new package SHA and a new
-acquisition campaign rather than mutating or resuming the old scientific lineage.
-
-See [`design/controller_runtime_checkpoint.md`](design/controller_runtime_checkpoint.md),
-[`design/fixture_lifecycle.md`](design/fixture_lifecycle.md), and
-[`design/design_progress.md`](design/design_progress.md).
+- [`REPRODUCTION.md`](REPRODUCTION.md) - public execution prerequisites, account isolation, credential
+  setup boundaries, traffic/runtime warnings, and reproduction rules.
+- [`design/README.md`](design/README.md) - design-document index.
+- [`design/scenario_matrix.md`](design/scenario_matrix.md) - frozen twelve-scenario matrix.
+- [`design/evaluation_model.md`](design/evaluation_model.md) - state- and trajectory-level evaluation.
+- [`design/fixture_lifecycle.md`](design/fixture_lifecycle.md) - trusted fixture and credential lifecycle.
+- [`design/github_api_control_plane.md`](design/github_api_control_plane.md) - provider-facing transport
+  and traffic control.
+- [`design/pre_acquisition_audit.md`](design/pre_acquisition_audit.md) - historical final audit performed
+  before the long scientific campaign.
+- [`design/design_progress.md`](design/design_progress.md) - concise historical design/implementation
+  chronology.

@@ -1,4 +1,4 @@
-# Working Scenario Matrix
+# Frozen Scenario Matrix
 
 ## Status
 
@@ -7,7 +7,7 @@ Executable disposable scientific assets now exist for all F1 through F6 scenario
 
 ## Matrix
 
-| ID | Family | Working scenario | Mutation expectation | Cross-artifact emphasis | Difficulty target | Design status |
+| ID | Family | Scenario | Mutation expectation | Cross-artifact emphasis | Difficulty target | Design status |
 | --- | --- | --- | --- | --- | --- | --- |
 | F1-A | Project orientation | Regression Disposition | No mutation | closed issue + merged historical fix + current default-branch config/history | Low-medium | **Frozen** |
 | F1-B | Project orientation | Release Candidate Status | No mutation | release PR + required checks + blocker issues + branch/commit inclusion | Low-medium | **Frozen** |
@@ -186,11 +186,11 @@ from dominating the whole experiment.
 
 ## Scale
 
-The current preferred scale remains:
+The frozen scientific scale is:
 
 **3 agents x 12 scenarios x 8 repetitions = 288 executions.**
 
-With all twelve scenarios concretely authored, this is now the **frozen design-level acquisition target**. Empirical pilot calibration may reopen it only if a scenario proves infeasible or materially miscalibrated.
+This scale was used for the completed scientific acquisition. Engineering smoke and qualification runs are separate from the 288-run dataset.
 
 
 ## Frozen F6 pair summary
@@ -212,5 +212,5 @@ and workflows, mark the same PR ready for review, and reconcile the linked issue
 CI evidence from the repaired current state.
 
 See [`f6_multi_stage_resolution.md`](f6_multi_stage_resolution.md) for the complete fixture topology,
-terminal predicates, trusted-validation model, route calibration, and ACMM opportunities. The scenario set is
-now complete; remaining work belongs to cross-scenario/pre-coding review rather than scenario invention.
+terminal predicates, trusted-validation model, route calibration, and ACMM opportunities. The frozen
+scenario set was used for the completed Experiment 2 acquisition.

@@ -1,7 +1,6 @@
 # S1 — Ordered State Transformation
 
-> **Design status:** provisionally frozen and implemented. The runtime now derives reference traces and
-> final states from the structured event assets; live smoke qualification remains pending.
+> **Design status:** frozen and implemented. This family is part of the completed 384-run Minimal Agent Baseline acquisition.
 
 S1 changes the experiment from constructive search to deterministic state evolution. Each variant has
 one correct final state. The agent must process events in the supplied order, evaluate each event's

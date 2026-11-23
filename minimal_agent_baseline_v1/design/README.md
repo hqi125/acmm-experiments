@@ -50,6 +50,5 @@ For constructive tasks, the evaluator must accept any valid solution rather than
 canonical answer. For unique-result tasks, the reference interpreter should derive the result from
 frozen scenario data rather than hard-code an answer string.
 
-- [`output_semantics_v0_2.md`](output_semantics_v0_2.md) records the Contract v0.2 migration that moves R1-B scalar representation tolerance into an explicit, auditable declaration.
-
-- [`output_semantics_v0_2.md`](output_semantics_v0_2.md) also defines output representation fidelity: semantic task scoring may use recovered structured content, while malformed external JSON is measured separately as Fidelity.
+- [`output_semantics_v0_2.md`](output_semantics_v0_2.md) - Contract v0.2 scalar representation
+  semantics, structured-output recovery, and separate output-representation Fidelity.

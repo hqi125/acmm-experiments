@@ -2,9 +2,9 @@
 
 ## Status
 
-**F2-A and F2-B are frozen at the design level and implemented in the disposable scientific runtime.**
-Package-owned fixture assets, authoritative pre/post snapshots, structured reports, and route-independent
-evaluators now exist for both variants. Live three-agent smoke calibration remains pending.
+**F2-A and F2-B are frozen and implemented in the scientific runtime.** Package-owned fixture assets,
+authoritative pre/post snapshots, structured reports, and route-independent evaluators are qualified across
+the three-subject apparatus.
 
 ## Construct
 
@@ -480,9 +480,8 @@ Both are targeted at **medium** difficulty:
 - F2-B has a trivial terminal state but a stronger inhibition/interpretation challenge because the
   stale-looking historical evidence invites unnecessary mutation.
 
-Pilot calibration should check whether F2-B is materially easier in practice. If so, fixture ambiguity
-should be increased through relevant-but-non-governing historical evidence rather than by adding random
-tool noise or hidden policy.
+The final pair was retained with its distinct difficulty sources: F2-A emphasizes the authorized bounded
+transition, while F2-B emphasizes investigation discipline and the ability to stop at a true no-op.
 
 ## Family-level scientific value
 

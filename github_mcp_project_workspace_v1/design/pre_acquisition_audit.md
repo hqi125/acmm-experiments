@@ -2,11 +2,13 @@
 
 ## Status
 
-**Reviewed 2026-11-19 for the final Experiment 2 Campaign candidate.**
+**Historical checkpoint: reviewed 2026-11-19 for the final Experiment 2 Campaign candidate.** The
+subsequent frozen scientific acquisition completed at 288/288 observed runs.
 
-This checkpoint reviews the complete twelve-scenario package as one experiment after the scenario-slice, Provider Gate,
-retry/recovery, and Campaign-resumption hardening rounds. It is intentionally narrower than the historical engineering
-ledger: the purpose is to state what scientific semantics are active at acquisition time and what must remain frozen.
+This checkpoint records the complete twelve-scenario package immediately before acquisition, after the
+scenario-slice, Provider Gate, retry/recovery, and Campaign-resumption hardening rounds. It is intentionally
+narrower than the historical engineering ledger: its purpose is to state what scientific semantics were active
+at acquisition time and what was frozen for the Campaign.
 
 ## Cross-experiment invariants
 

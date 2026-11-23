@@ -1,5 +1,9 @@
 # Minimal Agent Baseline — First Executable Checkpoint
 
+> **Historical checkpoint.** This file records the first executable package milestone. The package later
+> completed live qualification, the 384-run scientific acquisition, post-acquisition structured-output
+> hardening, and final analysis. The milestone-specific future tense below is intentionally historical.
+
 This checkpoint records the first complete translation of the frozen 16-scenario design into an
 executable Experiment Package. It is an implementation checkpoint, not the final experimental freeze.
 Live execution has not yet been used to tune parsing tolerance, timeout behavior, or agent-specific

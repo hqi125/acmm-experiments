@@ -1,7 +1,6 @@
 # P1 — Constraint Planning
 
-> **Design status:** provisionally frozen and implemented. Structured scenario data and deterministic
-> runtime validation are now present; live smoke qualification remains pending.
+> **Design status:** frozen and implemented. This family is part of the completed 384-run Minimal Agent Baseline acquisition.
 
 P1 tests constructive planning under interacting constraints. Both variants accept any valid solution,
 but their representations differ substantially: P1-A is a two-dimensional time/room assignment;

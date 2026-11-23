@@ -1,7 +1,6 @@
 # D1 — Policy-Governed Decisions
 
-> **Design status:** provisionally frozen and implemented. The runtime now applies the frozen ordered
-> rules to structured case assets; live smoke qualification remains pending.
+> **Design status:** frozen and implemented. This family is part of the completed 384-run Minimal Agent Baseline acquisition.
 
 D1 changes the baseline from state evolution to explicit local-policy application. Each variant
 provides an ordered rule table and a fixed set of independent cases. The agent must apply the rules

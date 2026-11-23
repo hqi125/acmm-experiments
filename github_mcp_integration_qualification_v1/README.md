@@ -31,7 +31,7 @@ qualification.
 Typical qualification flow from the Core repository is:
 
 ```bash
-acmm package install ~/acmm_experiments/github_mcp_integration_qualification_v1
+acmm package install <experiments-repository>/github_mcp_integration_qualification_v1
 acmm package apply github_mcp_integration_qualification_v1
 acmm env doctor --start-if-needed
 acmm run github_mcp_integration_qualification_v1 \

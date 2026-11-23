@@ -1,7 +1,6 @@
 # R1 — Information Reconciliation
 
-> **Design status:** provisionally frozen and implemented. Runtime reconciliation now derives governing
-> values and sources/layers from the structured assets; live smoke qualification remains pending.
+> **Design status:** frozen and implemented. This family is part of the completed 384-run Minimal Agent Baseline acquisition.
 
 R1 changes the baseline from ordered policy application to **conflicting-information resolution**.
 All supplied facts are plausible, but they do not have equal authority. The agent must preserve the
@@ -306,4 +305,3 @@ Package tests should eventually verify at least:
 5. prompt text faithfully exposes every rule needed by the evaluator;
 6. known tempting wrong strategies such as universal newest-wins and unconditional runtime-wins
    fail the intended checks.
-

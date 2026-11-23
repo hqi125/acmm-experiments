@@ -392,8 +392,7 @@ The pair shares the capstone construct but differs materially:
 | Key trap | wrong base/premature resolution | replacement PR/stale-CI overclaim |
 
 Both are high complexity, but their difficulty comes from different artifact topology and handoff
-choices rather than copied prompts. Pilot calibration should confirm that neither variant dominates in
-tool-call count or fixture fragility.
+choices rather than copied prompts. The pair was retained after live qualification as the capstone family.
 
 ## Shared-slice restoration rule
 
@@ -403,8 +402,7 @@ The package must not hide irreversible behavior. A merge, submitted review, unex
 
 ## F6 design freeze
 
-F6-A and F6-B are frozen at the **design and executable scientific-semantics level**, and their scenario-slice runtime/evaluator
-assets now implement this frozen design. Live smoke qualification is the remaining scenario-family
-checkpoint. Literal fixture values, filenames, branch names, label strings, or prompt wording may still
-be calibrated when GitHub constraints demand it, but any change to the constructs, authority
-relationships, mutation boundaries, or terminal predicates should reopen design review.
+F6-A and F6-B are frozen at the **design and executable scientific-semantics level**, and their
+scenario-slice runtime/evaluator assets implement the qualified design used for acquisition. Changes to
+the constructs, authority relationships, mutation boundaries, terminal predicates, or other scientific
+semantics require a new package revision and scientific lineage.

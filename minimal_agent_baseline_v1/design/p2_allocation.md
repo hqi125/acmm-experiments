@@ -1,7 +1,6 @@
 # P2 — Allocation
 
-> **Design status:** provisionally frozen and implemented. Structured scenario data and deterministic
-> runtime validation are now present; live smoke qualification remains pending.
+> **Design status:** frozen and implemented. This family is part of the completed 384-run Minimal Agent Baseline acquisition.
 
 P2 tests whether an agent can maintain a globally consistent allocation while satisfying capacity,
 eligibility, coverage, and relationship rules. P2-A uses fixed group cardinality and required

@@ -1,5 +1,9 @@
 # Minimal Agent Baseline — End-of-Design Checkpoint
 
+> **Historical checkpoint.** This file preserves the state at the end of scenario design. The package
+> subsequently completed implementation, qualification, the 384-run scientific acquisition, post-acquisition
+> structured-output hardening, and final analysis. Future-tense wording below is retained as milestone context.
+
 This checkpoint closes the conceptual scenario-design phase for `minimal_agent_baseline_v1`.
 All eight task families have two concrete independently authored variants. This document records the
 end-of-design state; package implementation has since begun and the first executable Contract/runtime

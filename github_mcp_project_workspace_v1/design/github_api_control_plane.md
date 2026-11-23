@@ -187,14 +187,10 @@ Implemented controller behavior:
 5. **Keep remote prefetch forbidden.** Lower request volume must not reintroduce future-run repositories
    while an active subject can discover them.
 
-Still pending before stable full acquisition:
-
-- re-run a small live qualification to measure the post-batching push/fetch reduction and verify the stricter
-  provider pacing against real GitHub behavior;
-- then run one whole-package one-repetition Campaign qualification across all 12 scenarios and all three
-  subjects before freezing the stable 288-run acquisition;
-- use the canonical Git `ref -> SHA` fingerprint and the now-active conditional GET cache as measured
-  fast-paths; escalate to further surface-specific optimization only when telemetry shows it is justified.
+Before the stable full acquisition, the apparatus completed the required live re-qualification and
+whole-package Campaign checks. The frozen path retains the post-batching Git content plane, stricter provider
+pacing, canonical Git `ref -> SHA` fingerprint, and conditional-request fast paths. Additional transport
+optimization is outside the frozen Experiment 2 lineage unless introduced as a new package revision.
 
 The target is not merely fewer API calls. It is a reproducible provider control plane whose traffic,
 waiting, retries, and failure semantics are all explicit evidence rather than hidden timing behavior.
@@ -237,16 +233,16 @@ scientific run before subject MCP traffic. Its naive 288-run projection (roughly
 33,360 trusted REST requests) is retained only as historical sizing evidence; it is **not** the current scenario-slice
 traffic model. The profile remains useful because
 other scenario families have different fixtures and agents generate additional shared-user REST traffic.
-It is nevertheless sufficient to make two pre-acquisition requirements explicit:
+That profile established two requirements that were carried into the acquisition apparatus:
 
 1. do not respond to provider pressure by raising locally guessed quotas; reduce demand and follow GitHub's
    provider-directed cooldown/reset signals;
-2. complete the repository content/history transport migration and then re-profile before launching the
-   stable 288-run acquisition.
+2. migrate repository content/history traffic away from the provider-heavy path and re-qualify before
+   the stable 288-run acquisition.
 
-The F4 profile also motivated finer read-route telemetry in the next control-plane revision so future
-smokes can distinguish repository, content, PR, issue, Actions-run, job, and log reads rather than
-collapsing them into one generic `read` counter.
+The F4 profile also motivated the finer read-route telemetry retained by the later control-plane
+revision so repository, content, PR, issue, Actions-run, job, and log reads are not collapsed into one
+generic `read` counter.
 
 ## Measured F6 capstone profile before Git transport
 
@@ -263,19 +259,18 @@ controller/probe traffic was:
 - 6 workflow dispatches;
 - 12 Actions job-log redirects.
 
-Those measurements are the direct reason the transparent Git content plane now replaces controller
-Contents writes and ref-addressed Contents reads. The next live re-profile must demonstrate the reduction
-before the stable full acquisition is allowed to start.
+Those measurements are the direct reason the transparent Git content plane replaced controller
+Contents writes and ref-addressed Contents reads before the stable full acquisition.
 
 ## Repository mutation fingerprint fast-path
 
 GitHub does not expose one authoritative repository-wide "unchanged" bit. The apparatus therefore treats
 change detection as a composition of authoritative surfaces rather than one timestamp or repository field.
-The planned pre-acquisition fast-path is:
+The frozen mutation-detection fast-path is:
 
 1. **Git content/history sentinel:** record a canonical sorted mapping of repository refs to immutable commit
-   SHAs. If the ref set and every ref SHA are unchanged, reachable branch/tag history has not moved. This can
-   later be implemented with Git transport (`ls-remote`) so it does not consume the REST primary budget.
+   SHAs. If the ref set and every ref SHA are unchanged, reachable branch/tag history has not moved. The frozen implementation can obtain this mapping through Git transport (`ls-remote`) without
+   consuming the REST primary budget.
 2. **GitHub-native conditional sentinels:** retain ETags for stable, scenario-relevant REST collections and
    records (issues/comments, pull requests/reviews, labels, workflow/run state, and other protected native
    objects). Post-run checks send `If-None-Match`; a 304 is treated as an unchanged representation and avoids
