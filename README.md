@@ -45,6 +45,21 @@ Run repository-wide development tests from the ACMM development environment with
 pytest <experiments-repository>
 ```
 
+## Package-specific manual setup
+
+Package installation is not the same as external-provider provisioning. The packages in this repository have
+different operator requirements:
+
+| Package | Manual/external setup beyond ACMM Core |
+| --- | --- |
+| `minimal_agent_baseline_v1` | No experiment-specific external capability. Prepare the Core subject cohort and selected LLM baseline, then use Core readiness checks. |
+| `github_mcp_integration_qualification_v1` | A dedicated private GitHub qualification repository plus a fresh repository-scoped GitHub App installation token. The package does not create the App or mint this token for you. |
+| `github_mcp_project_workspace_v1` | A dedicated GitHub experiment environment, trusted controller credential, GitHub App and private key, App installation, diagnostic reference repository/identifiers, Git, OpenSSL, and the package's pinned MCP build/runtime prerequisites. |
+
+For GitHub packages, do not infer readiness from `acmm package install` alone. Bind the declared secrets,
+apply the package, run `acmm env doctor`, and complete any package-specific live qualification described in
+the package README/reproduction guide before scientific execution.
+
 ## Secrets
 
 Do not commit provider API keys, GitHub tokens, private keys, or other live credentials to this

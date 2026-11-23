@@ -22,6 +22,36 @@ the Contract.
 The local MCP service remains pinned to `ghcr.io/github/github-mcp-server:v2.0.3`. Its container is
 ephemeral; the image is cached locally and the GitHub repository remains the authoritative state.
 
+## Manual prerequisites and readiness gate
+
+This qualification package does **not** create a GitHub App, create the qualification repository, generate an
+App private key, or mint an installation token. Prepare those provider-side prerequisites separately. The
+repository should be a dedicated private qualification repository, and the App installation/token should be
+narrowed to that repository rather than to unrelated personal or work repositories.
+
+After minting a fresh installation token, store it in a local secret file and bind the integration-scoped slot:
+
+```text
+acmm secret init
+acmm secret bind integration github_mcp_integration_qualification_v1 github_mcp access_token --file <installation-token-file>
+acmm secret validate
+```
+
+Installation tokens are short-lived. If qualification is delayed or authentication starts failing, mint a new
+repository-scoped token and rebind the slot rather than weakening the package checks.
+
+After package installation, explicitly reconcile and diagnose the integration before the behavior smoke:
+
+```text
+acmm package apply github_mcp_integration_qualification_v1
+acmm env doctor --start-if-needed
+```
+
+Do not run the qualification Contract unless doctor reports the expected integration and all three qualified
+subjects READY with the exact App-native MCP catalog. This is an engineering gate: a successful package install
+by itself does not prove that the GitHub token, repository scope, MCP service, or subject-native discovery path
+is correct.
+
 The installation token must provide the App-native experiment permission envelope: Actions read,
 Contents read/write, Issues read/write, Pull requests read/write, and Metadata read, with Workflows
 access disabled. The token remains in the local secret source file and is never stored in this
